@@ -77,7 +77,7 @@ test.describe('System → Replay', () => {
   test('replays the current draft against the pump', async ({ page, context, baseURL }) => {
     await scenario(context, tag(), baseURL);
     await language(page);
-    await withDraft(page, { control_comfort_c: 22.5 });
+    await withDraft(page, { control_comfort_c: 23.5 });
     await page.goto('./#/system/replay');
     await page.getByTestId('replay-config-draft').click();
     await expect(page.getByTestId('replay-config-note')).toContainText('on top of the active');

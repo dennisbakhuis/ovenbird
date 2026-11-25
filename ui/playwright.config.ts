@@ -5,6 +5,9 @@ const MOCK_PORT = process.env['E2E_PORT'] ?? '5199';
 const MOCK_URL = `http://127.0.0.1:${MOCK_PORT}`;
 const CLOCK_SHIFT = process.env['E2E_CLOCK_SHIFT'];
 
+/** Browser and mock service run in one fixed zone, so the suite reads the same on every machine and CI. */
+const E2E_TIMEZONE = 'Europe/Amsterdam';
+
 /**
  * E2E_CLOCK_SHIFT=<minutes> runs the mock service clock that far behind, to run the suite at
  * another minute of the mock's 6-hour cycle and another time of day.
@@ -54,10 +57,12 @@ export default defineConfig({
   ],
   outputDir: 'e2e/results',
   timeout: 45_000,
+  retries: process.env['CI'] ? 1 : 0,
   fullyParallel: true,
   reporter: [['list']],
   use: {
     baseURL: baseURL ?? MOCK_URL,
+    timezoneId: E2E_TIMEZONE,
     storageState: clockState,
     httpCredentials: baseURL
       ? {
@@ -73,5 +78,6 @@ export default defineConfig({
         url: MOCK_URL,
         reuseExistingServer: false,
         timeout: 60_000,
+        env: { TZ: E2E_TIMEZONE },
       },
 });

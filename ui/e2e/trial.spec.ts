@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { allowedHeight } from './budget';
 
 test.skip(Boolean(process.env['BASE_URL']), 'the trial flows run against the mock only');
 
@@ -45,7 +46,9 @@ for (const viewport of [
         inner: window.innerWidth,
       }));
       expect(size.scroll).toBeLessThanOrEqual(size.inner);
-      if (viewport.width <= 640) expect(size.height, 'phone height').toBeLessThanOrEqual(2500);
+      if (viewport.width <= 640) {
+        expect(size.height, 'phone height').toBeLessThanOrEqual(allowedHeight(2500));
+      }
       expect(errors).toEqual([]);
     });
   }

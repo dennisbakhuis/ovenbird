@@ -1,4 +1,5 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test';
+import { allowedHeight } from './budget';
 import { mkdirSync } from 'node:fs';
 
 const SHOTS = 'e2e/shots';
@@ -122,9 +123,6 @@ const PHONE_BUDGET: Record<string, number> = {
   'system-data': 3600,
 };
 const DEFAULT_PHONE_BUDGET = 2500;
-// Linux and macOS lay out the same font a little differently; budgets allow 3 % for that.
-const RENDER_MARGIN = 1.03;
-const allowed = (budget: number) => Math.round(budget * RENDER_MARGIN);
 
 const VIEWPORTS = [
   { label: 'desktop', width: 1400, height: 1000 },
@@ -231,7 +229,7 @@ for (const viewport of VIEWPORTS) {
             const budget = PHONE_BUDGET[route.name] ?? DEFAULT_PHONE_BUDGET;
             const height = await page.evaluate(() => document.documentElement.scrollHeight);
             expect(height, `phone page height of ${route.name}`).toBeLessThanOrEqual(
-              allowed(budget),
+              allowedHeight(budget),
             );
           }
 
@@ -261,7 +259,7 @@ test.describe('Dutch phone heights', () => {
       await page.waitForTimeout(1200);
       const height = await page.evaluate(() => document.documentElement.scrollHeight);
       expect(height, `Dutch phone height of ${name}`).toBeLessThanOrEqual(
-        allowed(PHONE_BUDGET[name] ?? 0),
+        allowedHeight(PHONE_BUDGET[name] ?? 0),
       );
     });
   }

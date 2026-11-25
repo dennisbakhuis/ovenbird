@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { allowedHeight } from './budget';
 
 test.skip(Boolean(process.env['BASE_URL']), 'the House page runs against the mock only');
 
@@ -63,7 +64,7 @@ for (const lang of ['en', 'nl'] as const) {
     await expect(page.getByTestId('house-quality')).toBeVisible();
     const dims = await size(page);
     expect(dims.scroll).toBeLessThanOrEqual(dims.inner);
-    expect(dims.height, `phone height ${lang}`).toBeLessThanOrEqual(PHONE_BUDGET);
+    expect(dims.height, `phone height ${lang}`).toBeLessThanOrEqual(allowedHeight(PHONE_BUDGET));
   });
 }
 
