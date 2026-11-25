@@ -1,0 +1,333 @@
+"""The terms of the ovenbird water setpoint, one function per term (pipeline stage 3-4).
+
+Each function returns its contribution before and after its own clamp together with
+the :class:`~ovenbird_core.control.record.Term` that records it. The controller adds
+them in the order of :data:`~ovenbird_core.control.notes.TERMS`; the ``stove`` term
+lives in :mod:`ovenbird_core.control.stove`.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import TYPE_CHECKING, Final
+
+from ovenbird_core.control.config import OvenbirdConfig
+from ovenbird_core.control.curve import room_offset_to_water
+from ovenbird_core.control.notes import SECONDS_PER_HOUR, duration_text, kept, room_status, signed
+from ovenbird_core.control.record import Term
+from ovenbird_core.control.safety import SafetyBounds
+from ovenbird_core.control.types import Override, OverrideKind, PlanSlice, RoomInput
+
+if TYPE_CHECKING:
+    from ovenbird_core.control.ovenbird import OvenbirdState
+
+HELD_INTEGRAL_FADE_S: Final = 24 * 3600.0
+
+
+class RampPhase(StrEnum):
+    """Phase of the start ramp."""
+
+    IDLE = "idle"
+    HOLD = "hold"
+    RELEASE = "release"
+
+
+@dataclass(frozen=True, slots=True)
+class Feedback:
+    """The room feedback of one tick.
+
+    Parameters
+    ----------
+    error
+        Room target minus room value (``None`` without a trusted room value).
+    e_int
+        Error the integrator sees (one sensor step less, see the dead zone).
+    authority
+        Cooling authority of the room value.
+    status
+        One-line state of the room value for the notes.
+    u_raw, u_lim, u
+        PI output before the clamp, after it, and after the cooling authority.
+    held_offset
+        Offset kept (fading) while the room value is stale or implausible
+        (:func:`held_offset`).
+    term
+        The ``room_feedback`` term.
+    """
+
+    error: float | None
+    e_int: float
+    authority: float
+    status: str | None
+    u_raw: float
+    u_lim: float
+    u: float
+    held_offset: float
+    term: Term
+
+
+@dataclass(frozen=True, slots=True)
+class Ramp:
+    """The start ramp of one tick: its phase and cap carried on, and its term."""
+
+    phase: RampPhase
+    cap: float | None
+    raw: float
+    value: float
+    term: Term
+
+
+@dataclass(frozen=True, slots=True)
+class Floor:
+    """The cycling floor of one tick (``floor`` is ``None`` outside the min-run window)."""
+
+    floor: float | None
+    cycling: float
+    term: Term
+
+
+def clamp(value: float, limit: float) -> float:
+    """Clamp ``value`` to ``[-limit, limit]``."""
+    return min(max(value, -limit), limit)
+
+
+def curve_term(
+    cfg: OvenbirdConfig, outside_f: float, outside: float, source: str | None = None
+) -> tuple[float, Term]:
+    """Return the base water setpoint (curve or fixed) and its term.
+
+    The term keeps the name ``curve`` in both cases; its note says which applies and,
+    with a chosen outside sensor, where the raw value came from (``source``).
+    """
+    curve_sp = cfg.base_water(outside_f)
+    if cfg.weather_compensation:
+        raw = f"{outside:g} °C raw" if source is None else f"{outside:g} °C raw {source}"
+        note = f"curve at {outside_f:.2f} °C filtered outside ({raw})"
+    else:
+        note = "fixed water temperature (weather-dependent control off)"
+    return curve_sp, Term("curve", curve_sp, curve_sp, "°C", note)
+
+
+def held_offset(cfg: OvenbirdConfig, state: OvenbirdState, room: RoomInput) -> float:
+    """Return the offset over the curve kept while the room value is not trusted.
+
+    The positive integrator plus the proportional part of one sensor step, the
+    latter at most ``held_step_max_k`` and the sum at most the feedback clamp.
+    Inside the integrator's dead zone the P part carries the room by up to
+    ``kp * quantum_k``, which the integrator alone misses; without a room value
+    the loop is open and cannot see the room drifting low, so the estimate takes
+    the warm edge of that band. The bound keeps a coarse sensor's step (up to
+    2 K) from turning into a large bias: 0.4 K water is about 0.15-0.2 K room
+    through the curve, and the mean P part measured inside the dead zone stayed
+    within ±0.45 K. It is a constant, never integrated.
+    """
+    fb = cfg.feedback
+    step = min(fb.held_step_max_k, fb.kp * room.quantum_k)
+    return min(fb.output_limit_k, state.held_integral_k + step)
+
+
+def room_feedback(
+    cfg: OvenbirdConfig,
+    state: OvenbirdState,
+    target: float,
+    *,
+    stove: bool,
+    room: RoomInput | None,
+    fresh_room: RoomInput | None,
+    implausible: bool,
+    deviation: float | None,
+    seen: RoomInput | None,
+    fade: float,
+    lost_for: float,
+) -> Feedback:
+    """Return the room feedback (PI) of one tick (see the room value guards).
+
+    ``room`` is the trusted room value, ``fresh_room`` the fresh one (implausible or
+    not) and ``seen`` the room input as received (possibly stale).
+    """
+    fb = cfg.feedback
+    error: float | None = None
+    e_int = 0.0
+    authority = 1.0
+    status: str | None = None
+    u_raw = u_lim = u = 0.0
+    held = 0.0
+    if stove:
+        fb_note = f"paused by wood-stove mode; integrator held at {signed(state.integral_k)} K"
+        if room is not None:
+            status = room_status(room, cfg.room.authority(room.held_s, room.age))
+            fb_note += f"; {status}"
+    elif room is not None:
+        error = target - room.value
+        e_int = math.copysign(max(0.0, abs(error) - room.quantum_k), error)
+        authority = cfg.room.authority(room.held_s, room.age)
+        u_raw = fb.kp * error + state.integral_k
+        u_lim = clamp(u_raw, fb.output_limit_k)
+        if u_lim < 0.0:
+            u = u_lim * authority + (1.0 - authority) * held_offset(cfg, state, room)
+        else:
+            u = u_lim
+        status = room_status(room, authority, cooling=u_lim < 0.0)
+        fb_note = (
+            f"room {room.value:.2f} °C vs target {target:.2f} °C: "
+            f"P {signed(fb.kp * error)} K + I {signed(state.integral_k)} K; {status}"
+        )
+    elif implausible and fresh_room is not None:
+        held = held_offset(cfg, state, fresh_room) * fade
+        u_raw = u_lim = u = held
+        fb_note = (
+            f"room value {fresh_room.value:.1f} °C implausible: {cfg.room.crosscheck} "
+            f"disagrees by {signed(deviation or 0.0)} K after its learned offset; "
+            f"feedback off{kept(held, lost_for, 'implausible', HELD_INTEGRAL_FADE_S)}"
+        )
+    elif seen is not None:
+        held = held_offset(cfg, state, seen) * fade
+        u_raw = u_lim = u = held
+        fb_note = (
+            f"room sensor {seen.source} stale (last proof of life "
+            f"{duration_text(seen.age)} ago); feedback off"
+            f"{kept(held, lost_for, 'stale', HELD_INTEGRAL_FADE_S)}"
+        )
+    else:
+        fb_note = "no room sensor; feedback off (curve only)"
+    term = Term("room_feedback", u_raw, u, "K", fb_note)
+    return Feedback(error, e_int, authority, status, u_raw, u_lim, u, held, term)
+
+
+def plan_term(
+    cfg: OvenbirdConfig,
+    plan: PlanSlice | None,
+    outside_f: float,
+    *,
+    stove: bool,
+    pi_room: RoomInput | None,
+) -> tuple[float, float, Term]:
+    """Return the plan's water offset before and after its clamp, and its term.
+
+    With an active room PI the plan shifts the room target instead (no water offset).
+    """
+    plan_raw = plan_w = 0.0
+    if plan is None:
+        plan_note = "no plan"
+    elif stove:
+        plan_note = "paused by wood-stove mode"
+    elif pi_room is not None:
+        plan_note = f"shifts room target by {signed(plan.room_offset_k)} K"
+    else:
+        plan_raw = room_offset_to_water(cfg.curve, outside_f, plan.room_offset_k)
+        plan_w = clamp(plan_raw, cfg.plan_max_water_k)
+        plan_note = (
+            f"room offset {signed(plan.room_offset_k)} K mapped via curve slope "
+            f"{cfg.curve.sensitivity(outside_f):.2f}"
+        )
+    return plan_raw, plan_w, Term("plan", plan_raw, plan_w, "K", plan_note)
+
+
+def boost_term(override: Override | None, boost: float) -> Term | None:
+    """Return the ``boost`` term while a boost override is active."""
+    if override is not None and override.kind is OverrideKind.BOOST:
+        return Term("boost", boost, boost, "K", f"boost by {override.actor}")
+    return None
+
+
+def start_ramp(
+    cfg: OvenbirdConfig,
+    state: OvenbirdState,
+    *,
+    running: bool,
+    defrost: bool,
+    dhw: bool,
+    outlet: float,
+    curve_sp: float,
+    base: float,
+    dt: float,
+) -> Ramp:
+    """Return the start ramp (≤ 0): a cap tracking the outlet after a compressor start.
+
+    The cap holds for ``hold_s`` and then rises at ``release_k_per_h``; it never
+    falls below the outlet minus ``below_outlet_k`` or the curve minus
+    ``max_below_curve_k``, and is frozen during defrost and DHW. The ramp ends once
+    the cap is no longer below ``base``.
+    """
+    phase, cap = state.ramp_phase, state.ramp_cap
+    ramp_raw = ramp = 0.0
+    ramp_note = "no ramp"
+    if phase is not RampPhase.IDLE and running:
+        rc = cfg.ramp
+        floor_curve = curve_sp - rc.max_below_curve_k
+        track = outlet - rc.below_outlet_k
+        phase = RampPhase.RELEASE if state.ramp_elapsed_s >= rc.hold_s else RampPhase.HOLD
+        if defrost or dhw:
+            cap = cap if cap is not None else max(track, floor_curve)
+        else:
+            candidates = [track, floor_curve]
+            if cap is not None:
+                rise = rc.release_k_per_h * dt / SECONDS_PER_HOUR
+                candidates.append(cap + (rise if phase is RampPhase.RELEASE else 0.0))
+            cap = max(candidates)
+        ramp_raw = cap - base
+        if ramp_raw >= 0.0:
+            phase, cap = RampPhase.IDLE, None
+            ramp_note = "ramp released"
+        else:
+            ramp = ramp_raw
+            ramp_note = (
+                f"{phase.value} phase, cap {cap:.2f} °C ({state.ramp_elapsed_s / 60:.0f} min run)"
+            )
+    term = Term("start_ramp", ramp_raw, ramp, "K", ramp_note)
+    return Ramp(phase, cap, ramp_raw, ramp, term)
+
+
+def override_term(manual_setpoint: Override, raw_sum: float) -> Term:
+    """Return the ``override`` term replacing the sum by a manual setpoint."""
+    return Term(
+        "override",
+        manual_setpoint.value - raw_sum,
+        manual_setpoint.value - raw_sum,
+        "K",
+        f"setpoint {manual_setpoint.value:g} °C by {manual_setpoint.actor}",
+    )
+
+
+def cycling_floor(
+    cfg: OvenbirdConfig,
+    state: OvenbirdState,
+    now: float,
+    *,
+    manual: bool,
+    running: bool,
+    defrost: bool,
+    dhw: bool,
+    outlet: float,
+    base: float,
+    raw_sum: float,
+) -> Floor:
+    """Return the cycling floor (≥ 0) inside the compressor's minimum-run window."""
+    floor: float | None = None
+    cycling = 0.0
+    cc = cfg.cycling
+    if (
+        cc.enabled
+        and not manual
+        and running
+        and not defrost
+        and not dhw
+        and state.run_started_at is not None
+        and now - state.run_started_at < cc.min_run_s
+    ):
+        floor = min(outlet - cc.stop_delta_k + cc.margin_k, base + cc.max_raise_k)
+        cycling = max(0.0, floor - raw_sum)
+        cyc_note = f"min-run window: keep ≥ {floor:.2f} °C (outlet {outlet:g} °C)"
+    else:
+        cyc_note = "outside min-run window"
+    term = Term("cycling_floor", 0.0 if floor is None else floor - raw_sum, cycling, "K", cyc_note)
+    return Floor(floor, cycling, term)
+
+
+def safety_term(bounds: SafetyBounds, pre_clamp: float, outside: float) -> tuple[float, Term]:
+    """Return the continuous value clamped to the safety envelope (``pre_round``) and its term."""
+    pre_round = bounds.clamp(pre_clamp)
+    note = f"allowed [{bounds.low:.2f}, {bounds.high:.2f}] °C at {outside:g} °C outside"
+    return pre_round, Term("safety", pre_clamp, pre_round, "°C", note)

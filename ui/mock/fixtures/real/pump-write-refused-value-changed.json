@@ -1,0 +1,10 @@
+{
+  "status": 409,
+  "detail": {
+    "code": "value_changed",
+    "message": "the pump reports 5, not 6",
+    "params": {
+      "reported": 5
+    }
+  }
+}

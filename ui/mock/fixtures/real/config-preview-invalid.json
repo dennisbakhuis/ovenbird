@@ -1,0 +1,15 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "field": "control_comfort_c",
+      "code": "above_max",
+      "message": "Input should be less than or equal to 30",
+      "params": {
+        "max": 30.0
+      }
+    }
+  ],
+  "warnings": [],
+  "effective": {}
+}

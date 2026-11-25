@@ -1,0 +1,8 @@
+{
+  "status": 404,
+  "detail": {
+    "code": "unknown_setting",
+    "message": "'max_pump_duty' is not a writable pump setting",
+    "params": {}
+  }
+}

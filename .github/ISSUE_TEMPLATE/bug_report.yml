@@ -1,0 +1,51 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: ovenbird version
+      description: Output of `ovenbird --version` or the image tag.
+    validations:
+      required: true
+  - type: input
+    id: heishamon
+    attributes:
+      label: HeishaMon firmware version
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Heat pump model
+      description: For example Panasonic WH-MDC09J3E5.
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment mode
+      options:
+        - Docker / compose
+        - Home Assistant app
+        - From source
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics bundle
+      description: Attach the diagnostics bundle once the service provides one. Review it for private data first.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      render: text

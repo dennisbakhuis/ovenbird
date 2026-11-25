@@ -1,0 +1,1 @@
+{"state":"not_run","missing":["the house model learner has not run yet; it runs weekly in the optional learner container (docs/design.md, House insight)"],"last_run":null,"learner":{"last_run_at":null,"age_h":null,"interval_h":168.0,"stale_after_h":336.0,"stale":false}}

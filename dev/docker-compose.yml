@@ -1,0 +1,184 @@
+name: ovenbird-dev
+
+# Fully simulated stack: Mosquitto, the simulated HeishaMon (plant model) and ovenbird in
+# auto mode, all on one private network. Nothing here may point at a live broker:
+# heishamon-sim refuses non-local brokers; ovenbird only publishes to the broker listed
+# in OVENBIRD_COMMAND_BROKERS (the compose service "mosquitto"), and with
+# OVENBIRD_SIMULATION=true (required for its scaled clock to publish) it accepts only a
+# loopback or "mosquitto" broker and publishes only while HeishaMon reports simulated
+# firmware ("3.9-sim"). ovenbird runs the example profile (docs/design.md), including a
+# send-on-delta room sensor: the simulator's room sensor reports only on change (0.1 K grid, no
+# heartbeat) plus a companion humidity, and ovenbird holds the value with the on_change
+# room profile while the humidity proves the device alive. The control values (emitter,
+# comfort, room sensor profile, minimum setpoint, pump duty) are not environment
+# variables but the configuration seed dev/config-seed.json (version 1 of the
+# configuration store on a fresh data volume, including the room plausibility
+# cross-check against the pump's main/Room_Thermostat_Temp, which the simulator
+# publishes as the integer thermostat about 1 K above the room), so they stay
+# editable in the UI; the
+# environment keeps only the publish gates, connections, credentials and the mode
+# ceiling. SIM_ROOM_PROFILE=periodic plus a periodic room profile in the UI (or in a
+# seed file named by OVENBIRD_SEED_FILE) restore the old 60 s periodic sensor.
+# The weather forecast is off in the seed (opt-in, with a neutral manual location);
+# switched on in the UI, the simulation's provider derives it from the simulator's
+# weather cache (OVENBIRD_WEATHER_SIM_FILE) on the scaled clock: never a network call.
+# Home Assistant is optional: COMPOSE_PROFILES=ha make dev-up.
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "127.0.0.1:1884:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    profiles: ["ha"]
+    ports:
+      - "127.0.0.1:8123:8123"
+    volumes:
+      - ./ha-config:/config
+    depends_on:
+      - mosquitto
+
+  # One-shot: give the simulator's state volume to its user (uid 10002) so it can keep
+  # the pump registers across restarts. Uses the image the heishamon-sim service builds.
+  heishamon-sim-state:
+    image: ovenbird-heishamon-sim:dev
+    pull_policy: never
+    user: "0:0"
+    entrypoint: ["python", "-c", "import os; os.chown('/state', 10002, 10002)"]
+    command: []
+    network_mode: none
+    volumes:
+      - heishamon-sim-state:/state
+
+  heishamon-sim:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: heishamon-sim
+    image: ovenbird-heishamon-sim:dev
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - --host=mosquitto
+      - --port=1883
+      - --speed=${SIM_SPEED:-60}
+      - --start=${SIM_START:-2026-01-06}
+      - --scenario=${SIM_SCENARIO:-recorded}
+      - --weather-dir=/sim/weather
+      - --params=${SIM_PARAMS-}
+      - --room-topic=climate_manager_capture/room_temp
+      - --room-profile=${SIM_ROOM_PROFILE:-on_change}
+      - --humidity-topic=climate_manager_capture/room_humidity
+      - --room-c=${SIM_ROOM_C:-21.5}
+      - --status-every=3600
+      - --state-file=/state/registers.json
+      - --inject-prefix=heishamon_sim/inject
+    volumes:
+      - ../capture/captures/weather:/sim/weather:ro
+      - ../capture/captures/models:/sim/models:ro
+      - heishamon-sim-state:/state
+    depends_on:
+      mosquitto:
+        condition: service_started
+      heishamon-sim-state:
+        condition: service_completed_successfully
+
+  ovenbird:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: ovenbird:dev
+    user: "10001:10001"
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    environment:
+      OVENBIRD_MQTT_HOST: mosquitto
+      OVENBIRD_MQTT_PORT: "1883"
+      OVENBIRD_MQTT_INPUTS: '[{"topic": "climate_manager_capture/room_temp", "signal": "room_temperature", "unit": "°C", "minimum": -10, "maximum": 45}, {"topic": "climate_manager_capture/room_humidity", "signal": "room_humidity", "unit": "%", "minimum": 0, "maximum": 100}]'
+      OVENBIRD_HTTP_HOST: 0.0.0.0
+      OVENBIRD_ADMIN_PASSWORD: ${OVENBIRD_ADMIN_PASSWORD:-ovenbird-dev}
+      OVENBIRD_HA_URL: ${OVENBIRD_HA_URL:-}
+      OVENBIRD_HA_TOKEN: ${OVENBIRD_HA_TOKEN:-}
+      OVENBIRD_HA_ENTITIES: ${OVENBIRD_HA_ENTITIES:-}
+      OVENBIRD_LOG_LEVEL: ${OVENBIRD_LOG_LEVEL:-INFO}
+      OVENBIRD_CONTROL_MODE: ${OVENBIRD_CONTROL_MODE:-auto}
+      OVENBIRD_CONFIG_SEED: /seed/config-seed.json
+      OVENBIRD_OPERATE_TOKEN: ${OVENBIRD_OPERATE_TOKEN:-}
+      OVENBIRD_ALLOW_COMMANDS: "true"
+      OVENBIRD_COMMAND_BROKERS: mosquitto:1883
+      OVENBIRD_SIMULATION: "true"
+      OVENBIRD_CLOCK_SPEED: ${SIM_SPEED:-60}
+      OVENBIRD_CLOCK_START: ${OVENBIRD_CLOCK_START:-${SIM_START:-2026-01-06}T00:00:00Z}
+      OVENBIRD_WEATHER_SIM_FILE: /sim/weather/open_meteo_hourly.json
+    ports:
+      - "127.0.0.1:8099:8099"
+    volumes:
+      - ovenbird-data:/data
+      - ${OVENBIRD_SEED_FILE:-./config-seed.json}:/seed/config-seed.json:ro
+      - ../capture/captures/weather:/sim/weather:ro
+    depends_on:
+      - mosquitto
+      - heishamon-sim
+
+  # Optional house-model learner (COMPOSE_PROFILES=learner): refits the house model on
+  # ovenbird's history snapshot every LEARNER_EVERY_H hours (weekly by default; the first
+  # run after LEARNER_DELAY_S) and writes models/*.json, which ovenbird serves under
+  # api/v1/insight/house. It sees two sub-directories of the data volume only (both
+  # created by ovenbird at start): learner/ read-only (learner-config.json and the
+  # history snapshot ovenbird exports there) and models/ (its output); never options.json,
+  # config.db or the live history. Its own uid (10003) in ovenbird's group, no network,
+  # read-only root, no capabilities. Runs on the wall clock, not the simulated one.
+  learner:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: learner
+    image: ovenbird-learner:dev
+    profiles: ["learner"]
+    user: "10003:10001"
+    restart: unless-stopped
+    read_only: true
+    network_mode: none
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - --history=/learner/history.snapshot.db
+      - --config=/learner/learner-config.json
+      - --models=/models
+      - --every-h=${LEARNER_EVERY_H:-168}
+      - --delay-s=${LEARNER_DELAY_S:-300}
+    volumes:
+      - type: volume
+        source: ovenbird-data
+        target: /learner
+        read_only: true
+        volume:
+          subpath: learner
+      - type: volume
+        source: ovenbird-data
+        target: /models
+        volume:
+          subpath: models
+    depends_on:
+      ovenbird:
+        condition: service_healthy
+
+volumes:
+  ovenbird-data:
+  heishamon-sim-state:

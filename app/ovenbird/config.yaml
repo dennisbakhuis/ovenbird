@@ -1,0 +1,61 @@
+name: ovenbird
+slug: ovenbird
+version: "0.4.0"
+description: Standalone heat pump controller; starts in shadow and sends nothing until enabled.
+url: https://github.com/dennisbakhuis/ovenbird
+arch:
+  - amd64
+  - aarch64
+image: ghcr.io/dennisbakhuis/ovenbird
+init: false
+boot: auto
+startup: application
+host_network: false
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:heat-pump
+panel_title: ovenbird
+panel_admin: true
+homeassistant_api: true
+watchdog: http://[HOST]:[PORT:8099]/api/v1/health
+backup: hot
+backup_exclude:
+  - history.db
+  - history.db-wal
+  - history.db-shm
+  - history.db.tmp
+  - history.snapshot.db.tmp
+  - config.db
+  - config.db-wal
+  - config.db-shm
+  - config.snapshot.db.tmp
+  - ovenbird.lock
+  - archive/*.db
+  - archive/*.db-journal
+  - archive/*.tmp
+map: []
+ports:
+  8099/tcp: null
+ports_description:
+  8099/tcp: Direct web UI and API access (requires the admin password)
+options:
+  mqtt_host: core-mosquitto
+  mqtt_port: 1883
+  mqtt_username: ""
+  mqtt_password: ""
+  mqtt_tls: false
+  heishamon_base: panasonic_heat_pump
+  ha_entities: []
+  admin_password: ""
+  log_level: info
+schema:
+  mqtt_host: str
+  mqtt_port: port
+  mqtt_username: str?
+  mqtt_password: password?
+  mqtt_tls: bool?
+  heishamon_base: str
+  ha_entities:
+    - str?
+  admin_password: password?
+  log_level: list(debug|info|warning|error|critical)

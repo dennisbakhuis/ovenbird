@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# uv
+.uv/
+
+# Captures for simulator replay (gitignored — provide locally as needed)
+captures/
+
+# Web UI and local databases
+ui/node_modules/
+ui/dist/
+ui/.svelte-kit/
+
+# Local test and tool output
+test-results/
+playwright-report/
+.hypothesis/
+coverage/
+*.log
+*.db
+*.db-wal
+*.db-shm
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Recorder sub-project: data and secrets stay local
+capture/captures
+capture/.env
+capture/.env.*
+!capture/.env.*.example
+capture/dist/
+
+# Claude Code personal overrides
+.claude/settings.local.json
+
+# Dev stack: Home Assistant state stays local
+dev/ha-config/*
+!dev/ha-config/configuration.yaml
+.claude/worktrees/
+
+# Notes on the real install behind a local recording
+docs/local/

@@ -1,0 +1,1 @@
+{"command":{"at":"2026-11-02T03:20:33Z","kind":"heat_delta","value":4,"status":"queued","attempt":0,"detail":"operator: admin from 10.0.0.2: heat_delta 5 → 4","topic":"panasonic_heat_pump/commands/SetFloorHeatDelta","payload":"4"}}

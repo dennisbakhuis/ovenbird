@@ -1,0 +1,8 @@
+dist/
+node_modules/
+package-lock.json
+e2e/shots/
+e2e/results/
+mock/fixtures/config.json
+mock/fixtures/schema.json
+mock/fixtures/codes.json

@@ -1,0 +1,5 @@
+from ovenbird_sim import __version__
+
+
+def test_import() -> None:
+    assert __version__ == "0.4.0"

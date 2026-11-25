@@ -1,0 +1,467 @@
+<title>Aquarea Live Capture</title>
+<style>
+/* Layout: one column of cards, stat row first, then three time charts sharing one x-axis, then tables. */
+:root {
+  --bg: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --ring: rgba(11,11,11,0.10);
+  --s1: #2a78d6;
+  --s2: #eb6834;
+  --s3: #1baf7a;
+  --s4: #eda100;
+  --s5: #e87ba4;
+  --good: #006300;
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --good: #0ca30c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --good: #0ca30c;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.45; }
+.wrap { max-width: 1040px; margin: 0 auto; padding-block: 28px 48px; padding-inline: 16px; display: grid; gap: 20px; }
+header h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; text-wrap: balance; }
+header p { margin: 0; color: var(--ink-2); max-width: 65ch; }
+.eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 6px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--ring); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.tile .label { color: var(--ink-2); font-size: 12px; }
+.tile .value { font-size: 26px; font-weight: 600; margin-top: 2px; }
+.tile .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 8px; padding: 16px; min-width: 0; }
+.card h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.card .note { color: var(--ink-2); font-size: 13px; margin: 2px 0 10px; max-width: 70ch; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 8px; padding: 0; list-style: none; font-size: 12px; color: var(--ink-2); }
+.legend li { display: flex; align-items: center; gap: 6px; }
+.legend .key { width: 16px; height: 2px; border-radius: 1px; background: var(--c); }
+.legend .key.area { height: 8px; border-radius: 2px; opacity: .45; }
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { font-family: var(--font); font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.chart .grid line { stroke: var(--grid); stroke-width: 1; }
+.chart .axis line { stroke: var(--axis); stroke-width: 1; }
+.chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .area { opacity: .10; }
+.chart .endlabel { fill: var(--ink-2); font-weight: 600; }
+.chart .cmd { stroke-width: 1.5; stroke-dasharray: none; }
+.chart .cmdlabel { fill: var(--ink-2); }
+.chart .xhair { stroke: var(--axis); stroke-width: 1; pointer-events: none; }
+.chart .dot { stroke: var(--surface); stroke-width: 2; pointer-events: none; }
+.tip { position: absolute; top: 8px; pointer-events: none; background: var(--surface); border: 1px solid var(--ring); border-radius: 6px; padding: 8px 10px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.08); min-width: 150px; display: none; }
+.tip .when { color: var(--muted); margin-bottom: 4px; }
+.tip .row { display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+.tip .row .k { width: 12px; height: 2px; background: var(--c); flex: none; }
+.tip .row .v { font-weight: 600; min-width: 46px; }
+.tip .row .n { color: var(--ink-2); }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { color: var(--ink-2); font-weight: 500; font-size: 12px; }
+td.num, th.num { text-align: right; }
+.tables { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.tscroll { overflow-x: auto; }
+details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; }
+.chip { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; border: 1px solid var(--ring); color: var(--ink-2); }
+.chip.ok { color: var(--good); border-color: currentColor; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+@media (prefers-reduced-motion: no-preference) { .tip { transition: opacity .1s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">HeishaMon · live MQTT capture</div>
+    <h1>Aquarea Live Capture</h1>
+    <p id="subtitle"></p>
+  </header>
+
+  <section class="tiles" id="tiles"></section>
+
+  <section class="card">
+    <h2>Water and outside temperatures</h2>
+    <p class="note">Five-minute means. Heating cycles show as spikes in the outlet temperature; between them the water sits near room temperature. Room temperature comes from the Home Assistant mirror.</p>
+    <ul class="legend" id="legend-temp"></ul>
+    <div class="chart" id="chart-temp"></div>
+  </section>
+
+  <section class="card">
+    <h2>Compressor and controller commands</h2>
+    <p class="note">Compressor frequency in Hz. Vertical markers are the commands the controller sent. Raising the water target starts a cycle, pump duty goes up while heating and back down when it stops, and the target is lowered again afterwards. Target markers are labelled; the full list is in the command table below.</p>
+    <ul class="legend" id="legend-hz"></ul>
+    <div class="chart" id="chart-hz"></div>
+  </section>
+
+  <section class="card">
+    <h2>Last 48 hours</h2>
+    <p class="note">Close-up of the most recent two days: the water target the controller sets, what the outlet actually reached, and the outside and room temperatures. Markers show each target change.</p>
+    <ul class="legend" id="legend-recent"></ul>
+    <div class="chart" id="chart-recent"></div>
+  </section>
+
+  <section class="card">
+    <h2 id="run-title">Longest heating cycle</h2>
+    <p class="note">Reported thermal output and electrical input during the longest run so far. The first samples after start-up overstate output (the pump reports several kW of heat at a few hundred watts input), so the per-cycle energy in the table below skips the first five minutes.</p>
+    <ul class="legend" id="legend-run"></ul>
+    <div class="chart" id="chart-run"></div>
+  </section>
+
+  <section class="card">
+    <h2>Heating cycles</h2>
+    <p class="note">Every period with the compressor running, from the five-minute series. Energy excludes the first five minutes of each run.</p>
+    <div class="tscroll"><table id="runs"></table></div>
+  </section>
+
+  <section class="tables">
+    <div class="card">
+      <h2>Per day</h2>
+      <p class="note">Local time. Energy figures are integrated from the five-minute means of the pump's own power estimates.</p>
+      <div class="tscroll"><table id="daily"></table></div>
+    </div>
+    <div class="card">
+      <h2>Recorder health</h2>
+      <p class="note">What capture-info reported on the pulled files.</p>
+      <div class="tscroll"><table id="health"></table></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Recorded commands</h2>
+    <p class="note">Every message on <code>panasonic_heat_pump/commands/#</code> so far.</p>
+    <div class="tscroll"><table id="cmds"></table></div>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>Table view of the temperature chart (hourly)</summary>
+      <div class="tscroll"><table id="hourly"></table></div>
+    </details>
+  </section>
+</div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+(function () {
+  const D = JSON.parse(document.getElementById('data').textContent);
+  const TZ = 'Europe/Amsterdam';
+  const fmtTime = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const fmtDay = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short' });
+  const fmtHour = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+  const fmtFull = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs, parent) => { const e = document.createElementNS(svgNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
+
+  const hours = (D.end - D.start) / 3600;
+  document.getElementById('subtitle').textContent =
+    `${fmtFull.format(D.start * 1000)} to ${fmtFull.format(D.end * 1000)}, ${hours > 72 ? (hours / 24).toFixed(1) + ' days' : hours.toFixed(1) + ' hours'} of every MQTT message the heat pump and its controller exchanged.`;
+
+  const rows = D.series.filter(r => r.outside != null);
+  const outs = rows.map(r => r.outside);
+  const roomVals = D.room.map(r => r[1]);
+  const runMin = D.runs.reduce((a, r) => a + r.minutes, 0);
+  const tiles = [
+    ['Recorded', `${(hours / 24).toFixed(1)} d`, `${D.records.toLocaleString('en')} messages`],
+    ['Outside', `${Math.min(...outs)} to ${Math.max(...outs)} °C`, 'integer steps, on change'],
+    ['Room', `${Math.min(...roomVals)} to ${Math.max(...roomVals)} °C`, `${D.room.length} updates via HA`],
+    ['Heating cycles', `${D.runs.length}`, `${runMin.toFixed(0)} min compressor time`],
+    ['Controller commands', `${D.commands.length}`, Object.entries(D.commands.reduce((a, c) => (a[c.name] = (a[c.name] || 0) + 1, a), {})).map(([k, v]) => `${k} ×${v}`).join(', ')],
+    ['Hot water, defrost, errors', `${D.dhw_runs}, ${D.defrosts}, ${D.errors.filter(e => e[1] !== 'No error').length}`, D.dhw_runs + D.defrosts + D.errors.filter(e => e[1] !== 'No error').length ? 'see tables' : 'nothing yet'],
+  ];
+  document.getElementById('tiles').innerHTML = tiles.map(([l, v, s]) =>
+    `<div class="tile"><div class="label"></div><div class="value"></div><div class="sub"></div></div>`).join('');
+  document.querySelectorAll('#tiles .tile').forEach((t, i) => {
+    t.querySelector('.label').textContent = tiles[i][0];
+    t.querySelector('.value').textContent = tiles[i][1];
+    t.querySelector('.sub').textContent = tiles[i][2];
+  });
+
+  function legend(id, series) {
+    const ul = document.getElementById(id);
+    series.forEach(s => {
+      const li = document.createElement('li');
+      const k = document.createElement('span'); k.className = 'key' + (s.area ? ' area' : ''); k.style.setProperty('--c', css(s.color));
+      li.appendChild(k); li.appendChild(document.createTextNode(s.name)); ul.appendChild(li);
+    });
+  }
+
+  function lineChart(id, opts) {
+    const host = document.getElementById(id);
+    const W = 1000, H = opts.height || 300, m = { t: 16, r: 74, b: 34, l: 40 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': opts.label });
+    host.appendChild(svg);
+    const x0 = opts.x0, x1 = opts.x1;
+    const X = t => m.l + (t - x0) / (x1 - x0) * iw;
+    const [y0, y1] = opts.y;
+    const Y = v => m.t + ih - (v - y0) / (y1 - y0) * ih;
+    const grid = el('g', { class: 'grid' }, svg);
+    const yTicks = opts.yTicks;
+    yTicks.forEach(v => {
+      el('line', { x1: m.l, x2: m.l + iw, y1: Y(v), y2: Y(v) }, grid);
+      const t = el('text', { x: m.l - 8, y: Y(v) + 4, 'text-anchor': 'end' }, svg); t.textContent = opts.yFmt(v);
+    });
+    const axis = el('g', { class: 'axis' }, svg);
+    el('line', { x1: m.l, x2: m.l + iw, y1: m.t + ih, y2: m.t + ih }, axis);
+    opts.xTicks.forEach(([t, label, major]) => {
+      el('line', { x1: X(t), x2: X(t), y1: m.t + ih, y2: m.t + ih + (major ? 8 : 4) }, axis);
+      if (label) { const tx = el('text', { x: X(t), y: m.t + ih + 22, 'text-anchor': 'middle' }, svg); tx.textContent = label; }
+    });
+    const pts = opts.points;
+    opts.series.forEach(s => {
+      const col = css(s.color);
+      let d = '', started = false;
+      pts.forEach(p => {
+        const v = p[s.key];
+        if (v == null) { started = false; return; }
+        d += (started ? ' L' : ' M') + X(p.t).toFixed(1) + ' ' + Y(v).toFixed(1);
+        started = true;
+      });
+      if (s.area) {
+        let a = '', first = null, last = null;
+        pts.forEach(p => { const v = p[s.key]; if (v == null) return; if (first == null) first = p.t; last = p.t; a += (a ? ' L' : ' M') + X(p.t).toFixed(1) + ' ' + Y(v).toFixed(1); });
+        if (a) el('path', { class: 'area', d: a + ` L${X(last).toFixed(1)} ${Y(y0)} L${X(first).toFixed(1)} ${Y(y0)} Z`, fill: col }, svg);
+      }
+      el('path', { class: 'line', d, stroke: col }, svg);
+      if (s.endLabel) {
+        const lastPt = [...pts].reverse().find(p => p[s.key] != null);
+        if (lastPt) {
+          el('circle', { cx: X(lastPt.t), cy: Y(lastPt[s.key]), r: 4, fill: col, class: 'dot' }, svg);
+          const tx = el('text', { x: X(lastPt.t) + 8, y: Y(lastPt[s.key]) + (s.dy || 4), class: 'endlabel' }, svg);
+          tx.textContent = opts.yFmt(lastPt[s.key]) + ' ' + s.short;
+        }
+      }
+    });
+    (opts.marks || []).forEach(mk => {
+      const col = css(mk.color);
+      el('line', { class: 'cmd', x1: X(mk.t), x2: X(mk.t), y1: m.t + 12, y2: m.t + ih, stroke: col }, svg);
+      const tx = el('text', { x: X(mk.t) + (mk.dx || 4), y: m.t + 10, class: 'cmdlabel', 'text-anchor': mk.anchor || 'start' }, svg);
+      tx.textContent = mk.label;
+    });
+    const xhair = el('line', { class: 'xhair', y1: m.t, y2: m.t + ih, visibility: 'hidden' }, svg);
+    const dots = opts.series.map(s => el('circle', { class: 'dot', r: 4, fill: css(s.color), visibility: 'hidden' }, svg));
+    const tip = document.createElement('div'); tip.className = 'tip'; host.appendChild(tip);
+    const hit = el('rect', { x: m.l, y: m.t, width: iw, height: ih, fill: 'transparent' }, svg);
+    hit.setAttribute('tabindex', '0');
+    function show(t) {
+      let best = null, bd = Infinity;
+      pts.forEach(p => { const d = Math.abs(p.t - t); if (d < bd) { bd = d; best = p; } });
+      if (!best) return;
+      xhair.setAttribute('x1', X(best.t)); xhair.setAttribute('x2', X(best.t)); xhair.setAttribute('visibility', 'visible');
+      tip.replaceChildren();
+      const when = document.createElement('div'); when.className = 'when'; when.textContent = fmtFull.format(best.t * 1000); tip.appendChild(when);
+      opts.series.forEach((s, i) => {
+        const v = best[s.key];
+        if (v == null) { dots[i].setAttribute('visibility', 'hidden'); return; }
+        dots[i].setAttribute('cx', X(best.t)); dots[i].setAttribute('cy', Y(v)); dots[i].setAttribute('visibility', 'visible');
+        const row = document.createElement('div'); row.className = 'row';
+        const k = document.createElement('span'); k.className = 'k'; k.style.setProperty('--c', css(s.color));
+        const val = document.createElement('span'); val.className = 'v'; val.textContent = opts.yFmt(v);
+        const n = document.createElement('span'); n.className = 'n'; n.textContent = s.name;
+        row.append(k, val, n); tip.appendChild(row);
+      });
+      tip.style.display = 'block';
+      const rect = host.getBoundingClientRect();
+      const px = X(best.t) / W * rect.width;
+      tip.style.left = (px > rect.width * 0.6 ? px - tip.offsetWidth - 12 : px + 12) + 'px';
+    }
+    function hide() { xhair.setAttribute('visibility', 'hidden'); dots.forEach(d => d.setAttribute('visibility', 'hidden')); tip.style.display = 'none'; }
+    hit.addEventListener('pointermove', e => {
+      const rect = svg.getBoundingClientRect();
+      const t = x0 + ((e.clientX - rect.left) / rect.width * W - m.l) / iw * (x1 - x0);
+      show(t);
+    });
+    hit.addEventListener('pointerleave', hide);
+    hit.addEventListener('focus', () => show((x0 + x1) / 2));
+    hit.addEventListener('blur', hide);
+    hit.addEventListener('keydown', e => {
+      const cur = parseFloat(xhair.getAttribute('x1')) || X((x0 + x1) / 2);
+      const t = x0 + (cur - m.l) / iw * (x1 - x0);
+      const step = (x1 - x0) / 100;
+      if (e.key === 'ArrowLeft') { show(t - step); e.preventDefault(); }
+      if (e.key === 'ArrowRight') { show(t + step); e.preventDefault(); }
+    });
+  }
+
+  function dayTicks(x0, x1, everyH) {
+    const ticks = [];
+    const startDay = new Date(x0 * 1000);
+    let t = Math.floor(x0 / 3600) * 3600;
+    const days = (x1 - x0) / 86400;
+    const labelEvery = days > 10 ? 7 : 1;
+    let dayIdx = 0;
+    for (; t <= x1; t += 3600) {
+      const parts = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', hour12: false }).formatToParts(new Date(t * 1000));
+      const h = parseInt(parts.find(p => p.type === 'hour').value, 10) % 24;
+      if (h === 0) { const major = dayIdx % labelEvery === 0; ticks.push([t, major ? fmtDay.format(t * 1000) : '', major]); dayIdx++; }
+      else if (h % everyH === 0 && days <= 10) ticks.push([t, days > 4 ? '' : `${String(h).padStart(2, '0')}:00`, false]);
+    }
+    return ticks;
+  }
+
+  function niceRange(vals, step) {
+    const v = vals.filter(x => x != null && isFinite(x));
+    const lo = Math.floor(Math.min(...v) / step) * step, hi = Math.ceil(Math.max(...v) / step) * step;
+    const ticks = []; for (let t = lo; t <= hi + 1e-9; t += step) ticks.push(t);
+    return { y: [lo, hi === lo ? lo + step : hi], ticks };
+  }
+
+  const x0 = D.start, x1 = D.end;
+  const roomPts = D.series.map(p => ({ t: p.t, room: null }));
+  let ri = 0, roomCarry = null;
+  D.series.forEach((p, i) => { while (ri < D.room.length && D.room[ri][0] <= p.t + 150) { roomCarry = D.room[ri][1]; ri++; } roomPts[i].room = roomCarry; });
+  const tempPts = D.series.map((p, i) => ({ t: p.t, outside: p.outside, outlet: p.outlet, inlet: p.inlet, target: p.target, room: roomPts[i].room }));
+  const tempSeries = [
+    { key: 'outside', name: 'Outside temperature', short: 'outside', color: '--s1', endLabel: true },
+    { key: 'outlet', name: 'Water outlet', short: 'outlet', color: '--s2', endLabel: true, dy: 12 },
+    { key: 'inlet', name: 'Water inlet', short: 'inlet', color: '--s3' },
+    { key: 'target', name: 'Water target set by the controller', short: 'target', color: '--s4', endLabel: true, dy: -6 },
+    { key: 'room', name: 'Room (HA sensor)', short: 'room', color: '--s5' },
+  ];
+  legend('legend-temp', tempSeries);
+  const tempRange = niceRange(tempPts.flatMap(p => tempSeries.map(s => p[s.key])), 5);
+  lineChart('chart-temp', {
+    label: 'Outside, water and room temperatures over the recording',
+    x0, x1, y: tempRange.y, yTicks: tempRange.ticks, yFmt: v => `${Math.round(v * 4) / 4} °C`,
+    xTicks: dayTicks(x0, x1, 6), points: tempPts, series: tempSeries, height: 320,
+  });
+
+  const hzSeries = [{ key: 'hz', name: 'Compressor frequency', short: 'Hz', color: '--s1', area: true }];
+  legend('legend-hz', hzSeries);
+  const cmdColor = { SetCurves: '--s4', SetMaxPumpDuty: '--s3' };
+  let labelled = 0;
+  const marks = D.commands.map(c => {
+    const mk = { t: c.t, color: cmdColor[c.name] || '--s5', label: '' };
+    if (c.name === 'SetCurves') {
+      let target = '';
+      try { target = JSON.parse(c.payload).zone1.heat.target.high; } catch (e) { target = '?'; }
+      mk.label = `${target} °C`;
+      mk.anchor = labelled % 2 ? 'start' : 'end'; mk.dx = labelled % 2 ? 4 : -4;
+      labelled++;
+    }
+    return mk;
+  });
+  if (labelled > 8) marks.forEach(mk => { mk.label = ''; });
+  const showMarks = marks.length <= 150;
+  if (!showMarks) document.querySelector('#chart-hz').previousElementSibling.previousElementSibling.textContent =
+    `Compressor frequency in Hz. The controller sent ${marks.length.toLocaleString('en')} commands over the recording, too many to mark here; the latest ones are listed in the command table below.`;
+  const hzRange = niceRange(D.series.map(p => p.hz).concat([0]), 20);
+  lineChart('chart-hz', {
+    label: 'Compressor frequency with command markers',
+    x0, x1, y: hzRange.y, yTicks: hzRange.ticks, yFmt: v => `${Math.round(v)} Hz`,
+    xTicks: dayTicks(x0, x1, 6), points: D.series.map(p => ({ t: p.t, hz: p.hz })), series: hzSeries, marks: showMarks ? marks : [], height: 220,
+  });
+  const cmdLegend = document.getElementById('legend-hz');
+  if (showMarks) [['--s4', 'SetCurves (water target)'], ['--s3', 'SetMaxPumpDuty']].forEach(([c, n]) => {
+    const li = document.createElement('li'); const k = document.createElement('span'); k.className = 'key'; k.style.setProperty('--c', css(c));
+    li.appendChild(k); li.appendChild(document.createTextNode(n + ' marker')); cmdLegend.appendChild(li);
+  });
+
+  const rx0 = Math.max(x0, x1 - 48 * 3600);
+  const recentSeries = [
+    { key: 'target', name: 'Water target set by the controller', short: 'target', color: '--s4', endLabel: true, dy: -6 },
+    { key: 'outlet', name: 'Water outlet', short: 'outlet', color: '--s2', endLabel: true, dy: 12 },
+    { key: 'outside', name: 'Outside temperature', short: 'outside', color: '--s1', endLabel: true },
+    { key: 'room', name: 'Room (HA sensor)', short: 'room', color: '--s5' },
+  ];
+  legend('legend-recent', recentSeries);
+  let rl = 0;
+  const recentMarks = D.commands.filter(c => c.t >= rx0 && c.name === 'SetCurves').map(c => {
+    let target = '?'; try { target = JSON.parse(c.payload).zone1.heat.target.high; } catch (e) {}
+    const mk = { t: c.t, color: '--s4', label: `${target}`, anchor: rl % 2 ? 'start' : 'end', dx: rl % 2 ? 3 : -3 }; rl++; return mk;
+  });
+  if (recentMarks.length > 24) {
+    recentMarks.length = 0;
+    document.querySelector('#chart-recent').previousElementSibling.previousElementSibling.textContent =
+      `Close-up of the most recent two days: the water target the controller sets, what the outlet actually reached, and the outside and room temperatures. The controller changed the target ${rl} times in this window, so the yellow line shows the changes instead of markers.`;
+  }
+  const recentPts = tempPts.filter(p => p.t >= rx0 - 300);
+  const recentRange = niceRange(recentPts.flatMap(p => recentSeries.map(s => p[s.key])), 5);
+  lineChart('chart-recent', {
+    label: 'Last 48 hours of water target, outlet, outside and room temperature',
+    x0: rx0, x1, y: recentRange.y, yTicks: recentRange.ticks, yFmt: v => `${Math.round(v * 4) / 4} °C`,
+    xTicks: dayTicks(rx0, x1, 6), points: recentPts, series: recentSeries, marks: recentMarks, height: 320,
+  });
+
+  const run = [...D.runs].sort((a, b) => b.minutes - a.minutes)[0] || { start: x0, end: x0 + 3600, minutes: 0 };
+  document.getElementById('run-title').textContent = `Longest heating cycle, ${fmtFull.format(run.start * 1000)}, ${run.minutes} min`;
+  const r0 = run.start - 9 * 60, r1 = run.end + 9 * 60;
+  const runPts = D.series.filter(p => p.t >= r0 - 300 && p.t <= r1 + 300).map(p => ({ t: p.t, heat_w: p.heat_w, cons_w: p.cons_w }));
+  const runSeries = [
+    { key: 'heat_w', name: 'Heat output', short: 'W out', color: '--s2', area: true, endLabel: false },
+    { key: 'cons_w', name: 'Electrical input', short: 'W in', color: '--s1', area: true },
+  ];
+  legend('legend-run', runSeries);
+  const runTicks = [];
+  const runStep = [600, 1800, 3600, 7200, 10800].find(s => (r1 - r0) / s <= 10) || 21600;
+  for (let t = Math.ceil(r0 / runStep) * runStep; t <= r1; t += runStep) runTicks.push([t, fmtHour.format(t * 1000), false]);
+  const runRange = niceRange(runPts.flatMap(p => [p.heat_w, p.cons_w]).concat([0]), 2000);
+  lineChart('chart-run', {
+    label: 'Heat output and electrical input during the heating cycle',
+    x0: r0, x1: r1, y: runRange.y, yTicks: runRange.ticks, yFmt: v => `${Math.round(v).toLocaleString('en')} W`,
+    xTicks: runTicks, points: runPts, series: runSeries, height: 220,
+  });
+
+  const runsT = document.getElementById('runs');
+  const rh = ['Start', 'Length', 'Outside', 'Max Hz', 'Max outlet', 'Heat out', 'Electric in', 'Ratio'];
+  const rtr = document.createElement('tr'); rh.forEach((h, i) => { const th = document.createElement('th'); th.textContent = h; if (i) th.className = 'num'; rtr.appendChild(th); }); runsT.appendChild(rtr);
+  D.runs.forEach(r => {
+    const tr = document.createElement('tr');
+    const ratio = r.cons_wh > 0 ? (r.heat_wh / r.cons_wh).toFixed(1) : '';
+    [fmtFull.format(r.start * 1000), `${r.minutes} min`, r.outside == null ? '' : `${r.outside} °C`, `${Math.round(r.max_hz)} Hz`, `${(Math.round(r.max_outlet * 4) / 4)} °C`, `${(r.heat_wh / 1000).toFixed(2)} kWh`, `${(r.cons_wh / 1000).toFixed(2)} kWh`, ratio].forEach((v, i) => { const td = document.createElement('td'); td.textContent = v; if (i) td.className = 'num'; tr.appendChild(td); });
+    runsT.appendChild(tr);
+  });
+
+  const daily = document.getElementById('daily');
+  const dh = ['Day', 'Outside min', 'Outside max', 'Cycles', 'Compressor', 'Heat out', 'Electric in'];
+  const dtr = document.createElement('tr'); dh.forEach((h, i) => { const th = document.createElement('th'); th.textContent = h; if (i) th.className = 'num'; dtr.appendChild(th); }); daily.appendChild(dtr);
+  Object.entries(D.daily).forEach(([day, d]) => {
+    const tr = document.createElement('tr');
+    const cells = [fmtDay.format(new Date(day + 'T12:00:00Z')), `${d.out_min} °C`, `${d.out_max} °C`, `${d.runs}`, `${d.run_min} min`, `${(d.heat_wh / 1000).toFixed(1)} kWh`, `${(d.cons_wh / 1000).toFixed(2)} kWh`];
+    cells.forEach((c, i) => { const td = document.createElement('td'); td.textContent = c; if (i) td.className = 'num'; tr.appendChild(td); });
+    daily.appendChild(tr);
+  });
+
+  const H = D.health;
+  const health = document.getElementById('health');
+  const gz = H.files.filter(f => f.endsWith('.gz')).length;
+  [['Container', 'healthy'], ['Day files', `${gz} gzipped, ${H.files.length - gz} active`], ['On disk', `${(H.bytes / 1e6).toFixed(1)} MB`], ['Gaps over 60 s', `${H.gaps}`], ['Reconnects (retained bursts)', `${H.bursts}`], ['LWT Online cadence', `${H.online_cadence.toFixed(1)} s`], ['Full dump interval', `${Math.round(H.dump_interval)} s (firmware: 300 s + query)`], ['Distinct topics', `${H.topics}, of which ${H.main_topics} main/*`], ['Validation', H.problems.length ? H.problems.join('; ') : 'ok']].forEach(([k, v]) => {
+    const tr = document.createElement('tr'); const th = document.createElement('th'); th.textContent = k; const td = document.createElement('td'); td.textContent = v; tr.append(th, td); health.appendChild(tr);
+  });
+
+  const cmds = document.getElementById('cmds');
+  const ctr = document.createElement('tr'); ['When', 'Command', 'Payload', 'Pump response'].forEach(h => { const th = document.createElement('th'); th.textContent = h; ctr.appendChild(th); }); cmds.appendChild(ctr);
+  const CMD_ROWS = 200;
+  if (D.commands.length > CMD_ROWS) cmds.closest('.card').querySelector('.note').textContent =
+    `The most recent ${CMD_ROWS} of ${D.commands.length.toLocaleString('en')} messages on panasonic_heat_pump/commands/#, newest first.`;
+  D.commands.slice(-CMD_ROWS).reverse().forEach(c => {
+    const tr = document.createElement('tr');
+    const resp = c.response ? `${c.response.topic} = ${c.response.value} after ${c.response.latency} s` : 'no change seen within 30 s';
+    [fmtFull.format(c.t * 1000), c.name, c.payload, resp].forEach((v, j) => { const td = document.createElement('td'); if (j === 2) { const code = document.createElement('code'); code.textContent = v; td.appendChild(code); } else td.textContent = v; tr.appendChild(td); });
+    cmds.appendChild(tr);
+  });
+
+  const hourly = document.getElementById('hourly');
+  const htr = document.createElement('tr'); ['Hour', 'Outside', 'Outlet', 'Inlet', 'Target', 'Room', 'Compressor'].forEach((h, i) => { const th = document.createElement('th'); th.textContent = h; if (i) th.className = 'num'; htr.appendChild(th); }); hourly.appendChild(htr);
+  const byHour = new Map();
+  tempPts.forEach((p, i) => { const key = Math.floor(p.t / 3600) * 3600; byHour.set(key, { ...p, hz: D.series[i].hz }); });
+  byHour.forEach((p, key) => {
+    const tr = document.createElement('tr');
+    const f = v => v == null ? '' : (Math.round(v * 4) / 4).toString();
+    [fmtTime.format(key * 1000), f(p.outside), f(p.outlet), f(p.inlet), f(p.target), f(p.room), p.hz == null ? '' : Math.round(p.hz) + ' Hz'].forEach((v, i) => { const td = document.createElement('td'); td.textContent = v; if (i) td.className = 'num'; tr.appendChild(td); });
+    hourly.appendChild(tr);
+  });
+})();
+</script>

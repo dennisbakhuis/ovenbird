@@ -1,0 +1,3958 @@
+{
+  "from": "2025-11-11T11:45:00Z",
+  "to": "2025-11-11T12:00:00Z",
+  "limit": 200,
+  "decisions": [
+    {
+      "at": "2025-11-11T11:45:00Z",
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "schedule_curve_feedback",
+      "reason": "room_feedback",
+      "setpoint": 33,
+      "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.6 °C outside; held value 21.5 °C (23 min), device alive (humidity 11 min ago), ±0.2 K, cooling authority 100 %; setpoint 33 °C.",
+      "arbiter": [
+        {
+          "kind": "water_setpoint",
+          "intent": 33,
+          "actual": 33,
+          "action": "none",
+          "reason": "already applied"
+        },
+        {
+          "kind": "max_pump_duty",
+          "intent": 102,
+          "actual": 102,
+          "action": "none",
+          "reason": "already applied"
+        }
+      ],
+      "commands": [],
+      "config_version": null,
+      "record": {
+        "schema": 1,
+        "at": {
+          "monotonic": 1762861500.0,
+          "wall": "2025-11-11T11:45:00+00:00"
+        },
+        "controller": "ovenbird",
+        "mode": "auto",
+        "ladder": "schedule_curve_feedback",
+        "terms": [
+          {
+            "name": "curve",
+            "raw": 35.285294796980914,
+            "value": 35.285294796980914,
+            "unit": "°C",
+            "note": "curve at -2.57 °C filtered outside (0 °C raw)"
+          },
+          {
+            "name": "room_feedback",
+            "raw": -2.215555555555568,
+            "value": -2.215555555555568,
+            "unit": "K",
+            "note": "room 21.50 °C vs target 21.00 °C: P -1.0 K + I -1.2 K; held value 21.5 °C (23 min), device alive (humidity 11 min ago), ±0.2 K, cooling authority 100 %"
+          },
+          {
+            "name": "plan",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no plan"
+          },
+          {
+            "name": "start_ramp",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no ramp"
+          },
+          {
+            "name": "cycling_floor",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "outside min-run window"
+          },
+          {
+            "name": "safety",
+            "raw": 33.069739241425346,
+            "value": 33.069739241425346,
+            "unit": "°C",
+            "note": "allowed [28.00, 39.00] °C at 0 °C outside"
+          }
+        ],
+        "pre_round": 33.069739241425346,
+        "setpoint": 33,
+        "binding": null,
+        "flip_distance": 0.46513037928732714,
+        "flip_input": "ha/sensor.living_room_temperature",
+        "inputs_used": [
+          {
+            "signal": "main/Outside_Temp",
+            "value": 0,
+            "age": 295.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Outlet_Temp",
+            "value": 27.25,
+            "age": 60.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Inlet_Temp",
+            "value": 27.25,
+            "age": 60.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Compressor_Freq",
+            "value": 0,
+            "age": 295.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Defrosting_State",
+            "value": 0,
+            "age": 295.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/ThreeWay_Valve_State",
+            "value": 0,
+            "age": 295.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Heating_Mode",
+            "value": 1,
+            "age": 295.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Operating_Mode_State",
+            "value": 0,
+            "age": 295.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Z1_Water_Target_Temp",
+            "value": 33,
+            "age": 295.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Max_Pump_Duty",
+            "value": 102,
+            "age": 295.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Room_Thermostat_Temp",
+            "value": 21,
+            "age": 295.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "stats",
+            "value": true,
+            "age": 0.0,
+            "fresh": true,
+            "source": null,
+            "issued": null
+          },
+          {
+            "signal": "ha/sensor.living_room_temperature",
+            "value": 21.5,
+            "age": 680.0,
+            "fresh": true,
+            "source": "room",
+            "issued": null
+          }
+        ],
+        "controller_state": {
+          "crosscheck_latched_c": null,
+          "crosscheck_offset_k": -0.045473829877536454,
+          "crosscheck_since": null,
+          "dwell_remaining_s": 0.0,
+          "frozen_by": null,
+          "integral_at_life_k": -1.1972222222222344,
+          "integral_k": -1.2172222222222349,
+          "last_change_at": 1762860000.0,
+          "last_tick_at": 1762861500.0,
+          "outside_at": 1762861500.0,
+          "outside_filtered_c": -2.570589593961828,
+          "pump_duty": 102,
+          "quiet_level": null,
+          "ramp_cap_c": null,
+          "ramp_elapsed_s": 0.0,
+          "ramp_phase": "idle",
+          "room_alive_by": "ha/sensor.living_room_humidity",
+          "room_alive_s": 680.0,
+          "room_authority": 1.0,
+          "room_crosscheck_deviation_k": -0.4548420326451338,
+          "room_crosscheck_threshold_k": 1.5,
+          "room_error_k": -0.5,
+          "room_held_s": 1380.0,
+          "room_lost_at": null,
+          "room_plausible": true,
+          "room_profile": "on_change",
+          "room_quantum_k": 0.2,
+          "room_target_c": 21.0,
+          "run_started_at": null,
+          "running": false,
+          "safety_high_c": 39.0,
+          "safety_low_c": 28.0,
+          "setpoint": 33,
+          "stopped_at": 1762860000.0,
+          "stove_blocked": false,
+          "stove_entry_c": null,
+          "stove_event": null,
+          "stove_exit": null,
+          "stove_fault": false,
+          "stove_high_at": null,
+          "stove_high_c": null,
+          "stove_integral_k": null,
+          "stove_level_blocked": false,
+          "stove_low_at": null,
+          "stove_low_c": null,
+          "stove_predip_c": null,
+          "stove_reentry_wait": false,
+          "stove_since": null,
+          "stove_source": null,
+          "stove_step_low_at": null,
+          "stove_step_low_c": null,
+          "stove_trigger": null,
+          "stove_trusted_since": null
+        },
+        "reason": "room_feedback",
+        "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.6 °C outside; held value 21.5 °C (23 min), device alive (humidity 11 min ago), ±0.2 K, cooling authority 100 %; setpoint 33 °C.",
+        "intents": [
+          {
+            "kind": "water_setpoint",
+            "value": 33,
+            "reason": "room_feedback"
+          },
+          {
+            "kind": "max_pump_duty",
+            "value": 102,
+            "reason": "pump_duty_idle"
+          }
+        ],
+        "actor": null
+      }
+    },
+    {
+      "at": "2025-11-11T11:46:00Z",
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "schedule_curve_feedback",
+      "reason": "room_feedback",
+      "setpoint": 33,
+      "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.6 °C outside; held value 21.5 °C (24 min), device alive (humidity 12 min ago), ±0.2 K, cooling authority 100 %; setpoint 33 °C.",
+      "arbiter": [
+        {
+          "kind": "water_setpoint",
+          "intent": 33,
+          "actual": 33,
+          "action": "none",
+          "reason": "already applied"
+        },
+        {
+          "kind": "max_pump_duty",
+          "intent": 102,
+          "actual": 102,
+          "action": "none",
+          "reason": "already applied"
+        }
+      ],
+      "commands": [],
+      "config_version": null,
+      "record": {
+        "schema": 1,
+        "at": {
+          "monotonic": 1762861560.0,
+          "wall": "2025-11-11T11:46:00+00:00"
+        },
+        "controller": "ovenbird",
+        "mode": "auto",
+        "ladder": "schedule_curve_feedback",
+        "terms": [
+          {
+            "name": "curve",
+            "raw": 35.27995054358658,
+            "value": 35.27995054358658,
+            "unit": "°C",
+            "note": "curve at -2.56 °C filtered outside (0 °C raw)"
+          },
+          {
+            "name": "room_feedback",
+            "raw": -2.217222222222235,
+            "value": -2.217222222222235,
+            "unit": "K",
+            "note": "room 21.50 °C vs target 21.00 °C: P -1.0 K + I -1.2 K; held value 21.5 °C (24 min), device alive (humidity 12 min ago), ±0.2 K, cooling authority 100 %"
+          },
+          {
+            "name": "plan",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no plan"
+          },
+          {
+            "name": "start_ramp",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no ramp"
+          },
+          {
+            "name": "cycling_floor",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "outside min-run window"
+          },
+          {
+            "name": "safety",
+            "raw": 33.06272832136435,
+            "value": 33.06272832136435,
+            "unit": "°C",
+            "note": "allowed [28.00, 39.00] °C at 0 °C outside"
+          }
+        ],
+        "pre_round": 33.06272832136435,
+        "setpoint": 33,
+        "binding": null,
+        "flip_distance": 0.4686358393178267,
+        "flip_input": "ha/sensor.living_room_temperature",
+        "inputs_used": [
+          {
+            "signal": "main/Outside_Temp",
+            "value": 0,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Outlet_Temp",
+            "value": 27.25,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Inlet_Temp",
+            "value": 27.25,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Compressor_Freq",
+            "value": 0,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Defrosting_State",
+            "value": 0,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/ThreeWay_Valve_State",
+            "value": 0,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Heating_Mode",
+            "value": 1,
+            "age": 55.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Operating_Mode_State",
+            "value": 0,
+            "age": 55.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Z1_Water_Target_Temp",
+            "value": 33,
+            "age": 55.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Max_Pump_Duty",
+            "value": 102,
+            "age": 55.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Room_Thermostat_Temp",
+            "value": 22,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "stats",
+            "value": true,
+            "age": 0.0,
+            "fresh": true,
+            "source": null,
+            "issued": null
+          },
+          {
+            "signal": "ha/sensor.living_room_temperature",
+            "value": 21.5,
+            "age": 740.0,
+            "fresh": true,
+            "source": "room",
+            "issued": null
+          }
+        ],
+        "controller_state": {
+          "crosscheck_latched_c": null,
+          "crosscheck_offset_k": -0.045095028606788164,
+          "crosscheck_since": null,
+          "dwell_remaining_s": 0.0,
+          "frozen_by": null,
+          "integral_at_life_k": -1.1972222222222344,
+          "integral_k": -1.2188888888889016,
+          "last_change_at": 1762860000.0,
+          "last_tick_at": 1762861560.0,
+          "outside_at": 1762861560.0,
+          "outside_filtered_c": -2.5599010871731553,
+          "pump_duty": 102,
+          "quiet_level": null,
+          "ramp_cap_c": null,
+          "ramp_elapsed_s": 0.0,
+          "ramp_phase": "idle",
+          "room_alive_by": "ha/sensor.living_room_humidity",
+          "room_alive_s": 740.0,
+          "room_authority": 1.0,
+          "room_crosscheck_deviation_k": 0.5454738298775365,
+          "room_crosscheck_threshold_k": 1.5,
+          "room_error_k": -0.5,
+          "room_held_s": 1440.0,
+          "room_lost_at": null,
+          "room_plausible": true,
+          "room_profile": "on_change",
+          "room_quantum_k": 0.2,
+          "room_target_c": 21.0,
+          "run_started_at": null,
+          "running": false,
+          "safety_high_c": 39.0,
+          "safety_low_c": 28.0,
+          "setpoint": 33,
+          "stopped_at": 1762860000.0,
+          "stove_blocked": false,
+          "stove_entry_c": null,
+          "stove_event": null,
+          "stove_exit": null,
+          "stove_fault": false,
+          "stove_high_at": null,
+          "stove_high_c": null,
+          "stove_integral_k": null,
+          "stove_level_blocked": false,
+          "stove_low_at": null,
+          "stove_low_c": null,
+          "stove_predip_c": null,
+          "stove_reentry_wait": false,
+          "stove_since": null,
+          "stove_source": null,
+          "stove_step_low_at": null,
+          "stove_step_low_c": null,
+          "stove_trigger": null,
+          "stove_trusted_since": null
+        },
+        "reason": "room_feedback",
+        "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.6 °C outside; held value 21.5 °C (24 min), device alive (humidity 12 min ago), ±0.2 K, cooling authority 100 %; setpoint 33 °C.",
+        "intents": [
+          {
+            "kind": "water_setpoint",
+            "value": 33,
+            "reason": "room_feedback"
+          },
+          {
+            "kind": "max_pump_duty",
+            "value": 102,
+            "reason": "pump_duty_idle"
+          }
+        ],
+        "actor": null
+      }
+    },
+    {
+      "at": "2025-11-11T11:47:00Z",
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "schedule_curve_feedback",
+      "reason": "room_feedback",
+      "setpoint": 33,
+      "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.5 °C outside; held value 21.5 °C (25 min), device alive (humidity 13 min ago), ±0.2 K, cooling authority 100 %; setpoint 33 °C.",
+      "arbiter": [
+        {
+          "kind": "water_setpoint",
+          "intent": 33,
+          "actual": 33,
+          "action": "none",
+          "reason": "already applied"
+        },
+        {
+          "kind": "max_pump_duty",
+          "intent": 102,
+          "actual": 102,
+          "action": "none",
+          "reason": "already applied"
+        }
+      ],
+      "commands": [],
+      "config_version": null,
+      "record": {
+        "schema": 1,
+        "at": {
+          "monotonic": 1762861620.0,
+          "wall": "2025-11-11T11:47:00+00:00"
+        },
+        "controller": "ovenbird",
+        "mode": "auto",
+        "ladder": "schedule_curve_feedback",
+        "terms": [
+          {
+            "name": "curve",
+            "raw": 35.27462851158799,
+            "value": 35.27462851158799,
+            "unit": "°C",
+            "note": "curve at -2.55 °C filtered outside (0 °C raw)"
+          },
+          {
+            "name": "room_feedback",
+            "raw": -2.218888888888902,
+            "value": -2.218888888888902,
+            "unit": "K",
+            "note": "room 21.50 °C vs target 21.00 °C: P -1.0 K + I -1.2 K; held value 21.5 °C (25 min), device alive (humidity 13 min ago), ±0.2 K, cooling authority 100 %"
+          },
+          {
+            "name": "plan",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no plan"
+          },
+          {
+            "name": "start_ramp",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no ramp"
+          },
+          {
+            "name": "cycling_floor",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "outside min-run window"
+          },
+          {
+            "name": "safety",
+            "raw": 33.05573962269909,
+            "value": 33.05573962269909,
+            "unit": "°C",
+            "note": "allowed [28.00, 39.00] °C at 0 °C outside"
+          }
+        ],
+        "pre_round": 33.05573962269909,
+        "setpoint": 33,
+        "binding": null,
+        "flip_distance": 0.4721301886504534,
+        "flip_input": "ha/sensor.living_room_temperature",
+        "inputs_used": [
+          {
+            "signal": "main/Outside_Temp",
+            "value": 0,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Outlet_Temp",
+            "value": 27.25,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Inlet_Temp",
+            "value": 27.25,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Compressor_Freq",
+            "value": 0,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Defrosting_State",
+            "value": 0,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/ThreeWay_Valve_State",
+            "value": 0,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Heating_Mode",
+            "value": 1,
+            "age": 115.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Operating_Mode_State",
+            "value": 0,
+            "age": 115.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Z1_Water_Target_Temp",
+            "value": 33,
+            "age": 115.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Max_Pump_Duty",
+            "value": 102,
+            "age": 115.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Room_Thermostat_Temp",
+            "value": 22,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "stats",
+            "value": true,
+            "age": 0.0,
+            "fresh": true,
+            "source": null,
+            "issued": null
+          },
+          {
+            "signal": "ha/sensor.living_room_temperature",
+            "value": 21.5,
+            "age": 800.0,
+            "fresh": true,
+            "source": "room",
+            "issued": null
+          }
+        ],
+        "controller_state": {
+          "crosscheck_latched_c": null,
+          "crosscheck_offset_k": -0.044716490392477895,
+          "crosscheck_since": null,
+          "dwell_remaining_s": 0.0,
+          "frozen_by": null,
+          "integral_at_life_k": -1.1972222222222344,
+          "integral_k": -1.2205555555555683,
+          "last_change_at": 1762860000.0,
+          "last_tick_at": 1762861620.0,
+          "outside_at": 1762861620.0,
+          "outside_filtered_c": -2.5492570231759886,
+          "pump_duty": 102,
+          "quiet_level": null,
+          "ramp_cap_c": null,
+          "ramp_elapsed_s": 0.0,
+          "ramp_phase": "idle",
+          "room_alive_by": "ha/sensor.living_room_humidity",
+          "room_alive_s": 800.0,
+          "room_authority": 1.0,
+          "room_crosscheck_deviation_k": 0.5450950286067882,
+          "room_crosscheck_threshold_k": 1.5,
+          "room_error_k": -0.5,
+          "room_held_s": 1500.0,
+          "room_lost_at": null,
+          "room_plausible": true,
+          "room_profile": "on_change",
+          "room_quantum_k": 0.2,
+          "room_target_c": 21.0,
+          "run_started_at": null,
+          "running": false,
+          "safety_high_c": 39.0,
+          "safety_low_c": 28.0,
+          "setpoint": 33,
+          "stopped_at": 1762860000.0,
+          "stove_blocked": false,
+          "stove_entry_c": null,
+          "stove_event": null,
+          "stove_exit": null,
+          "stove_fault": false,
+          "stove_high_at": null,
+          "stove_high_c": null,
+          "stove_integral_k": null,
+          "stove_level_blocked": false,
+          "stove_low_at": null,
+          "stove_low_c": null,
+          "stove_predip_c": null,
+          "stove_reentry_wait": false,
+          "stove_since": null,
+          "stove_source": null,
+          "stove_step_low_at": null,
+          "stove_step_low_c": null,
+          "stove_trigger": null,
+          "stove_trusted_since": null
+        },
+        "reason": "room_feedback",
+        "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.5 °C outside; held value 21.5 °C (25 min), device alive (humidity 13 min ago), ±0.2 K, cooling authority 100 %; setpoint 33 °C.",
+        "intents": [
+          {
+            "kind": "water_setpoint",
+            "value": 33,
+            "reason": "room_feedback"
+          },
+          {
+            "kind": "max_pump_duty",
+            "value": 102,
+            "reason": "pump_duty_idle"
+          }
+        ],
+        "actor": null
+      }
+    },
+    {
+      "at": "2025-11-11T11:48:00Z",
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "schedule_curve_feedback",
+      "reason": "start_ramp",
+      "setpoint": 30,
+      "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.5 °C outside; held value 21.5 °C (26 min), device alive (humidity 14 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 33 → 30 °C.",
+      "arbiter": [
+        {
+          "kind": "water_setpoint",
+          "intent": 30,
+          "actual": 33,
+          "action": "send",
+          "reason": "pump reports 33"
+        },
+        {
+          "kind": "max_pump_duty",
+          "intent": 159,
+          "actual": 102,
+          "action": "send",
+          "reason": "pump reports 102"
+        }
+      ],
+      "commands": [
+        {
+          "at": "2025-11-11T11:48:00Z",
+          "kind": "water_setpoint",
+          "value": 30,
+          "status": "queued",
+          "attempt": 0,
+          "detail": "queued",
+          "topic": "panasonic_heat_pump/commands/SetCurves",
+          "payload": "{\"zone1\":{\"heat\":{\"target\":{\"high\":30}}}}"
+        },
+        {
+          "at": "2025-11-11T11:48:00Z",
+          "kind": "max_pump_duty",
+          "value": 159,
+          "status": "queued",
+          "attempt": 0,
+          "detail": "queued",
+          "topic": "panasonic_heat_pump/commands/SetMaxPumpDuty",
+          "payload": "159"
+        }
+      ],
+      "config_version": null,
+      "record": {
+        "schema": 1,
+        "at": {
+          "monotonic": 1762861680.0,
+          "wall": "2025-11-11T11:48:00+00:00"
+        },
+        "controller": "ovenbird",
+        "mode": "auto",
+        "ladder": "schedule_curve_feedback",
+        "terms": [
+          {
+            "name": "curve",
+            "raw": 35.271407607666085,
+            "value": 35.271407607666085,
+            "unit": "°C",
+            "note": "curve at -2.54 °C filtered outside (-1 °C raw)"
+          },
+          {
+            "name": "room_feedback",
+            "raw": -2.2205555555555683,
+            "value": -2.2205555555555683,
+            "unit": "K",
+            "note": "room 21.50 °C vs target 21.00 °C: P -1.0 K + I -1.2 K; held value 21.5 °C (26 min), device alive (humidity 14 min ago), ±0.2 K, cooling authority 100 %"
+          },
+          {
+            "name": "plan",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no plan"
+          },
+          {
+            "name": "start_ramp",
+            "raw": -2.7794444444444295,
+            "value": -2.7794444444444295,
+            "unit": "K",
+            "note": "hold phase, cap 30.27 °C (0 min run)"
+          },
+          {
+            "name": "cycling_floor",
+            "raw": -2.0214076076660845,
+            "value": 0.0,
+            "unit": "K",
+            "note": "min-run window: keep ≥ 28.25 °C (outlet 29.75 °C)"
+          },
+          {
+            "name": "safety",
+            "raw": 30.271407607666085,
+            "value": 30.271407607666085,
+            "unit": "°C",
+            "note": "allowed [28.50, 39.50] °C at -1 °C outside"
+          }
+        ],
+        "pre_round": 30.271407607666085,
+        "setpoint": 30,
+        "binding": "start_ramp",
+        "flip_distance": 0.36429619616695774,
+        "flip_input": "ha/sensor.living_room_temperature",
+        "inputs_used": [
+          {
+            "signal": "main/Outside_Temp",
+            "value": -1,
+            "age": 40.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Outlet_Temp",
+            "value": 29.75,
+            "age": 40.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Inlet_Temp",
+            "value": 27.0,
+            "age": 30.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Compressor_Freq",
+            "value": 30,
+            "age": 40.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Defrosting_State",
+            "value": 0,
+            "age": 175.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/ThreeWay_Valve_State",
+            "value": 0,
+            "age": 175.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Heating_Mode",
+            "value": 1,
+            "age": 175.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Operating_Mode_State",
+            "value": 0,
+            "age": 175.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Z1_Water_Target_Temp",
+            "value": 33,
+            "age": 175.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Max_Pump_Duty",
+            "value": 102,
+            "age": 175.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Room_Thermostat_Temp",
+            "value": 22,
+            "age": 175.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "stats",
+            "value": true,
+            "age": 0.0,
+            "fresh": true,
+            "source": null,
+            "issued": null
+          },
+          {
+            "signal": "ha/sensor.living_room_temperature",
+            "value": 21.5,
+            "age": 860.0,
+            "fresh": true,
+            "source": "room",
+            "issued": null
+          }
+        ],
+        "controller_state": {
+          "crosscheck_latched_c": null,
+          "crosscheck_offset_k": -0.04433821505192756,
+          "crosscheck_since": null,
+          "dwell_remaining_s": 0.0,
+          "frozen_by": null,
+          "integral_at_life_k": -1.1972222222222344,
+          "integral_k": -1.222222222222235,
+          "last_change_at": 1762861680.0,
+          "last_tick_at": 1762861680.0,
+          "outside_at": 1762861680.0,
+          "outside_filtered_c": -2.5428152153321726,
+          "pump_duty": 159,
+          "quiet_level": null,
+          "ramp_cap_c": 30.271407607666085,
+          "ramp_elapsed_s": 0.0,
+          "ramp_phase": "hold",
+          "room_alive_by": "ha/sensor.living_room_humidity",
+          "room_alive_s": 860.0,
+          "room_authority": 1.0,
+          "room_crosscheck_deviation_k": 0.5447164903924779,
+          "room_crosscheck_threshold_k": 1.5,
+          "room_error_k": -0.5,
+          "room_held_s": 1560.0,
+          "room_lost_at": null,
+          "room_plausible": true,
+          "room_profile": "on_change",
+          "room_quantum_k": 0.2,
+          "room_target_c": 21.0,
+          "run_started_at": 1762861680.0,
+          "running": true,
+          "safety_high_c": 39.5,
+          "safety_low_c": 28.5,
+          "setpoint": 30,
+          "stopped_at": 1762860000.0,
+          "stove_blocked": false,
+          "stove_entry_c": null,
+          "stove_event": null,
+          "stove_exit": null,
+          "stove_fault": false,
+          "stove_high_at": null,
+          "stove_high_c": null,
+          "stove_integral_k": null,
+          "stove_level_blocked": false,
+          "stove_low_at": null,
+          "stove_low_c": null,
+          "stove_predip_c": null,
+          "stove_reentry_wait": false,
+          "stove_since": null,
+          "stove_source": null,
+          "stove_step_low_at": null,
+          "stove_step_low_c": null,
+          "stove_trigger": null,
+          "stove_trusted_since": null
+        },
+        "reason": "start_ramp",
+        "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.5 °C outside; held value 21.5 °C (26 min), device alive (humidity 14 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 33 → 30 °C.",
+        "intents": [
+          {
+            "kind": "water_setpoint",
+            "value": 30,
+            "reason": "start_ramp"
+          },
+          {
+            "kind": "max_pump_duty",
+            "value": 159,
+            "reason": "pump_duty_heat"
+          }
+        ],
+        "actor": null
+      }
+    },
+    {
+      "at": "2025-11-11T11:49:00Z",
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "schedule_curve_feedback",
+      "reason": "start_ramp",
+      "setpoint": 30,
+      "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.5 °C outside; held value 21.5 °C (27 min), device alive (humidity 15 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+      "arbiter": [
+        {
+          "kind": "water_setpoint",
+          "intent": 30,
+          "actual": 30,
+          "action": "none",
+          "reason": "already applied"
+        },
+        {
+          "kind": "max_pump_duty",
+          "intent": 159,
+          "actual": 159,
+          "action": "none",
+          "reason": "already applied"
+        }
+      ],
+      "commands": [],
+      "config_version": null,
+      "record": {
+        "schema": 1,
+        "at": {
+          "monotonic": 1762861740.0,
+          "wall": "2025-11-11T11:49:00+00:00"
+        },
+        "controller": "ovenbird",
+        "mode": "auto",
+        "ladder": "schedule_curve_feedback",
+        "terms": [
+          {
+            "name": "curve",
+            "raw": 35.26820009625674,
+            "value": 35.26820009625674,
+            "unit": "°C",
+            "note": "curve at -2.54 °C filtered outside (-1 °C raw)"
+          },
+          {
+            "name": "room_feedback",
+            "raw": -2.2222222222222348,
+            "value": -2.2222222222222348,
+            "unit": "K",
+            "note": "room 21.50 °C vs target 21.00 °C: P -1.0 K + I -1.2 K; held value 21.5 °C (27 min), device alive (humidity 15 min ago), ±0.2 K, cooling authority 100 %"
+          },
+          {
+            "name": "plan",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no plan"
+          },
+          {
+            "name": "start_ramp",
+            "raw": -2.7745702663684213,
+            "value": -2.7745702663684213,
+            "unit": "K",
+            "note": "hold phase, cap 30.27 °C (1 min run)"
+          },
+          {
+            "name": "cycling_floor",
+            "raw": -2.2714076076660845,
+            "value": 0.0,
+            "unit": "K",
+            "note": "min-run window: keep ≥ 28.00 °C (outlet 29.5 °C)"
+          },
+          {
+            "name": "safety",
+            "raw": 30.271407607666085,
+            "value": 30.271407607666085,
+            "unit": "°C",
+            "note": "allowed [28.50, 39.50] °C at -1 °C outside"
+          }
+        ],
+        "pre_round": 30.271407607666085,
+        "setpoint": 30,
+        "binding": "start_ramp",
+        "flip_distance": 0.36429619616695774,
+        "flip_input": "ha/sensor.living_room_temperature",
+        "inputs_used": [
+          {
+            "signal": "main/Outside_Temp",
+            "value": -1,
+            "age": 100.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Outlet_Temp",
+            "value": 29.5,
+            "age": 0.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Inlet_Temp",
+            "value": 27.0,
+            "age": 90.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Compressor_Freq",
+            "value": 30,
+            "age": 100.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Defrosting_State",
+            "value": 0,
+            "age": 235.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/ThreeWay_Valve_State",
+            "value": 0,
+            "age": 235.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Heating_Mode",
+            "value": 1,
+            "age": 235.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Operating_Mode_State",
+            "value": 0,
+            "age": 235.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Z1_Water_Target_Temp",
+            "value": 30,
+            "age": 45.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Max_Pump_Duty",
+            "value": 159,
+            "age": 40.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Room_Thermostat_Temp",
+            "value": 21,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "stats",
+            "value": true,
+            "age": 0.0,
+            "fresh": true,
+            "source": null,
+            "issued": null
+          },
+          {
+            "signal": "ha/sensor.living_room_temperature",
+            "value": 21.5,
+            "age": 920.0,
+            "fresh": true,
+            "source": "room",
+            "issued": null
+          }
+        ],
+        "controller_state": {
+          "crosscheck_latched_c": null,
+          "crosscheck_offset_k": -0.04465464684703039,
+          "crosscheck_since": null,
+          "dwell_remaining_s": 120.0,
+          "frozen_by": null,
+          "integral_at_life_k": -1.1972222222222344,
+          "integral_k": -1.2238888888889017,
+          "last_change_at": 1762861680.0,
+          "last_tick_at": 1762861740.0,
+          "outside_at": 1762861740.0,
+          "outside_filtered_c": -2.536400192513485,
+          "pump_duty": 159,
+          "quiet_level": null,
+          "ramp_cap_c": 30.271407607666085,
+          "ramp_elapsed_s": 60.0,
+          "ramp_phase": "hold",
+          "room_alive_by": "ha/sensor.living_room_humidity",
+          "room_alive_s": 920.0,
+          "room_authority": 1.0,
+          "room_crosscheck_deviation_k": -0.4556617849480724,
+          "room_crosscheck_threshold_k": 1.5,
+          "room_error_k": -0.5,
+          "room_held_s": 1620.0,
+          "room_lost_at": null,
+          "room_plausible": true,
+          "room_profile": "on_change",
+          "room_quantum_k": 0.2,
+          "room_target_c": 21.0,
+          "run_started_at": 1762861680.0,
+          "running": true,
+          "safety_high_c": 39.5,
+          "safety_low_c": 28.5,
+          "setpoint": 30,
+          "stopped_at": 1762860000.0,
+          "stove_blocked": false,
+          "stove_entry_c": null,
+          "stove_event": null,
+          "stove_exit": null,
+          "stove_fault": false,
+          "stove_high_at": null,
+          "stove_high_c": null,
+          "stove_integral_k": null,
+          "stove_level_blocked": false,
+          "stove_low_at": null,
+          "stove_low_c": null,
+          "stove_predip_c": null,
+          "stove_reentry_wait": false,
+          "stove_since": null,
+          "stove_source": null,
+          "stove_step_low_at": null,
+          "stove_step_low_c": null,
+          "stove_trigger": null,
+          "stove_trusted_since": null
+        },
+        "reason": "start_ramp",
+        "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.5 °C outside; held value 21.5 °C (27 min), device alive (humidity 15 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+        "intents": [
+          {
+            "kind": "water_setpoint",
+            "value": 30,
+            "reason": "start_ramp"
+          },
+          {
+            "kind": "max_pump_duty",
+            "value": 159,
+            "reason": "pump_duty_heat"
+          }
+        ],
+        "actor": null
+      }
+    },
+    {
+      "at": "2025-11-11T11:50:00Z",
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "schedule_curve_feedback",
+      "reason": "start_ramp",
+      "setpoint": 30,
+      "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.5 °C outside; held value 21.5 °C (28 min), device alive (humidity 16 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+      "arbiter": [
+        {
+          "kind": "water_setpoint",
+          "intent": 30,
+          "actual": 30,
+          "action": "none",
+          "reason": "already applied"
+        },
+        {
+          "kind": "max_pump_duty",
+          "intent": 159,
+          "actual": 159,
+          "action": "none",
+          "reason": "already applied"
+        }
+      ],
+      "commands": [],
+      "config_version": null,
+      "record": {
+        "schema": 1,
+        "at": {
+          "monotonic": 1762861800.0,
+          "wall": "2025-11-11T11:50:00+00:00"
+        },
+        "controller": "ovenbird",
+        "mode": "auto",
+        "ladder": "schedule_curve_feedback",
+        "terms": [
+          {
+            "name": "curve",
+            "raw": 35.26500592167392,
+            "value": 35.26500592167392,
+            "unit": "°C",
+            "note": "curve at -2.53 °C filtered outside (-1 °C raw)"
+          },
+          {
+            "name": "room_feedback",
+            "raw": -2.2238888888889017,
+            "value": -2.2238888888889017,
+            "unit": "K",
+            "note": "room 21.50 °C vs target 21.00 °C: P -1.0 K + I -1.2 K; held value 21.5 °C (28 min), device alive (humidity 16 min ago), ±0.2 K, cooling authority 100 %"
+          },
+          {
+            "name": "plan",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no plan"
+          },
+          {
+            "name": "start_ramp",
+            "raw": -2.7697094251189327,
+            "value": -2.7697094251189327,
+            "unit": "K",
+            "note": "hold phase, cap 30.27 °C (2 min run)"
+          },
+          {
+            "name": "cycling_floor",
+            "raw": -2.2714076076660845,
+            "value": 0.0,
+            "unit": "K",
+            "note": "min-run window: keep ≥ 28.00 °C (outlet 29.5 °C)"
+          },
+          {
+            "name": "safety",
+            "raw": 30.271407607666085,
+            "value": 30.271407607666085,
+            "unit": "°C",
+            "note": "allowed [28.50, 39.50] °C at -1 °C outside"
+          }
+        ],
+        "pre_round": 30.271407607666085,
+        "setpoint": 30,
+        "binding": "start_ramp",
+        "flip_distance": 0.36429619616695774,
+        "flip_input": "ha/sensor.living_room_temperature",
+        "inputs_used": [
+          {
+            "signal": "main/Outside_Temp",
+            "value": -1,
+            "age": 160.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Outlet_Temp",
+            "value": 29.5,
+            "age": 60.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Inlet_Temp",
+            "value": 27.0,
+            "age": 150.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Compressor_Freq",
+            "value": 30,
+            "age": 160.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Defrosting_State",
+            "value": 0,
+            "age": 295.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/ThreeWay_Valve_State",
+            "value": 0,
+            "age": 295.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Heating_Mode",
+            "value": 1,
+            "age": 295.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Operating_Mode_State",
+            "value": 0,
+            "age": 295.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Z1_Water_Target_Temp",
+            "value": 30,
+            "age": 105.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Max_Pump_Duty",
+            "value": 159,
+            "age": 100.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Room_Thermostat_Temp",
+            "value": 22,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "stats",
+            "value": true,
+            "age": 0.0,
+            "fresh": true,
+            "source": null,
+            "issued": null
+          },
+          {
+            "signal": "ha/sensor.living_room_temperature",
+            "value": 21.5,
+            "age": 980.0,
+            "fresh": true,
+            "source": "room",
+            "issued": null
+          }
+        ],
+        "controller_state": {
+          "crosscheck_latched_c": null,
+          "crosscheck_offset_k": -0.04427641445338662,
+          "crosscheck_since": null,
+          "dwell_remaining_s": 60.0,
+          "frozen_by": null,
+          "integral_at_life_k": -1.1972222222222344,
+          "integral_k": -1.2255555555555684,
+          "last_change_at": 1762861680.0,
+          "last_tick_at": 1762861800.0,
+          "outside_at": 1762861800.0,
+          "outside_filtered_c": -2.5300118433478413,
+          "pump_duty": 159,
+          "quiet_level": null,
+          "ramp_cap_c": 30.271407607666085,
+          "ramp_elapsed_s": 120.0,
+          "ramp_phase": "hold",
+          "room_alive_by": "ha/sensor.living_room_humidity",
+          "room_alive_s": 980.0,
+          "room_authority": 1.0,
+          "room_crosscheck_deviation_k": 0.5446546468470304,
+          "room_crosscheck_threshold_k": 1.5,
+          "room_error_k": -0.5,
+          "room_held_s": 1680.0,
+          "room_lost_at": null,
+          "room_plausible": true,
+          "room_profile": "on_change",
+          "room_quantum_k": 0.2,
+          "room_target_c": 21.0,
+          "run_started_at": 1762861680.0,
+          "running": true,
+          "safety_high_c": 39.5,
+          "safety_low_c": 28.5,
+          "setpoint": 30,
+          "stopped_at": 1762860000.0,
+          "stove_blocked": false,
+          "stove_entry_c": null,
+          "stove_event": null,
+          "stove_exit": null,
+          "stove_fault": false,
+          "stove_high_at": null,
+          "stove_high_c": null,
+          "stove_integral_k": null,
+          "stove_level_blocked": false,
+          "stove_low_at": null,
+          "stove_low_c": null,
+          "stove_predip_c": null,
+          "stove_reentry_wait": false,
+          "stove_since": null,
+          "stove_source": null,
+          "stove_step_low_at": null,
+          "stove_step_low_c": null,
+          "stove_trigger": null,
+          "stove_trusted_since": null
+        },
+        "reason": "start_ramp",
+        "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.5 °C outside; held value 21.5 °C (28 min), device alive (humidity 16 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+        "intents": [
+          {
+            "kind": "water_setpoint",
+            "value": 30,
+            "reason": "start_ramp"
+          },
+          {
+            "kind": "max_pump_duty",
+            "value": 159,
+            "reason": "pump_duty_heat"
+          }
+        ],
+        "actor": null
+      }
+    },
+    {
+      "at": "2025-11-11T11:51:00Z",
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "schedule_curve_feedback",
+      "reason": "start_ramp",
+      "setpoint": 30,
+      "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.5 °C outside; held value 21.5 °C (29 min), device alive (humidity 17 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+      "arbiter": [
+        {
+          "kind": "water_setpoint",
+          "intent": 30,
+          "actual": 30,
+          "action": "none",
+          "reason": "already applied"
+        },
+        {
+          "kind": "max_pump_duty",
+          "intent": 159,
+          "actual": 159,
+          "action": "none",
+          "reason": "already applied"
+        }
+      ],
+      "commands": [],
+      "config_version": null,
+      "record": {
+        "schema": 1,
+        "at": {
+          "monotonic": 1762861860.0,
+          "wall": "2025-11-11T11:51:00+00:00"
+        },
+        "controller": "ovenbird",
+        "mode": "auto",
+        "ladder": "schedule_curve_feedback",
+        "terms": [
+          {
+            "name": "curve",
+            "raw": 35.26182502846312,
+            "value": 35.26182502846312,
+            "unit": "°C",
+            "note": "curve at -2.52 °C filtered outside (-1 °C raw)"
+          },
+          {
+            "name": "room_feedback",
+            "raw": -2.2255555555555686,
+            "value": -2.2255555555555686,
+            "unit": "K",
+            "note": "room 21.50 °C vs target 21.00 °C: P -1.0 K + I -1.2 K; held value 21.5 °C (29 min), device alive (humidity 17 min ago), ±0.2 K, cooling authority 100 %"
+          },
+          {
+            "name": "plan",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no plan"
+          },
+          {
+            "name": "start_ramp",
+            "raw": -2.764861865241471,
+            "value": -2.764861865241471,
+            "unit": "K",
+            "note": "hold phase, cap 30.27 °C (3 min run)"
+          },
+          {
+            "name": "cycling_floor",
+            "raw": -2.2714076076660845,
+            "value": 0.0,
+            "unit": "K",
+            "note": "min-run window: keep ≥ 28.00 °C (outlet 29.5 °C)"
+          },
+          {
+            "name": "safety",
+            "raw": 30.271407607666085,
+            "value": 30.271407607666085,
+            "unit": "°C",
+            "note": "allowed [28.50, 39.50] °C at -1 °C outside"
+          }
+        ],
+        "pre_round": 30.271407607666085,
+        "setpoint": 30,
+        "binding": "start_ramp",
+        "flip_distance": 0.36429619616695774,
+        "flip_input": "ha/sensor.living_room_temperature",
+        "inputs_used": [
+          {
+            "signal": "main/Outside_Temp",
+            "value": -1,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Outlet_Temp",
+            "value": 29.5,
+            "age": 0.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Inlet_Temp",
+            "value": 25.75,
+            "age": 40.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Compressor_Freq",
+            "value": 41,
+            "age": 40.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Defrosting_State",
+            "value": 0,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/ThreeWay_Valve_State",
+            "value": 0,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Heating_Mode",
+            "value": 1,
+            "age": 55.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Operating_Mode_State",
+            "value": 0,
+            "age": 55.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Z1_Water_Target_Temp",
+            "value": 30,
+            "age": 55.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Max_Pump_Duty",
+            "value": 159,
+            "age": 55.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Room_Thermostat_Temp",
+            "value": 21,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "stats",
+            "value": true,
+            "age": 0.0,
+            "fresh": true,
+            "source": null,
+            "issued": null
+          },
+          {
+            "signal": "ha/sensor.living_room_temperature",
+            "value": 21.5,
+            "age": 1040.0,
+            "fresh": true,
+            "source": "room",
+            "issued": null
+          }
+        ],
+        "controller_state": {
+          "crosscheck_latched_c": null,
+          "crosscheck_offset_k": -0.04459288916557177,
+          "crosscheck_since": null,
+          "dwell_remaining_s": 0.0,
+          "frozen_by": null,
+          "integral_at_life_k": -1.1972222222222344,
+          "integral_k": -1.227222222222235,
+          "last_change_at": 1762861680.0,
+          "last_tick_at": 1762861860.0,
+          "outside_at": 1762861860.0,
+          "outside_filtered_c": -2.523650056926241,
+          "pump_duty": 159,
+          "quiet_level": null,
+          "ramp_cap_c": 30.271407607666085,
+          "ramp_elapsed_s": 180.0,
+          "ramp_phase": "hold",
+          "room_alive_by": "ha/sensor.living_room_humidity",
+          "room_alive_s": 1040.0,
+          "room_authority": 1.0,
+          "room_crosscheck_deviation_k": -0.4557235855466134,
+          "room_crosscheck_threshold_k": 1.5,
+          "room_error_k": -0.5,
+          "room_held_s": 1740.0,
+          "room_lost_at": null,
+          "room_plausible": true,
+          "room_profile": "on_change",
+          "room_quantum_k": 0.2,
+          "room_target_c": 21.0,
+          "run_started_at": 1762861680.0,
+          "running": true,
+          "safety_high_c": 39.5,
+          "safety_low_c": 28.5,
+          "setpoint": 30,
+          "stopped_at": 1762860000.0,
+          "stove_blocked": false,
+          "stove_entry_c": null,
+          "stove_event": null,
+          "stove_exit": null,
+          "stove_fault": false,
+          "stove_high_at": null,
+          "stove_high_c": null,
+          "stove_integral_k": null,
+          "stove_level_blocked": false,
+          "stove_low_at": null,
+          "stove_low_c": null,
+          "stove_predip_c": null,
+          "stove_reentry_wait": false,
+          "stove_since": null,
+          "stove_source": null,
+          "stove_step_low_at": null,
+          "stove_step_low_c": null,
+          "stove_trigger": null,
+          "stove_trusted_since": null
+        },
+        "reason": "start_ramp",
+        "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.5 °C outside; held value 21.5 °C (29 min), device alive (humidity 17 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+        "intents": [
+          {
+            "kind": "water_setpoint",
+            "value": 30,
+            "reason": "start_ramp"
+          },
+          {
+            "kind": "max_pump_duty",
+            "value": 159,
+            "reason": "pump_duty_heat"
+          }
+        ],
+        "actor": null
+      }
+    },
+    {
+      "at": "2025-11-11T11:52:00Z",
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "schedule_curve_feedback",
+      "reason": "start_ramp",
+      "setpoint": 30,
+      "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.5 °C outside; held value 21.5 °C (30 min), device alive (humidity 18 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+      "arbiter": [
+        {
+          "kind": "water_setpoint",
+          "intent": 30,
+          "actual": 30,
+          "action": "none",
+          "reason": "already applied"
+        },
+        {
+          "kind": "max_pump_duty",
+          "intent": 159,
+          "actual": 159,
+          "action": "none",
+          "reason": "already applied"
+        }
+      ],
+      "commands": [],
+      "config_version": null,
+      "record": {
+        "schema": 1,
+        "at": {
+          "monotonic": 1762861920.0,
+          "wall": "2025-11-11T11:52:00+00:00"
+        },
+        "controller": "ovenbird",
+        "mode": "auto",
+        "ladder": "schedule_curve_feedback",
+        "terms": [
+          {
+            "name": "curve",
+            "raw": 35.258657361400424,
+            "value": 35.258657361400424,
+            "unit": "°C",
+            "note": "curve at -2.52 °C filtered outside (-1 °C raw)"
+          },
+          {
+            "name": "room_feedback",
+            "raw": -2.227222222222235,
+            "value": -2.227222222222235,
+            "unit": "K",
+            "note": "room 21.50 °C vs target 21.00 °C: P -1.0 K + I -1.2 K; held value 21.5 °C (30 min), device alive (humidity 18 min ago), ±0.2 K, cooling authority 100 %"
+          },
+          {
+            "name": "plan",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no plan"
+          },
+          {
+            "name": "start_ramp",
+            "raw": -2.760027531512101,
+            "value": -2.760027531512101,
+            "unit": "K",
+            "note": "hold phase, cap 30.27 °C (4 min run)"
+          },
+          {
+            "name": "cycling_floor",
+            "raw": -2.0214076076660845,
+            "value": 0.0,
+            "unit": "K",
+            "note": "min-run window: keep ≥ 28.25 °C (outlet 29.75 °C)"
+          },
+          {
+            "name": "safety",
+            "raw": 30.271407607666085,
+            "value": 30.271407607666085,
+            "unit": "°C",
+            "note": "allowed [28.50, 39.50] °C at -1 °C outside"
+          }
+        ],
+        "pre_round": 30.271407607666085,
+        "setpoint": 30,
+        "binding": "start_ramp",
+        "flip_distance": 0.36429619616695774,
+        "flip_input": "ha/sensor.living_room_temperature",
+        "inputs_used": [
+          {
+            "signal": "main/Outside_Temp",
+            "value": -1,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Outlet_Temp",
+            "value": 29.75,
+            "age": 0.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Inlet_Temp",
+            "value": 26.0,
+            "age": 50.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Compressor_Freq",
+            "value": 41,
+            "age": 100.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Defrosting_State",
+            "value": 0,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/ThreeWay_Valve_State",
+            "value": 0,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Heating_Mode",
+            "value": 1,
+            "age": 115.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Operating_Mode_State",
+            "value": 0,
+            "age": 115.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Z1_Water_Target_Temp",
+            "value": 30,
+            "age": 115.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Max_Pump_Duty",
+            "value": 159,
+            "age": 115.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Room_Thermostat_Temp",
+            "value": 22,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "stats",
+            "value": true,
+            "age": 0.0,
+            "fresh": true,
+            "source": null,
+            "issued": null
+          },
+          {
+            "signal": "ha/sensor.living_room_temperature",
+            "value": 21.5,
+            "age": 1100.0,
+            "fresh": true,
+            "source": "room",
+            "issued": null
+          }
+        ],
+        "controller_state": {
+          "crosscheck_latched_c": null,
+          "crosscheck_offset_k": -0.04421469965920679,
+          "crosscheck_since": null,
+          "dwell_remaining_s": 0.0,
+          "frozen_by": null,
+          "integral_at_life_k": -1.1972222222222344,
+          "integral_k": -1.2288888888889018,
+          "last_change_at": 1762861680.0,
+          "last_tick_at": 1762861920.0,
+          "outside_at": 1762861920.0,
+          "outside_filtered_c": -2.5173147228008435,
+          "pump_duty": 159,
+          "quiet_level": null,
+          "ramp_cap_c": 30.271407607666085,
+          "ramp_elapsed_s": 240.0,
+          "ramp_phase": "hold",
+          "room_alive_by": "ha/sensor.living_room_humidity",
+          "room_alive_s": 1100.0,
+          "room_authority": 1.0,
+          "room_crosscheck_deviation_k": 0.5445928891655718,
+          "room_crosscheck_threshold_k": 1.5,
+          "room_error_k": -0.5,
+          "room_held_s": 1800.0,
+          "room_lost_at": null,
+          "room_plausible": true,
+          "room_profile": "on_change",
+          "room_quantum_k": 0.2,
+          "room_target_c": 21.0,
+          "run_started_at": 1762861680.0,
+          "running": true,
+          "safety_high_c": 39.5,
+          "safety_low_c": 28.5,
+          "setpoint": 30,
+          "stopped_at": 1762860000.0,
+          "stove_blocked": false,
+          "stove_entry_c": null,
+          "stove_event": null,
+          "stove_exit": null,
+          "stove_fault": false,
+          "stove_high_at": null,
+          "stove_high_c": null,
+          "stove_integral_k": null,
+          "stove_level_blocked": false,
+          "stove_low_at": null,
+          "stove_low_c": null,
+          "stove_predip_c": null,
+          "stove_reentry_wait": false,
+          "stove_since": null,
+          "stove_source": null,
+          "stove_step_low_at": null,
+          "stove_step_low_c": null,
+          "stove_trigger": null,
+          "stove_trusted_since": null
+        },
+        "reason": "start_ramp",
+        "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.5 °C outside; held value 21.5 °C (30 min), device alive (humidity 18 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+        "intents": [
+          {
+            "kind": "water_setpoint",
+            "value": 30,
+            "reason": "start_ramp"
+          },
+          {
+            "kind": "max_pump_duty",
+            "value": 159,
+            "reason": "pump_duty_heat"
+          }
+        ],
+        "actor": null
+      }
+    },
+    {
+      "at": "2025-11-11T11:53:00Z",
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "schedule_curve_feedback",
+      "reason": "start_ramp",
+      "setpoint": 30,
+      "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.5 °C outside; held value 21.5 °C (31 min), device alive (humidity 19 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+      "arbiter": [
+        {
+          "kind": "water_setpoint",
+          "intent": 30,
+          "actual": 30,
+          "action": "none",
+          "reason": "already applied"
+        },
+        {
+          "kind": "max_pump_duty",
+          "intent": 159,
+          "actual": 159,
+          "action": "none",
+          "reason": "already applied"
+        }
+      ],
+      "commands": [],
+      "config_version": null,
+      "record": {
+        "schema": 1,
+        "at": {
+          "monotonic": 1762861980.0,
+          "wall": "2025-11-11T11:53:00+00:00"
+        },
+        "controller": "ovenbird",
+        "mode": "auto",
+        "ladder": "schedule_curve_feedback",
+        "terms": [
+          {
+            "name": "curve",
+            "raw": 35.25550286549152,
+            "value": 35.25550286549152,
+            "unit": "°C",
+            "note": "curve at -2.51 °C filtered outside (-1 °C raw)"
+          },
+          {
+            "name": "room_feedback",
+            "raw": -2.2288888888889016,
+            "value": -2.2288888888889016,
+            "unit": "K",
+            "note": "room 21.50 °C vs target 21.00 °C: P -1.0 K + I -1.2 K; held value 21.5 °C (31 min), device alive (humidity 19 min ago), ±0.2 K, cooling authority 100 %"
+          },
+          {
+            "name": "plan",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no plan"
+          },
+          {
+            "name": "start_ramp",
+            "raw": -2.755206368936534,
+            "value": -2.755206368936534,
+            "unit": "K",
+            "note": "hold phase, cap 30.27 °C (5 min run)"
+          },
+          {
+            "name": "cycling_floor",
+            "raw": -2.0214076076660845,
+            "value": 0.0,
+            "unit": "K",
+            "note": "min-run window: keep ≥ 28.25 °C (outlet 29.75 °C)"
+          },
+          {
+            "name": "safety",
+            "raw": 30.271407607666085,
+            "value": 30.271407607666085,
+            "unit": "°C",
+            "note": "allowed [28.50, 39.50] °C at -1 °C outside"
+          }
+        ],
+        "pre_round": 30.271407607666085,
+        "setpoint": 30,
+        "binding": "start_ramp",
+        "flip_distance": 0.36429619616695774,
+        "flip_input": "ha/sensor.living_room_temperature",
+        "inputs_used": [
+          {
+            "signal": "main/Outside_Temp",
+            "value": -1,
+            "age": 175.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Outlet_Temp",
+            "value": 29.75,
+            "age": 60.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Inlet_Temp",
+            "value": 26.25,
+            "age": 45.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Compressor_Freq",
+            "value": 41,
+            "age": 160.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Defrosting_State",
+            "value": 0,
+            "age": 175.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/ThreeWay_Valve_State",
+            "value": 0,
+            "age": 175.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Heating_Mode",
+            "value": 1,
+            "age": 175.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Operating_Mode_State",
+            "value": 0,
+            "age": 175.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Z1_Water_Target_Temp",
+            "value": 30,
+            "age": 175.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Max_Pump_Duty",
+            "value": 159,
+            "age": 175.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Room_Thermostat_Temp",
+            "value": 21,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "stats",
+            "value": true,
+            "age": 0.0,
+            "fresh": true,
+            "source": null,
+            "issued": null
+          },
+          {
+            "signal": "ha/sensor.living_room_temperature",
+            "value": 21.5,
+            "age": 1160.0,
+            "fresh": true,
+            "source": "room",
+            "issued": null
+          }
+        ],
+        "controller_state": {
+          "crosscheck_latched_c": null,
+          "crosscheck_offset_k": -0.04453121722888789,
+          "crosscheck_since": null,
+          "dwell_remaining_s": 0.0,
+          "frozen_by": null,
+          "integral_at_life_k": -1.1972222222222344,
+          "integral_k": -1.2305555555555685,
+          "last_change_at": 1762861680.0,
+          "last_tick_at": 1762861980.0,
+          "outside_at": 1762861980.0,
+          "outside_filtered_c": -2.51100573098305,
+          "pump_duty": 159,
+          "quiet_level": null,
+          "ramp_cap_c": 30.271407607666085,
+          "ramp_elapsed_s": 300.0,
+          "ramp_phase": "hold",
+          "room_alive_by": "ha/sensor.living_room_humidity",
+          "room_alive_s": 1160.0,
+          "room_authority": 1.0,
+          "room_crosscheck_deviation_k": -0.45578530034079323,
+          "room_crosscheck_threshold_k": 1.5,
+          "room_error_k": -0.5,
+          "room_held_s": 1860.0,
+          "room_lost_at": null,
+          "room_plausible": true,
+          "room_profile": "on_change",
+          "room_quantum_k": 0.2,
+          "room_target_c": 21.0,
+          "run_started_at": 1762861680.0,
+          "running": true,
+          "safety_high_c": 39.5,
+          "safety_low_c": 28.5,
+          "setpoint": 30,
+          "stopped_at": 1762860000.0,
+          "stove_blocked": false,
+          "stove_entry_c": null,
+          "stove_event": null,
+          "stove_exit": null,
+          "stove_fault": false,
+          "stove_high_at": null,
+          "stove_high_c": null,
+          "stove_integral_k": null,
+          "stove_level_blocked": false,
+          "stove_low_at": null,
+          "stove_low_c": null,
+          "stove_predip_c": null,
+          "stove_reentry_wait": false,
+          "stove_since": null,
+          "stove_source": null,
+          "stove_step_low_at": null,
+          "stove_step_low_c": null,
+          "stove_trigger": null,
+          "stove_trusted_since": null
+        },
+        "reason": "start_ramp",
+        "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.5 °C outside; held value 21.5 °C (31 min), device alive (humidity 19 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+        "intents": [
+          {
+            "kind": "water_setpoint",
+            "value": 30,
+            "reason": "start_ramp"
+          },
+          {
+            "kind": "max_pump_duty",
+            "value": 159,
+            "reason": "pump_duty_heat"
+          }
+        ],
+        "actor": null
+      }
+    },
+    {
+      "at": "2025-11-11T11:54:00Z",
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "schedule_curve_feedback",
+      "reason": "start_ramp",
+      "setpoint": 30,
+      "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.5 °C outside; held value 21.5 °C (32 min), device alive (humidity 20 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+      "arbiter": [
+        {
+          "kind": "water_setpoint",
+          "intent": 30,
+          "actual": 30,
+          "action": "none",
+          "reason": "already applied"
+        },
+        {
+          "kind": "max_pump_duty",
+          "intent": 159,
+          "actual": 159,
+          "action": "none",
+          "reason": "already applied"
+        }
+      ],
+      "commands": [],
+      "config_version": null,
+      "record": {
+        "schema": 1,
+        "at": {
+          "monotonic": 1762862040.0,
+          "wall": "2025-11-11T11:54:00+00:00"
+        },
+        "controller": "ovenbird",
+        "mode": "auto",
+        "ladder": "schedule_curve_feedback",
+        "terms": [
+          {
+            "name": "curve",
+            "raw": 35.252361485970795,
+            "value": 35.252361485970795,
+            "unit": "°C",
+            "note": "curve at -2.50 °C filtered outside (-1 °C raw)"
+          },
+          {
+            "name": "room_feedback",
+            "raw": -2.2305555555555685,
+            "value": -2.2305555555555685,
+            "unit": "K",
+            "note": "room 21.50 °C vs target 21.00 °C: P -1.0 K + I -1.2 K; held value 21.5 °C (32 min), device alive (humidity 20 min ago), ±0.2 K, cooling authority 100 %"
+          },
+          {
+            "name": "plan",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no plan"
+          },
+          {
+            "name": "start_ramp",
+            "raw": -2.7503983227491418,
+            "value": -2.7503983227491418,
+            "unit": "K",
+            "note": "hold phase, cap 30.27 °C (6 min run)"
+          },
+          {
+            "name": "cycling_floor",
+            "raw": -2.0214076076660845,
+            "value": 0.0,
+            "unit": "K",
+            "note": "min-run window: keep ≥ 28.25 °C (outlet 29.75 °C)"
+          },
+          {
+            "name": "safety",
+            "raw": 30.271407607666085,
+            "value": 30.271407607666085,
+            "unit": "°C",
+            "note": "allowed [28.50, 39.50] °C at -1 °C outside"
+          }
+        ],
+        "pre_round": 30.271407607666085,
+        "setpoint": 30,
+        "binding": "start_ramp",
+        "flip_distance": 0.36429619616695774,
+        "flip_input": "ha/sensor.living_room_temperature",
+        "inputs_used": [
+          {
+            "signal": "main/Outside_Temp",
+            "value": -1,
+            "age": 235.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Outlet_Temp",
+            "value": 29.75,
+            "age": 5.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Inlet_Temp",
+            "value": 26.0,
+            "age": 40.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Compressor_Freq",
+            "value": 41,
+            "age": 220.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Defrosting_State",
+            "value": 0,
+            "age": 235.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/ThreeWay_Valve_State",
+            "value": 0,
+            "age": 235.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Heating_Mode",
+            "value": 1,
+            "age": 235.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Operating_Mode_State",
+            "value": 0,
+            "age": 235.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Z1_Water_Target_Temp",
+            "value": 30,
+            "age": 235.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Max_Pump_Duty",
+            "value": 159,
+            "age": 235.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Room_Thermostat_Temp",
+            "value": 21,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "stats",
+            "value": true,
+            "age": 0.0,
+            "fresh": true,
+            "source": null,
+            "issued": null
+          },
+          {
+            "signal": "ha/sensor.living_room_temperature",
+            "value": 21.5,
+            "age": 1220.0,
+            "fresh": true,
+            "source": "room",
+            "issued": null
+          }
+        ],
+        "controller_state": {
+          "crosscheck_latched_c": null,
+          "crosscheck_offset_k": -0.04484751499470117,
+          "crosscheck_since": null,
+          "dwell_remaining_s": 0.0,
+          "frozen_by": null,
+          "integral_at_life_k": -1.1972222222222344,
+          "integral_k": -1.2322222222222352,
+          "last_change_at": 1762861680.0,
+          "last_tick_at": 1762862040.0,
+          "outside_at": 1762862040.0,
+          "outside_filtered_c": -2.5047229719415944,
+          "pump_duty": 159,
+          "quiet_level": null,
+          "ramp_cap_c": 30.271407607666085,
+          "ramp_elapsed_s": 360.0,
+          "ramp_phase": "hold",
+          "room_alive_by": "ha/sensor.living_room_humidity",
+          "room_alive_s": 1220.0,
+          "room_authority": 1.0,
+          "room_crosscheck_deviation_k": -0.45546878277111214,
+          "room_crosscheck_threshold_k": 1.5,
+          "room_error_k": -0.5,
+          "room_held_s": 1920.0,
+          "room_lost_at": null,
+          "room_plausible": true,
+          "room_profile": "on_change",
+          "room_quantum_k": 0.2,
+          "room_target_c": 21.0,
+          "run_started_at": 1762861680.0,
+          "running": true,
+          "safety_high_c": 39.5,
+          "safety_low_c": 28.5,
+          "setpoint": 30,
+          "stopped_at": 1762860000.0,
+          "stove_blocked": false,
+          "stove_entry_c": null,
+          "stove_event": null,
+          "stove_exit": null,
+          "stove_fault": false,
+          "stove_high_at": null,
+          "stove_high_c": null,
+          "stove_integral_k": null,
+          "stove_level_blocked": false,
+          "stove_low_at": null,
+          "stove_low_c": null,
+          "stove_predip_c": null,
+          "stove_reentry_wait": false,
+          "stove_since": null,
+          "stove_source": null,
+          "stove_step_low_at": null,
+          "stove_step_low_c": null,
+          "stove_trigger": null,
+          "stove_trusted_since": null
+        },
+        "reason": "start_ramp",
+        "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.3 °C at -2.5 °C outside; held value 21.5 °C (32 min), device alive (humidity 20 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+        "intents": [
+          {
+            "kind": "water_setpoint",
+            "value": 30,
+            "reason": "start_ramp"
+          },
+          {
+            "kind": "max_pump_duty",
+            "value": 159,
+            "reason": "pump_duty_heat"
+          }
+        ],
+        "actor": null
+      }
+    },
+    {
+      "at": "2025-11-11T11:55:00Z",
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "schedule_curve_feedback",
+      "reason": "start_ramp",
+      "setpoint": 30,
+      "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.2 °C at -2.5 °C outside; held value 21.5 °C (33 min), device alive (humidity 21 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+      "arbiter": [
+        {
+          "kind": "water_setpoint",
+          "intent": 30,
+          "actual": 30,
+          "action": "none",
+          "reason": "already applied"
+        },
+        {
+          "kind": "max_pump_duty",
+          "intent": 159,
+          "actual": 159,
+          "action": "none",
+          "reason": "already applied"
+        }
+      ],
+      "commands": [],
+      "config_version": null,
+      "record": {
+        "schema": 1,
+        "at": {
+          "monotonic": 1762862100.0,
+          "wall": "2025-11-11T11:55:00+00:00"
+        },
+        "controller": "ovenbird",
+        "mode": "auto",
+        "ladder": "schedule_curve_feedback",
+        "terms": [
+          {
+            "name": "curve",
+            "raw": 35.24923316830032,
+            "value": 35.24923316830032,
+            "unit": "°C",
+            "note": "curve at -2.50 °C filtered outside (-1 °C raw)"
+          },
+          {
+            "name": "room_feedback",
+            "raw": -2.2322222222222354,
+            "value": -2.2322222222222354,
+            "unit": "K",
+            "note": "room 21.50 °C vs target 21.00 °C: P -1.0 K + I -1.2 K; held value 21.5 °C (33 min), device alive (humidity 21 min ago), ±0.2 K, cooling authority 100 %"
+          },
+          {
+            "name": "plan",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no plan"
+          },
+          {
+            "name": "start_ramp",
+            "raw": -2.7456033384120033,
+            "value": -2.7456033384120033,
+            "unit": "K",
+            "note": "hold phase, cap 30.27 °C (7 min run)"
+          },
+          {
+            "name": "cycling_floor",
+            "raw": -1.7714076076660845,
+            "value": 0.0,
+            "unit": "K",
+            "note": "min-run window: keep ≥ 28.50 °C (outlet 30 °C)"
+          },
+          {
+            "name": "safety",
+            "raw": 30.271407607666085,
+            "value": 30.271407607666085,
+            "unit": "°C",
+            "note": "allowed [28.50, 39.50] °C at -1 °C outside"
+          }
+        ],
+        "pre_round": 30.271407607666085,
+        "setpoint": 30,
+        "binding": "start_ramp",
+        "flip_distance": 0.36429619616695774,
+        "flip_input": "ha/sensor.living_room_temperature",
+        "inputs_used": [
+          {
+            "signal": "main/Outside_Temp",
+            "value": -1,
+            "age": 295.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Outlet_Temp",
+            "value": 30.0,
+            "age": 10.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Inlet_Temp",
+            "value": 26.5,
+            "age": 0.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Compressor_Freq",
+            "value": 41,
+            "age": 280.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Defrosting_State",
+            "value": 0,
+            "age": 295.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/ThreeWay_Valve_State",
+            "value": 0,
+            "age": 295.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Heating_Mode",
+            "value": 1,
+            "age": 295.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Operating_Mode_State",
+            "value": 0,
+            "age": 295.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Z1_Water_Target_Temp",
+            "value": 30,
+            "age": 295.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Max_Pump_Duty",
+            "value": 159,
+            "age": 295.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Room_Thermostat_Temp",
+            "value": 21,
+            "age": 175.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "stats",
+            "value": true,
+            "age": 0.0,
+            "fresh": true,
+            "source": null,
+            "issued": null
+          },
+          {
+            "signal": "ha/sensor.living_room_temperature",
+            "value": 21.5,
+            "age": 1280.0,
+            "fresh": true,
+            "source": "room",
+            "issued": null
+          }
+        ],
+        "controller_state": {
+          "crosscheck_latched_c": null,
+          "crosscheck_offset_k": -0.04516359310928818,
+          "crosscheck_since": null,
+          "dwell_remaining_s": 0.0,
+          "frozen_by": null,
+          "integral_at_life_k": -1.1972222222222344,
+          "integral_k": -1.233888888888902,
+          "last_change_at": 1762861680.0,
+          "last_tick_at": 1762862100.0,
+          "outside_at": 1762862100.0,
+          "outside_filtered_c": -2.4984663366006408,
+          "pump_duty": 159,
+          "quiet_level": null,
+          "ramp_cap_c": 30.271407607666085,
+          "ramp_elapsed_s": 420.0,
+          "ramp_phase": "hold",
+          "room_alive_by": "ha/sensor.living_room_humidity",
+          "room_alive_s": 1280.0,
+          "room_authority": 1.0,
+          "room_crosscheck_deviation_k": -0.4551524850052988,
+          "room_crosscheck_threshold_k": 1.5,
+          "room_error_k": -0.5,
+          "room_held_s": 1980.0,
+          "room_lost_at": null,
+          "room_plausible": true,
+          "room_profile": "on_change",
+          "room_quantum_k": 0.2,
+          "room_target_c": 21.0,
+          "run_started_at": 1762861680.0,
+          "running": true,
+          "safety_high_c": 39.5,
+          "safety_low_c": 28.5,
+          "setpoint": 30,
+          "stopped_at": 1762860000.0,
+          "stove_blocked": false,
+          "stove_entry_c": null,
+          "stove_event": null,
+          "stove_exit": null,
+          "stove_fault": false,
+          "stove_high_at": null,
+          "stove_high_c": null,
+          "stove_integral_k": null,
+          "stove_level_blocked": false,
+          "stove_low_at": null,
+          "stove_low_c": null,
+          "stove_predip_c": null,
+          "stove_reentry_wait": false,
+          "stove_since": null,
+          "stove_source": null,
+          "stove_step_low_at": null,
+          "stove_step_low_c": null,
+          "stove_trigger": null,
+          "stove_trusted_since": null
+        },
+        "reason": "start_ramp",
+        "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.2 °C at -2.5 °C outside; held value 21.5 °C (33 min), device alive (humidity 21 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+        "intents": [
+          {
+            "kind": "water_setpoint",
+            "value": 30,
+            "reason": "start_ramp"
+          },
+          {
+            "kind": "max_pump_duty",
+            "value": 159,
+            "reason": "pump_duty_heat"
+          }
+        ],
+        "actor": null
+      }
+    },
+    {
+      "at": "2025-11-11T11:56:00Z",
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "schedule_curve_feedback",
+      "reason": "start_ramp",
+      "setpoint": 30,
+      "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.2 °C at -2.5 °C outside; held value 21.5 °C (34 min), device alive (humidity 22 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+      "arbiter": [
+        {
+          "kind": "water_setpoint",
+          "intent": 30,
+          "actual": 30,
+          "action": "none",
+          "reason": "already applied"
+        },
+        {
+          "kind": "max_pump_duty",
+          "intent": 159,
+          "actual": 159,
+          "action": "none",
+          "reason": "already applied"
+        }
+      ],
+      "commands": [],
+      "config_version": null,
+      "record": {
+        "schema": 1,
+        "at": {
+          "monotonic": 1762862160.0,
+          "wall": "2025-11-11T11:56:00+00:00"
+        },
+        "controller": "ovenbird",
+        "mode": "auto",
+        "ladder": "schedule_curve_feedback",
+        "terms": [
+          {
+            "name": "curve",
+            "raw": 35.246117858168944,
+            "value": 35.246117858168944,
+            "unit": "°C",
+            "note": "curve at -2.49 °C filtered outside (-1 °C raw)"
+          },
+          {
+            "name": "room_feedback",
+            "raw": -2.233888888888902,
+            "value": -2.233888888888902,
+            "unit": "K",
+            "note": "room 21.50 °C vs target 21.00 °C: P -1.0 K + I -1.2 K; held value 21.5 °C (34 min), device alive (humidity 22 min ago), ±0.2 K, cooling authority 100 %"
+          },
+          {
+            "name": "plan",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no plan"
+          },
+          {
+            "name": "start_ramp",
+            "raw": -2.7408213616139605,
+            "value": -2.7408213616139605,
+            "unit": "K",
+            "note": "hold phase, cap 30.27 °C (8 min run)"
+          },
+          {
+            "name": "cycling_floor",
+            "raw": -1.5214076076660845,
+            "value": 0.0,
+            "unit": "K",
+            "note": "min-run window: keep ≥ 28.75 °C (outlet 30.25 °C)"
+          },
+          {
+            "name": "safety",
+            "raw": 30.271407607666085,
+            "value": 30.271407607666085,
+            "unit": "°C",
+            "note": "allowed [28.50, 39.50] °C at -1 °C outside"
+          }
+        ],
+        "pre_round": 30.271407607666085,
+        "setpoint": 30,
+        "binding": "start_ramp",
+        "flip_distance": 0.36429619616695774,
+        "flip_input": "ha/sensor.living_room_temperature",
+        "inputs_used": [
+          {
+            "signal": "main/Outside_Temp",
+            "value": -1,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Outlet_Temp",
+            "value": 30.25,
+            "age": 20.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Inlet_Temp",
+            "value": 26.75,
+            "age": 5.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Compressor_Freq",
+            "value": 41,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Defrosting_State",
+            "value": 0,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/ThreeWay_Valve_State",
+            "value": 0,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Heating_Mode",
+            "value": 1,
+            "age": 55.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Operating_Mode_State",
+            "value": 0,
+            "age": 55.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Z1_Water_Target_Temp",
+            "value": 30,
+            "age": 55.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Max_Pump_Duty",
+            "value": 159,
+            "age": 55.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Room_Thermostat_Temp",
+            "value": 22,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "stats",
+            "value": true,
+            "age": 0.0,
+            "fresh": true,
+            "source": null,
+            "issued": null
+          },
+          {
+            "signal": "ha/sensor.living_room_temperature",
+            "value": 21.5,
+            "age": 1340.0,
+            "fresh": true,
+            "source": "room",
+            "issued": null
+          }
+        ],
+        "controller_state": {
+          "crosscheck_latched_c": null,
+          "crosscheck_offset_k": -0.04478500728074006,
+          "crosscheck_since": null,
+          "dwell_remaining_s": 0.0,
+          "frozen_by": null,
+          "integral_at_life_k": -1.1972222222222344,
+          "integral_k": -1.2355555555555686,
+          "last_change_at": 1762861680.0,
+          "last_tick_at": 1762862160.0,
+          "outside_at": 1762862160.0,
+          "outside_filtered_c": -2.4922357163378903,
+          "pump_duty": 159,
+          "quiet_level": null,
+          "ramp_cap_c": 30.271407607666085,
+          "ramp_elapsed_s": 480.0,
+          "ramp_phase": "hold",
+          "room_alive_by": "ha/sensor.living_room_humidity",
+          "room_alive_s": 1340.0,
+          "room_authority": 1.0,
+          "room_crosscheck_deviation_k": 0.5451635931092882,
+          "room_crosscheck_threshold_k": 1.5,
+          "room_error_k": -0.5,
+          "room_held_s": 2040.0,
+          "room_lost_at": null,
+          "room_plausible": true,
+          "room_profile": "on_change",
+          "room_quantum_k": 0.2,
+          "room_target_c": 21.0,
+          "run_started_at": 1762861680.0,
+          "running": true,
+          "safety_high_c": 39.5,
+          "safety_low_c": 28.5,
+          "setpoint": 30,
+          "stopped_at": 1762860000.0,
+          "stove_blocked": false,
+          "stove_entry_c": null,
+          "stove_event": null,
+          "stove_exit": null,
+          "stove_fault": false,
+          "stove_high_at": null,
+          "stove_high_c": null,
+          "stove_integral_k": null,
+          "stove_level_blocked": false,
+          "stove_low_at": null,
+          "stove_low_c": null,
+          "stove_predip_c": null,
+          "stove_reentry_wait": false,
+          "stove_since": null,
+          "stove_source": null,
+          "stove_step_low_at": null,
+          "stove_step_low_c": null,
+          "stove_trigger": null,
+          "stove_trusted_since": null
+        },
+        "reason": "start_ramp",
+        "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.2 °C at -2.5 °C outside; held value 21.5 °C (34 min), device alive (humidity 22 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+        "intents": [
+          {
+            "kind": "water_setpoint",
+            "value": 30,
+            "reason": "start_ramp"
+          },
+          {
+            "kind": "max_pump_duty",
+            "value": 159,
+            "reason": "pump_duty_heat"
+          }
+        ],
+        "actor": null
+      }
+    },
+    {
+      "at": "2025-11-11T11:57:00Z",
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "schedule_curve_feedback",
+      "reason": "start_ramp",
+      "setpoint": 30,
+      "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.2 °C at -2.5 °C outside; held value 21.5 °C (35 min), device alive (humidity 23 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+      "arbiter": [
+        {
+          "kind": "water_setpoint",
+          "intent": 30,
+          "actual": 30,
+          "action": "none",
+          "reason": "already applied"
+        },
+        {
+          "kind": "max_pump_duty",
+          "intent": 159,
+          "actual": 159,
+          "action": "none",
+          "reason": "already applied"
+        }
+      ],
+      "commands": [],
+      "config_version": null,
+      "record": {
+        "schema": 1,
+        "at": {
+          "monotonic": 1762862220.0,
+          "wall": "2025-11-11T11:57:00+00:00"
+        },
+        "controller": "ovenbird",
+        "mode": "auto",
+        "ladder": "schedule_curve_feedback",
+        "terms": [
+          {
+            "name": "curve",
+            "raw": 35.24301550149135,
+            "value": 35.24301550149135,
+            "unit": "°C",
+            "note": "curve at -2.49 °C filtered outside (-1 °C raw)"
+          },
+          {
+            "name": "room_feedback",
+            "raw": -2.2355555555555684,
+            "value": -2.2355555555555684,
+            "unit": "K",
+            "note": "room 21.50 °C vs target 21.00 °C: P -1.0 K + I -1.2 K; held value 21.5 °C (35 min), device alive (humidity 23 min ago), ±0.2 K, cooling authority 100 %"
+          },
+          {
+            "name": "plan",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no plan"
+          },
+          {
+            "name": "start_ramp",
+            "raw": -2.736052338269694,
+            "value": -2.736052338269694,
+            "unit": "K",
+            "note": "hold phase, cap 30.27 °C (9 min run)"
+          },
+          {
+            "name": "cycling_floor",
+            "raw": -1.2714076076660845,
+            "value": 0.0,
+            "unit": "K",
+            "note": "min-run window: keep ≥ 29.00 °C (outlet 30.5 °C)"
+          },
+          {
+            "name": "safety",
+            "raw": 30.271407607666085,
+            "value": 30.271407607666085,
+            "unit": "°C",
+            "note": "allowed [28.50, 39.50] °C at -1 °C outside"
+          }
+        ],
+        "pre_round": 30.271407607666085,
+        "setpoint": 30,
+        "binding": "start_ramp",
+        "flip_distance": 0.36429619616695774,
+        "flip_input": "ha/sensor.living_room_temperature",
+        "inputs_used": [
+          {
+            "signal": "main/Outside_Temp",
+            "value": -1,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Outlet_Temp",
+            "value": 30.5,
+            "age": 20.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Inlet_Temp",
+            "value": 27.0,
+            "age": 5.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Compressor_Freq",
+            "value": 41,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Defrosting_State",
+            "value": 0,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/ThreeWay_Valve_State",
+            "value": 0,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Heating_Mode",
+            "value": 1,
+            "age": 115.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Operating_Mode_State",
+            "value": 0,
+            "age": 115.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Z1_Water_Target_Temp",
+            "value": 30,
+            "age": 115.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Max_Pump_Duty",
+            "value": 159,
+            "age": 115.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Room_Thermostat_Temp",
+            "value": 22,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "stats",
+            "value": true,
+            "age": 0.0,
+            "fresh": true,
+            "source": null,
+            "issued": null
+          },
+          {
+            "signal": "ha/sensor.living_room_temperature",
+            "value": 21.5,
+            "age": 1400.0,
+            "fresh": true,
+            "source": "room",
+            "issued": null
+          }
+        ],
+        "controller_state": {
+          "crosscheck_latched_c": null,
+          "crosscheck_offset_k": -0.044406684359017325,
+          "crosscheck_since": null,
+          "dwell_remaining_s": 0.0,
+          "frozen_by": null,
+          "integral_at_life_k": -1.1972222222222344,
+          "integral_k": -1.2372222222222353,
+          "last_change_at": 1762861680.0,
+          "last_tick_at": 1762862220.0,
+          "outside_at": 1762862220.0,
+          "outside_filtered_c": -2.4860310029826964,
+          "pump_duty": 159,
+          "quiet_level": null,
+          "ramp_cap_c": 30.271407607666085,
+          "ramp_elapsed_s": 540.0,
+          "ramp_phase": "hold",
+          "room_alive_by": "ha/sensor.living_room_humidity",
+          "room_alive_s": 1400.0,
+          "room_authority": 1.0,
+          "room_crosscheck_deviation_k": 0.5447850072807401,
+          "room_crosscheck_threshold_k": 1.5,
+          "room_error_k": -0.5,
+          "room_held_s": 2100.0,
+          "room_lost_at": null,
+          "room_plausible": true,
+          "room_profile": "on_change",
+          "room_quantum_k": 0.2,
+          "room_target_c": 21.0,
+          "run_started_at": 1762861680.0,
+          "running": true,
+          "safety_high_c": 39.5,
+          "safety_low_c": 28.5,
+          "setpoint": 30,
+          "stopped_at": 1762860000.0,
+          "stove_blocked": false,
+          "stove_entry_c": null,
+          "stove_event": null,
+          "stove_exit": null,
+          "stove_fault": false,
+          "stove_high_at": null,
+          "stove_high_c": null,
+          "stove_integral_k": null,
+          "stove_level_blocked": false,
+          "stove_low_at": null,
+          "stove_low_c": null,
+          "stove_predip_c": null,
+          "stove_reentry_wait": false,
+          "stove_since": null,
+          "stove_source": null,
+          "stove_step_low_at": null,
+          "stove_step_low_c": null,
+          "stove_trigger": null,
+          "stove_trusted_since": null
+        },
+        "reason": "start_ramp",
+        "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.2 °C at -2.5 °C outside; held value 21.5 °C (35 min), device alive (humidity 23 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+        "intents": [
+          {
+            "kind": "water_setpoint",
+            "value": 30,
+            "reason": "start_ramp"
+          },
+          {
+            "kind": "max_pump_duty",
+            "value": 159,
+            "reason": "pump_duty_heat"
+          }
+        ],
+        "actor": null
+      }
+    },
+    {
+      "at": "2025-11-11T11:58:00Z",
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "schedule_curve_feedback",
+      "reason": "start_ramp",
+      "setpoint": 30,
+      "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.2 °C at -2.5 °C outside; held value 21.5 °C (36 min), device alive (humidity 24 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+      "arbiter": [
+        {
+          "kind": "water_setpoint",
+          "intent": 30,
+          "actual": 30,
+          "action": "none",
+          "reason": "already applied"
+        },
+        {
+          "kind": "max_pump_duty",
+          "intent": 159,
+          "actual": 159,
+          "action": "none",
+          "reason": "already applied"
+        }
+      ],
+      "commands": [],
+      "config_version": null,
+      "record": {
+        "schema": 1,
+        "at": {
+          "monotonic": 1762862280.0,
+          "wall": "2025-11-11T11:58:00+00:00"
+        },
+        "controller": "ovenbird",
+        "mode": "auto",
+        "ladder": "schedule_curve_feedback",
+        "terms": [
+          {
+            "name": "curve",
+            "raw": 35.23992604440709,
+            "value": 35.23992604440709,
+            "unit": "°C",
+            "note": "curve at -2.48 °C filtered outside (-1 °C raw)"
+          },
+          {
+            "name": "room_feedback",
+            "raw": -2.2372222222222353,
+            "value": -2.2372222222222353,
+            "unit": "K",
+            "note": "room 21.50 °C vs target 21.00 °C: P -1.0 K + I -1.2 K; held value 21.5 °C (36 min), device alive (humidity 24 min ago), ±0.2 K, cooling authority 100 %"
+          },
+          {
+            "name": "plan",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no plan"
+          },
+          {
+            "name": "start_ramp",
+            "raw": -2.731296214518771,
+            "value": -2.731296214518771,
+            "unit": "K",
+            "note": "hold phase, cap 30.27 °C (10 min run)"
+          },
+          {
+            "name": "cycling_floor",
+            "raw": -1.0214076076660845,
+            "value": 0.0,
+            "unit": "K",
+            "note": "min-run window: keep ≥ 29.25 °C (outlet 30.75 °C)"
+          },
+          {
+            "name": "safety",
+            "raw": 30.271407607666085,
+            "value": 30.271407607666085,
+            "unit": "°C",
+            "note": "allowed [28.50, 39.50] °C at -1 °C outside"
+          }
+        ],
+        "pre_round": 30.271407607666085,
+        "setpoint": 30,
+        "binding": "start_ramp",
+        "flip_distance": 0.36429619616695774,
+        "flip_input": "ha/sensor.living_room_temperature",
+        "inputs_used": [
+          {
+            "signal": "main/Outside_Temp",
+            "value": -1,
+            "age": 175.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Outlet_Temp",
+            "value": 30.75,
+            "age": 15.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Inlet_Temp",
+            "value": 27.25,
+            "age": 0.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Compressor_Freq",
+            "value": 41,
+            "age": 175.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Defrosting_State",
+            "value": 0,
+            "age": 175.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/ThreeWay_Valve_State",
+            "value": 0,
+            "age": 175.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Heating_Mode",
+            "value": 1,
+            "age": 175.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Operating_Mode_State",
+            "value": 0,
+            "age": 175.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Z1_Water_Target_Temp",
+            "value": 30,
+            "age": 175.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Max_Pump_Duty",
+            "value": 159,
+            "age": 175.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Room_Thermostat_Temp",
+            "value": 21,
+            "age": 55.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "stats",
+            "value": true,
+            "age": 0.0,
+            "fresh": true,
+            "source": null,
+            "issued": null
+          },
+          {
+            "signal": "ha/sensor.living_room_temperature",
+            "value": 21.5,
+            "age": 1460.0,
+            "fresh": true,
+            "source": "room",
+            "issued": null
+          }
+        ],
+        "controller_state": {
+          "crosscheck_latched_c": null,
+          "crosscheck_offset_k": -0.04472306860599023,
+          "crosscheck_since": null,
+          "dwell_remaining_s": 0.0,
+          "frozen_by": null,
+          "integral_at_life_k": -1.1972222222222344,
+          "integral_k": -1.238888888888902,
+          "last_change_at": 1762861680.0,
+          "last_tick_at": 1762862280.0,
+          "outside_at": 1762862280.0,
+          "outside_filtered_c": -2.479852088814185,
+          "pump_duty": 159,
+          "quiet_level": null,
+          "ramp_cap_c": 30.271407607666085,
+          "ramp_elapsed_s": 600.0,
+          "ramp_phase": "hold",
+          "room_alive_by": "ha/sensor.living_room_humidity",
+          "room_alive_s": 1460.0,
+          "room_authority": 1.0,
+          "room_crosscheck_deviation_k": -0.45559331564098265,
+          "room_crosscheck_threshold_k": 1.5,
+          "room_error_k": -0.5,
+          "room_held_s": 2160.0,
+          "room_lost_at": null,
+          "room_plausible": true,
+          "room_profile": "on_change",
+          "room_quantum_k": 0.2,
+          "room_target_c": 21.0,
+          "run_started_at": 1762861680.0,
+          "running": true,
+          "safety_high_c": 39.5,
+          "safety_low_c": 28.5,
+          "setpoint": 30,
+          "stopped_at": 1762860000.0,
+          "stove_blocked": false,
+          "stove_entry_c": null,
+          "stove_event": null,
+          "stove_exit": null,
+          "stove_fault": false,
+          "stove_high_at": null,
+          "stove_high_c": null,
+          "stove_integral_k": null,
+          "stove_level_blocked": false,
+          "stove_low_at": null,
+          "stove_low_c": null,
+          "stove_predip_c": null,
+          "stove_reentry_wait": false,
+          "stove_since": null,
+          "stove_source": null,
+          "stove_step_low_at": null,
+          "stove_step_low_c": null,
+          "stove_trigger": null,
+          "stove_trusted_since": null
+        },
+        "reason": "start_ramp",
+        "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.2 °C at -2.5 °C outside; held value 21.5 °C (36 min), device alive (humidity 24 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+        "intents": [
+          {
+            "kind": "water_setpoint",
+            "value": 30,
+            "reason": "start_ramp"
+          },
+          {
+            "kind": "max_pump_duty",
+            "value": 159,
+            "reason": "pump_duty_heat"
+          }
+        ],
+        "actor": null
+      }
+    },
+    {
+      "at": "2025-11-11T11:59:00Z",
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "schedule_curve_feedback",
+      "reason": "start_ramp",
+      "setpoint": 30,
+      "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.2 °C at -2.5 °C outside; held value 21.5 °C (37 min), device alive (humidity 25 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+      "arbiter": [
+        {
+          "kind": "water_setpoint",
+          "intent": 30,
+          "actual": 30,
+          "action": "none",
+          "reason": "already applied"
+        },
+        {
+          "kind": "max_pump_duty",
+          "intent": 159,
+          "actual": 159,
+          "action": "none",
+          "reason": "already applied"
+        }
+      ],
+      "commands": [],
+      "config_version": null,
+      "record": {
+        "schema": 1,
+        "at": {
+          "monotonic": 1762862340.0,
+          "wall": "2025-11-11T11:59:00+00:00"
+        },
+        "controller": "ovenbird",
+        "mode": "auto",
+        "ladder": "schedule_curve_feedback",
+        "terms": [
+          {
+            "name": "curve",
+            "raw": 35.236849433279694,
+            "value": 35.236849433279694,
+            "unit": "°C",
+            "note": "curve at -2.47 °C filtered outside (-1 °C raw)"
+          },
+          {
+            "name": "room_feedback",
+            "raw": -2.2388888888889023,
+            "value": -2.2388888888889023,
+            "unit": "K",
+            "note": "room 21.50 °C vs target 21.00 °C: P -1.0 K + I -1.2 K; held value 21.5 °C (37 min), device alive (humidity 25 min ago), ±0.2 K, cooling authority 100 %"
+          },
+          {
+            "name": "plan",
+            "raw": 0.0,
+            "value": 0.0,
+            "unit": "K",
+            "note": "no plan"
+          },
+          {
+            "name": "start_ramp",
+            "raw": -2.7265529367247083,
+            "value": -2.7265529367247083,
+            "unit": "K",
+            "note": "hold phase, cap 30.27 °C (11 min run)"
+          },
+          {
+            "name": "cycling_floor",
+            "raw": -1.0214076076660845,
+            "value": 0.0,
+            "unit": "K",
+            "note": "min-run window: keep ≥ 29.25 °C (outlet 30.75 °C)"
+          },
+          {
+            "name": "safety",
+            "raw": 30.271407607666085,
+            "value": 30.271407607666085,
+            "unit": "°C",
+            "note": "allowed [28.50, 39.50] °C at -1 °C outside"
+          }
+        ],
+        "pre_round": 30.271407607666085,
+        "setpoint": 30,
+        "binding": "start_ramp",
+        "flip_distance": 0.36429619616695774,
+        "flip_input": "ha/sensor.living_room_temperature",
+        "inputs_used": [
+          {
+            "signal": "main/Outside_Temp",
+            "value": -1,
+            "age": 235.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Outlet_Temp",
+            "value": 30.75,
+            "age": 75.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Main_Inlet_Temp",
+            "value": 27.25,
+            "age": 60.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Compressor_Freq",
+            "value": 40,
+            "age": 15.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Defrosting_State",
+            "value": 0,
+            "age": 235.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/ThreeWay_Valve_State",
+            "value": 0,
+            "age": 235.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "main/Heating_Mode",
+            "value": 1,
+            "age": 235.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Operating_Mode_State",
+            "value": 0,
+            "age": 235.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Z1_Water_Target_Temp",
+            "value": 30,
+            "age": 235.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Max_Pump_Duty",
+            "value": 159,
+            "age": 235.0,
+            "fresh": true,
+            "source": "actual",
+            "issued": null
+          },
+          {
+            "signal": "main/Room_Thermostat_Temp",
+            "value": 21,
+            "age": 115.0,
+            "fresh": true,
+            "source": "heishamon",
+            "issued": null
+          },
+          {
+            "signal": "stats",
+            "value": true,
+            "age": 0.0,
+            "fresh": true,
+            "source": null,
+            "issued": null
+          },
+          {
+            "signal": "ha/sensor.living_room_temperature",
+            "value": 21.5,
+            "age": 1520.0,
+            "fresh": true,
+            "source": "room",
+            "issued": null
+          }
+        ],
+        "controller_state": {
+          "crosscheck_latched_c": null,
+          "crosscheck_offset_k": -0.04503923314168051,
+          "crosscheck_since": null,
+          "dwell_remaining_s": 0.0,
+          "frozen_by": null,
+          "integral_at_life_k": -1.1972222222222344,
+          "integral_k": -1.2405555555555687,
+          "last_change_at": 1762861680.0,
+          "last_tick_at": 1762862340.0,
+          "outside_at": 1762862340.0,
+          "outside_filtered_c": -2.4736988665593853,
+          "pump_duty": 159,
+          "quiet_level": null,
+          "ramp_cap_c": 30.271407607666085,
+          "ramp_elapsed_s": 660.0,
+          "ramp_phase": "hold",
+          "room_alive_by": "ha/sensor.living_room_humidity",
+          "room_alive_s": 1520.0,
+          "room_authority": 1.0,
+          "room_crosscheck_deviation_k": -0.45527693139400977,
+          "room_crosscheck_threshold_k": 1.5,
+          "room_error_k": -0.5,
+          "room_held_s": 2220.0,
+          "room_lost_at": null,
+          "room_plausible": true,
+          "room_profile": "on_change",
+          "room_quantum_k": 0.2,
+          "room_target_c": 21.0,
+          "run_started_at": 1762861680.0,
+          "running": true,
+          "safety_high_c": 39.5,
+          "safety_low_c": 28.5,
+          "setpoint": 30,
+          "stopped_at": 1762860000.0,
+          "stove_blocked": false,
+          "stove_entry_c": null,
+          "stove_event": null,
+          "stove_exit": null,
+          "stove_fault": false,
+          "stove_high_at": null,
+          "stove_high_c": null,
+          "stove_integral_k": null,
+          "stove_level_blocked": false,
+          "stove_low_at": null,
+          "stove_low_c": null,
+          "stove_predip_c": null,
+          "stove_reentry_wait": false,
+          "stove_since": null,
+          "stove_source": null,
+          "stove_step_low_at": null,
+          "stove_step_low_c": null,
+          "stove_trigger": null,
+          "stove_trusted_since": null
+        },
+        "reason": "start_ramp",
+        "note": "Room 0.5 K above target; PI adds -2.2 K to the curve's 35.2 °C at -2.5 °C outside; held value 21.5 °C (37 min), device alive (humidity 25 min ago), ±0.2 K, cooling authority 100 %; start ramp caps at 30.3 °C; setpoint 30 °C.",
+        "intents": [
+          {
+            "kind": "water_setpoint",
+            "value": 30,
+            "reason": "start_ramp"
+          },
+          {
+            "kind": "max_pump_duty",
+            "value": 159,
+            "reason": "pump_duty_heat"
+          }
+        ],
+        "actor": null
+      }
+    }
+  ]
+}

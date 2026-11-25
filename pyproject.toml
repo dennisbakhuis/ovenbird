@@ -1,0 +1,120 @@
+[project]
+name = "ovenbird-workspace"
+version = "0.0.0"
+description = "uv workspace root for the ovenbird heat pump controller"
+requires-python = ">=3.14"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["capture", "packages/*"]
+
+[tool.uv.sources]
+climate-manager-capture = { workspace = true }
+ovenbird-core = { workspace = true }
+ovenbird = { workspace = true }
+ovenbird-sim = { workspace = true }
+ovenbird-harness = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "hypothesis>=6",
+    "ruff>=0.15",
+    "mypy>=1.19",
+    "pre-commit>=4.0",
+    "httpx2>=2.16.0",
+    "pyyaml>=6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+extend-exclude = ["ui", "integration"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",
+    "I",
+    "B",
+    "UP",
+    "SIM",
+    "RUF",
+    "N",
+    "D",
+    "ANN",
+    "PT",
+    "TID",
+    "C4",
+    "PERF",
+    "PIE",
+    "RET",
+    "ASYNC",
+    "S",
+    "ERA",
+]
+ignore = [
+    "D203", "D213",
+    "D100",
+    "D104",
+    "ANN401",
+    "S101",
+    "S311",
+    "PERF401",
+]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["ovenbird_core.setting.setting"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "ovenbird",
+    "ovenbird_core",
+    "ovenbird_sim",
+    "ovenbird_harness",
+    "climate_manager_capture",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["D", "ANN", "S101", "S104", "S105", "S106"]
+"capture/tools/**" = ["D", "ANN", "S"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+explicit_package_bases = true
+mypy_path = [
+    "packages/core/src",
+    "packages/service/src",
+    "packages/sim/src",
+    "packages/harness/src",
+    "capture/src",
+]
+
+[[tool.mypy.overrides]]
+module = ["paho.*", "yaml"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = [
+    "capture/tests",
+    "packages/core/tests",
+    "packages/service/tests",
+    "packages/sim/tests",
+    "packages/harness/tests",
+]
+addopts = "-ra --strict-markers --import-mode=importlib"
+markers = ["slow: takes more than about five seconds; deselect with -m \"not slow\""]

@@ -1,0 +1,1 @@
+{"detail":{"code":"out_of_range","message":"heat_delta must lie within [3, 10]","params":{"min":3,"max":10}}}

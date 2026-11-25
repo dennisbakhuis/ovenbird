@@ -1,0 +1,8 @@
+{
+  "status": 409,
+  "detail": {
+    "code": "not_publishing",
+    "message": "control is paused",
+    "params": {}
+  }
+}

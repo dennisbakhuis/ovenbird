@@ -1,0 +1,16 @@
+[project]
+name = "ovenbird-core"
+version = "0.4.0"
+description = "Pure domain logic for the ovenbird heat pump controller."
+readme = "README.md"
+requires-python = ">=3.14"
+license = "Apache-2.0"
+authors = [{ name = "Dennis Bakhuis" }]
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ovenbird_core"]

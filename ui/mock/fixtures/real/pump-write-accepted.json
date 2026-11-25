@@ -1,0 +1,13 @@
+{
+  "status": 202,
+  "command": {
+    "at": "2027-01-15T08:00:00Z",
+    "kind": "heat_delta",
+    "value": 4,
+    "status": "queued",
+    "attempt": 0,
+    "detail": "operator: admin from testclient: heat_delta 5 → 4 (test)",
+    "topic": "panasonic_heat_pump/commands/SetFloorHeatDelta",
+    "payload": "4"
+  }
+}

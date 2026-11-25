@@ -1,0 +1,1 @@
+{"from":"2026-11-02T00:00:00Z","to":"2026-11-02T03:20:00Z","limit":500,"active":[],"events":[{"at":"2026-11-02T00:15:00Z","code":"pump_error","severity":"critical","event":"raised","message":"H23","detail":{}}]}

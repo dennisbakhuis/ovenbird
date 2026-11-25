@@ -1,0 +1,6 @@
+{
+  "enabled": false,
+  "provider": "open-meteo",
+  "reason": "weather_enabled is off",
+  "location": null
+}

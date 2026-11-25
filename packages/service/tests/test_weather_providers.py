@@ -1,0 +1,176 @@
+"""Weather provider parsing, series interpolation and the simulated provider (no network)."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from ovenbird import history as history
+from ovenbird.weather import providers
+from ovenbird.weather.providers import (
+    ForecastHour,
+    HourlySeries,
+    OpenMeteoProvider,
+    SimulatedProvider,
+    WeatherError,
+    parse_open_meteo,
+    rounded,
+    synthetic_series,
+)
+
+ISSUED = 1_800_000_000.0
+
+
+def _body(times: list[object], **columns: list[object]) -> dict[str, object]:
+    hourly: dict[str, object] = {"time": times}
+    hourly.update(columns)
+    return {"hourly": hourly}
+
+
+def test_rounded_keeps_two_decimals() -> None:
+    assert rounded(52.09123) == 52.09
+    assert rounded(5.11789) == 5.12
+
+
+def test_parse_sorts_hours_and_keeps_missing_values_as_none() -> None:
+    body = _body([7200, 3600], temperature_2m=[2.0, None])
+    forecast = parse_open_meteo(body, ISSUED)
+    assert [hour.target_ts for hour in forecast.hours] == [3600.0, 7200.0]
+    assert forecast.hours[0].temp_c is None
+    assert forecast.hours[1].temp_c == 2.0
+    assert forecast.hours[0].wind_ms is None
+    assert forecast.issued_ts == ISSUED
+
+
+def test_parse_skips_hours_without_a_valid_time() -> None:
+    forecast = parse_open_meteo(_body([3600, None, "x", True]), ISSUED)
+    assert [hour.target_ts for hour in forecast.hours] == [3600.0]
+
+
+def test_parse_converts_wind_from_kmh() -> None:
+    body = _body([3600], wind_speed_10m=[36.0])
+    body["hourly_units"] = {"wind_speed_10m": "km/h"}
+    assert parse_open_meteo(body, ISSUED).hours[0].wind_ms == pytest.approx(10.0)
+
+
+def test_parse_keeps_wind_in_ms() -> None:
+    body = _body([3600], wind_speed_10m=[4.25])
+    body["hourly_units"] = {"wind_speed_10m": "m/s"}
+    assert parse_open_meteo(body, ISSUED).hours[0].wind_ms == 4.25
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"error": True, "reason": "bad request"},
+        {},
+        {"hourly": []},
+        {"hourly": {"time": "x"}},
+        _body([]),
+        _body(["x"]),
+        _body([3600, 7200], temperature_2m=[1.0]),
+    ],
+)
+def test_parse_rejects_unusable_bodies(body: dict[str, object]) -> None:
+    with pytest.raises(WeatherError):
+        parse_open_meteo(body, ISSUED)
+
+
+def test_error_reason_is_cut_to_200_characters() -> None:
+    with pytest.raises(WeatherError) as info:
+        parse_open_meteo({"error": True, "reason": "x" * 500}, ISSUED)
+    assert len(str(info.value)) < 260
+
+
+def test_provider_wraps_bad_json_and_non_objects() -> None:
+    with pytest.raises(WeatherError, match="request failed"):
+        OpenMeteoProvider(lambda _: b"{not json").fetch(52.0, 5.0, ISSUED)
+    with pytest.raises(WeatherError, match="not a JSON object"):
+        OpenMeteoProvider(lambda _: b"[1, 2]").fetch(52.0, 5.0, ISSUED)
+
+
+def test_default_opener_refuses_plain_http() -> None:
+    with pytest.raises(WeatherError, match="https"):
+        providers._urlopen("http://example.invalid/forecast")
+
+
+def _series() -> HourlySeries:
+    return HourlySeries(
+        times=(0.0, 3600.0, 7200.0),
+        temp_c=(0.0, 10.0, None),
+        radiation_wm2=(None, None, None),
+        cloud_pct=(10.0, 20.0, 30.0),
+        wind_ms=(1.0, 1.0, 1.0),
+    )
+
+
+def test_series_interpolates_linearly_and_holds_the_ends() -> None:
+    series = _series()
+    assert series.at(1800.0).temp_c == pytest.approx(5.0)
+    assert series.at(-100.0).temp_c == 0.0
+    assert series.at(99_999.0).temp_c is None
+    assert series.at(1800.0).cloud_pct == pytest.approx(15.0)
+
+
+def test_series_uses_the_known_neighbour_when_one_side_is_missing() -> None:
+    assert _series().at(5400.0).temp_c == 10.0
+    assert _series().at(1800.0).radiation_wm2 is None
+
+
+def test_series_rejects_empty_and_misaligned_columns() -> None:
+    with pytest.raises(ValueError, match="at least one"):
+        HourlySeries((), (), (), (), ())
+    with pytest.raises(ValueError, match="align"):
+        HourlySeries((0.0, 1.0), (1.0,), (1.0, 1.0), (1.0, 1.0), (1.0, 1.0))
+
+
+def test_series_loads_a_cache_file_and_converts_kmh(tmp_path: Path) -> None:
+    path = tmp_path / "open_meteo_hourly.json"
+    body = _body(
+        [7200, 3600],
+        temperature_2m=[2.0, 1.0],
+        shortwave_radiation=[0, 50],
+        cloud_cover=[80, 90],
+        wind_speed_10m=[36.0, 18.0],
+    )
+    path.write_text(json.dumps(body), encoding="utf-8")
+    series = HourlySeries.load(path)
+    assert series.times == (3600.0, 7200.0)
+    assert series.temp_c == (1.0, 2.0)
+    assert series.wind_ms == pytest.approx((5.0, 10.0))
+
+
+@pytest.mark.parametrize("text", ["[]", '{"hourly": {}}', '{"hourly": {"time": []}}'])
+def test_series_load_rejects_other_files(tmp_path: Path, text: str) -> None:
+    path = tmp_path / "bad.json"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError, match=r"bad\.json"):
+        HourlySeries.load(path)
+
+
+def test_synthetic_series_is_hourly_and_plausible() -> None:
+    series = synthetic_series(ISSUED, days=3)
+    assert len(series.times) == 72
+    assert {b - a for a, b in zip(series.times, series.times[1:], strict=False)} == {3600.0}
+    assert series.times[0] < ISSUED
+    temps = [t for t in series.temp_c if t is not None]
+    assert -10.0 < min(temps) < max(temps) < 15.0
+    assert all(r is not None and r >= 0.0 for r in series.radiation_wm2)
+
+
+def test_simulated_provider_is_deterministic_per_seed_and_exact_in_the_past() -> None:
+    series = synthetic_series(ISSUED, days=40)
+    first = SimulatedProvider(series, seed=3).fetch(52.0, 5.0, ISSUED)
+    again = SimulatedProvider(series, seed=3).fetch(52.0, 5.0, ISSUED)
+    other = SimulatedProvider(series, seed=4).fetch(52.0, 5.0, ISSUED)
+    assert first == again
+    assert first != other
+    assert isinstance(first.hours[0], ForecastHour)
+    past = [hour for hour in first.hours if hour.target_ts <= ISSUED]
+    assert past
+    for hour in past:
+        true = series.at(hour.target_ts).temp_c
+        assert true is not None
+        assert hour.temp_c == round(true, 1)

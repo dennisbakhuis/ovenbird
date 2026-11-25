@@ -1,0 +1,4 @@
+{
+  "status": 400,
+  "detail": "hours must be a number from 1 to 72"
+}

@@ -1,0 +1,30 @@
+configuration:
+  mqtt_host:
+    name: MQTT-host
+    description: Hostnaam van de MQTT-broker waarnaar de HeishaMon publiceert.
+  mqtt_port:
+    name: MQTT-poort
+    description: Poort van de broker (1883 zonder TLS, 8883 met TLS).
+  mqtt_username:
+    name: MQTT-gebruikersnaam
+    description: Gebruikersnaam voor de broker; leeg laten voor een anonieme broker.
+  mqtt_password:
+    name: MQTT-wachtwoord
+    description: Wachtwoord voor de broker; leeg laten voor een anonieme broker.
+  mqtt_tls:
+    name: MQTT-TLS
+    description: Verbind met de broker via TLS.
+  heishamon_base:
+    name: HeishaMon-basistopic
+    description: De HeishaMon-instelling "mqtt_topic_base", zonder slash aan begin of eind.
+  ha_entities:
+    name: Home Assistant-entiteiten
+    description: Optionele extra entiteit-id's om te lezen. De sensoren die je in de instellingen van ovenbird kiest, worden gelezen zonder ze hier te noemen.
+  admin_password:
+    name: Beheerderswachtwoord
+    description: Vereist voor de optionele directe poort. Toegang via de Home Assistant-zijbalk (ingress) vraagt er nooit om.
+  log_level:
+    name: Logniveau
+    description: Detailniveau van het servicelog.
+network:
+  8099/tcp: Directe toegang tot de web-UI en API (vereist het beheerderswachtwoord)

@@ -1,0 +1,18 @@
+{
+  "ovenbird_learner_config": 1,
+  "comment": "The harness example profile (make fullrun) for make learn; the service writes its own models/learner-config.json.",
+  "effective": {
+    "control_emitter": "mixed",
+    "control_room_signal": "ha/sensor.living_room_temperature",
+    "control_stove_reference_signal": null,
+    "control_timezone": "Europe/Amsterdam",
+    "control_comfort_c": 21.0,
+    "control_min_setpoint_c": 24.0,
+    "control_curve": [[-10.0, 39.0], [0.0, 34.0], [15.0, 25.0]],
+    "control_max_supply_c": 40.0,
+    "control_envelope_curve": [[-10.0, 39.0], [0.0, 34.0], [15.0, 25.0]],
+    "control_envelope_below_k": 6.0,
+    "control_envelope_above_k": 5.0,
+    "house_floor_area_m2": null
+  }
+}

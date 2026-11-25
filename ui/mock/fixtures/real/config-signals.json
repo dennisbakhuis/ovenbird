@@ -1,0 +1,87 @@
+{
+  "ha": {
+    "enabled": true,
+    "link_up": false,
+    "temperature_unit": "°C"
+  },
+  "room": [
+    {
+      "signal": "ha/climate.living_room#current_temperature",
+      "name": "Thermostaat",
+      "unit": "°C",
+      "value": 21.0,
+      "held_s": 60.0,
+      "source": "ha",
+      "entity_id": "climate.living_room",
+      "area": "Living room",
+      "device_id": "dev-2"
+    },
+    {
+      "signal": "ha/sensor.living_room_temperature",
+      "name": "Living room climate",
+      "unit": "°C",
+      "value": 21.9,
+      "held_s": 7800.0,
+      "source": "ha",
+      "entity_id": "sensor.living_room_temperature",
+      "area": "Living room",
+      "device_id": "dev-1"
+    }
+  ],
+  "liveness": [
+    {
+      "signal": "ha/sensor.living_room_humidity",
+      "name": "Living room humidity",
+      "unit": "%",
+      "value": 54.0,
+      "held_s": null,
+      "source": "ha",
+      "entity_id": "sensor.living_room_humidity",
+      "area": "Living room",
+      "device_id": "dev-1"
+    },
+    {
+      "signal": "ha/sensor.living_room_temperature",
+      "name": "Living room climate",
+      "unit": "°C",
+      "value": 21.9,
+      "held_s": 7800.0,
+      "source": "ha",
+      "entity_id": "sensor.living_room_temperature",
+      "area": "Living room",
+      "device_id": "dev-1"
+    }
+  ],
+  "crosscheck": [
+    {
+      "signal": "ha/climate.living_room#current_temperature",
+      "name": "Thermostaat",
+      "unit": "°C",
+      "value": 21.0,
+      "held_s": 60.0,
+      "source": "ha",
+      "entity_id": "climate.living_room",
+      "area": "Living room",
+      "device_id": "dev-2"
+    },
+    {
+      "signal": "ha/sensor.living_room_temperature",
+      "name": "Living room climate",
+      "unit": "°C",
+      "value": 21.9,
+      "held_s": 7800.0,
+      "source": "ha",
+      "entity_id": "sensor.living_room_temperature",
+      "area": "Living room",
+      "device_id": "dev-1"
+    },
+    {
+      "signal": "main/Room_Thermostat_Temp",
+      "name": null,
+      "unit": null,
+      "value": 22,
+      "held_s": 0.0,
+      "source": "heishamon"
+    }
+  ]
+}

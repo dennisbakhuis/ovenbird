@@ -1,0 +1,130 @@
+import type { house as en } from '$lib/i18n/en/house';
+
+export const house: Record<keyof typeof en, string> = {
+  houseTitle: 'Huis',
+  navHouse: 'Huis',
+  section_house: 'Huis',
+  houseLead:
+    'Wat ovenbird uit zijn eigen geschiedenis leerde: warmteverlies, hoe traag het huis afkoelt, wat dat voor je stooklijn betekent.',
+
+  houseScoreTitle: 'Isolatiescore',
+  houseUaLabel: 'warmteverlies',
+  houseRange: '90 %-bereik {lo}–{hi}',
+  houseUaSentence:
+    'Bij {inside} °C binnen en {outside} °C buiten verliest het huis ongeveer {kw} kW.',
+  houseBandValue: 'Klasse {band}',
+  houseBandSure: 'klasse {band} over het hele bereik',
+  houseBandBetween: 'tussen klasse {lo} en {hi}',
+  houseLimitsAria: 'Grenzen in W/m²: {limits}.',
+  houseScaleAria: 'Klassen A tot G: het huis zit in klasse {band} met {value} W/m².',
+  houseFloorArea: 'Grenzen in W per m² van {area} m² vloeroppervlak',
+  houseChangeArea: 'Vloeroppervlak wijzigen',
+  houseNoArea: 'Vul het verwarmde vloeroppervlak in voor het warmteverlies per m² en een klasse.',
+  houseNoAreaLink: 'Vul je vloeroppervlak in',
+  houseServiceSays: 'De service meldt: {message}',
+  houseIndicative: 'Indicatief, niet het officiële energielabel.',
+  houseStillLearning: 'Nog aan het leren: nog {list} nodig.',
+  houseStillLearningPlain: 'Nog aan het leren: nog niet genoeg gegevens voor een score.',
+  houseNeed_cold_days: '{n} koude dagen (daggemiddelde onder {below} °C)',
+  houseNeedOne_cold_days: '1 koude dag (daggemiddelde onder {below} °C)',
+  houseNeed_heating_days: '{n} stookdagen',
+  houseNeedOne_heating_days: '1 stookdag',
+  houseNeed_outside_span_k: '{n} K meer spreiding in buitentemperatuur',
+
+  houseFactsTitle: 'Wat het model leerde',
+  houseTau: 'Tijdconstante',
+  houseTauText:
+    'Op een dag van 0 °C zonder verwarming koelt de kamer in de eerste {hours} uur ongeveer 1 °C af.',
+  houseBalance: 'Stookgrens',
+  houseBalanceText:
+    'Boven {value} °C buiten heeft het huis geen verwarming nodig: zon, mensen en apparaten zijn genoeg.',
+  houseSolar: 'Zonvenster',
+  houseSolarText: 'Een zonnig uur (500 W/m² op de grond) brengt ongeveer {kw} kW binnen.',
+  houseGains: 'Interne warmte',
+  houseGainsText: 'Mensen, koken en apparaten leveren ongeveer {value} W, dag en nacht.',
+
+  houseSignatureTitle: 'Energiesignatuur',
+  houseSignatureSubtitle:
+    'Warmte per dag tegen de buitentemperatuur; de stippellijn is de fit. Dagen met de houtkachel tellen niet mee.',
+  houseSignatureNone: 'Nog geen dagpunten.',
+  houseSignatureSummary:
+    '{n} dagen van {min} tot {max} buiten vroegen {low} tot {high} kW warmte. De lijn stijgt {slope} W voor elke graad kouder en komt bij {balance} op nul.',
+  houseAxisOutside: 'Buiten (°C)',
+  houseAxisHeat: 'Warmte (kW)',
+  houseBalanceMarker: 'stookgrens {value} °C',
+  houseLegendDays: 'één dag',
+  houseLegendFit: 'fit',
+  houseColDay: 'Dag',
+  houseColOutside: 'Buiten',
+  houseColHeat: 'Warmte',
+  houseColFit: 'Fit',
+
+  houseProposalTitle: 'Voorstel voor de stooklijn',
+  houseSuggestedLabel: 'Voorgesteld door het huismodel',
+  houseProposalLead:
+    'De aanvoertemperatuur die het model nodig heeft om {comfort} °C te houden, op elk punt van je stooklijn.',
+  houseCurveNow: 'je stooklijn',
+  houseCurveSuggested: 'voorstel',
+  houseColNow: 'Nu',
+  houseColSuggested: 'Voorstel',
+  houseColChange: 'Verschil',
+  houseLimited_max_supply: 'begrensd op max. aanvoer',
+  houseLimited_min_setpoint: 'verhoogd tot het minimum',
+  houseLimited_envelope: 'binnen de veiligheidsband gehouden',
+  houseExtrapolated: 'buiten de gemeten dagen',
+  houseProposalChange: 'Gemiddeld verschil {mean} K, grootste {max} K.',
+  houseProposalStale:
+    'Je stooklijn is sinds deze run veranderd; het voorstel hoort bij de vorige stooklijn.',
+  houseProposalNotCredible:
+    'Nog niet betrouwbaar: het model heeft meer koude dagen nodig voordat je het voorstel kunt vertrouwen.',
+  houseProposalOpen: 'Open als concept',
+  houseProposalOpenHint: 'Er verandert niets tot je het in Instellingen bekijkt en toepast.',
+  houseProposalSame: 'Het voorstel is gelijk aan je huidige stooklijn.',
+  houseProposalNone: 'Dit model heeft geen voorstel voor de stooklijn.',
+  houseDraftComment: 'Voorgesteld door het huismodel ({model})',
+
+  houseQualityTitle: 'Kwaliteit van het model',
+  houseTrendTitle: 'Warmteverlies per run',
+  houseTrendSummary: '{n} runs; warmteverlies van {first} tot {last} W/K.',
+  houseTrendList: 'Elke run ({n})',
+  houseTrendNone: 'Nog geen eerdere runs.',
+  houseChampion: 'in gebruik',
+  houseRmseLabel: 'Kamerfout over 24 u (laatste 14 dagen)',
+  houseRmseFirst: 'Nieuw model {challenger} K; er was nog geen vorig model.',
+  houseRmseBoth: 'Nieuw model {challenger} K, vorig model {champion} K.',
+  houseValidationLabel: 'Uitkomst',
+  housePromoted: 'In gebruik: het nieuwe model was niet slechter dan het vorige.',
+  houseKept: 'Niet in gebruik: het vorige model voorspelde beter en blijft.',
+  houseLearnerStale:
+    'Het leerprogramma draaide {days} dagen geleden voor het laatst; deze cijfers kunnen verouderd zijn. Kijk of het nog draait.',
+  houseLastRunLabel: 'Laatste run',
+  houseDataLabel: 'Gegevens',
+  houseDataSpan: '{from} – {to} ({days} dagen)',
+  houseExcluded: 'Dagen weggelaten (houtkachel): {n}',
+  houseLowConfidence:
+    'Weinig zekerheid: de twee schattingen van het warmteverlies verschillen meer dan 20 %.',
+  houseAboutModel: 'Over dit model',
+  houseLimitsTitle: 'Grenzen van dit model',
+  houseLimitsNote: 'Zoals de learner ze meldt voor {model} (Engels).',
+
+  houseLearningTitle: 'Nog aan het leren',
+  houseLearningText:
+    'ovenbird leert je huis kennen uit zijn eigen geschiedenis. Er is nog geen model dat hij vertrouwt; deze pagina vult zich zodra dat er is.',
+  houseNotRunText:
+    'De learner van het huismodel heeft nog niet gedraaid. Hij draait eens per week in de optionele learner-container.',
+  houseMissingTitle: 'Niet beschikbaar',
+  houseMissingText: 'Deze service biedt het huismodel nog niet.',
+  houseFailedTitle: 'Laden mislukt',
+  houseFailedText: 'Het huismodel kon niet worden geladen. Hij probeert het opnieuw.',
+  houseMissingList: 'Nog nodig',
+  houseLastRunAt: 'Laatste run {time}',
+
+  houseSectionText:
+    'Met het vloeroppervlak wordt het geleerde warmteverlies een indicatieve isolatiescore.',
+  houseSectionLink: 'Open de pagina Huis',
+  moreHouseAbout: 'Warmteverlies, isolatiescore en voorstel voor de stooklijn',
+  moreHouseBand: 'Klasse {band} · {ua} W/K',
+  moreHouseUa: '{ua} W/K warmteverlies',
+  moreHouseLearning: 'Nog aan het leren',
+  weekHouseLink: 'Je huis',
+};

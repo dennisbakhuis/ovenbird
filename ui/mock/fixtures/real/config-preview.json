@@ -1,0 +1,304 @@
+{
+  "valid": true,
+  "errors": [],
+  "warnings": [],
+  "effective": {
+    "control_comfort_c": 21.4
+  },
+  "now": {
+    "current": {
+      "schema": 1,
+      "at": {
+        "monotonic": 1800000000.0,
+        "wall": "2027-01-15T08:00:00+00:00"
+      },
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "hold",
+      "terms": [],
+      "pre_round": null,
+      "setpoint": null,
+      "binding": null,
+      "flip_distance": null,
+      "flip_input": null,
+      "inputs_used": [
+        {
+          "signal": "main/Outside_Temp",
+          "value": null,
+          "age": null,
+          "fresh": false,
+          "source": null,
+          "issued": null
+        },
+        {
+          "signal": "main/Main_Outlet_Temp",
+          "value": null,
+          "age": null,
+          "fresh": false,
+          "source": null,
+          "issued": null
+        },
+        {
+          "signal": "main/Main_Inlet_Temp",
+          "value": null,
+          "age": null,
+          "fresh": false,
+          "source": null,
+          "issued": null
+        },
+        {
+          "signal": "main/Compressor_Freq",
+          "value": null,
+          "age": null,
+          "fresh": false,
+          "source": null,
+          "issued": null
+        },
+        {
+          "signal": "main/Defrosting_State",
+          "value": 0,
+          "age": 0.0,
+          "fresh": true,
+          "source": "heishamon",
+          "issued": null
+        },
+        {
+          "signal": "main/ThreeWay_Valve_State",
+          "value": 0,
+          "age": 0.0,
+          "fresh": true,
+          "source": "heishamon",
+          "issued": null
+        },
+        {
+          "signal": "main/Heating_Mode",
+          "value": 1,
+          "age": 0.0,
+          "fresh": true,
+          "source": "actual",
+          "issued": null
+        },
+        {
+          "signal": "main/Operating_Mode_State",
+          "value": 0,
+          "age": 0.0,
+          "fresh": true,
+          "source": "actual",
+          "issued": null
+        },
+        {
+          "signal": "main/Z1_Water_Target_Temp",
+          "value": null,
+          "age": null,
+          "fresh": false,
+          "source": null,
+          "issued": null
+        },
+        {
+          "signal": "main/Max_Pump_Duty",
+          "value": 159,
+          "age": 0.0,
+          "fresh": true,
+          "source": "actual",
+          "issued": null
+        },
+        {
+          "signal": "stats",
+          "value": true,
+          "age": 0.0,
+          "fresh": true,
+          "source": null,
+          "issued": null
+        }
+      ],
+      "controller_state": {
+        "crosscheck_latched_c": null,
+        "crosscheck_offset_k": null,
+        "crosscheck_since": null,
+        "frozen_by": "inputs_missing",
+        "integral_k": 0.0,
+        "last_change_at": null,
+        "last_tick_at": 1800000000.0,
+        "outside_at": null,
+        "outside_filtered_c": null,
+        "pump_duty": null,
+        "quiet_level": null,
+        "ramp_cap_c": null,
+        "ramp_elapsed_s": 0.0,
+        "ramp_phase": "idle",
+        "room_lost_at": null,
+        "run_started_at": null,
+        "running": null,
+        "setpoint": null,
+        "stopped_at": null
+      },
+      "reason": "inputs_missing",
+      "note": "Holding: missing or stale: main/Outside_Temp, main/Main_Outlet_Temp, main/Compressor_Freq; no previous intent to keep.",
+      "intents": [],
+      "actor": null
+    },
+    "candidate": {
+      "schema": 1,
+      "at": {
+        "monotonic": 1800000000.0,
+        "wall": "2027-01-15T08:00:00+00:00"
+      },
+      "controller": "ovenbird",
+      "mode": "auto",
+      "ladder": "hold",
+      "terms": [],
+      "pre_round": null,
+      "setpoint": null,
+      "binding": null,
+      "flip_distance": null,
+      "flip_input": null,
+      "inputs_used": [
+        {
+          "signal": "main/Outside_Temp",
+          "value": null,
+          "age": null,
+          "fresh": false,
+          "source": null,
+          "issued": null
+        },
+        {
+          "signal": "main/Main_Outlet_Temp",
+          "value": null,
+          "age": null,
+          "fresh": false,
+          "source": null,
+          "issued": null
+        },
+        {
+          "signal": "main/Main_Inlet_Temp",
+          "value": null,
+          "age": null,
+          "fresh": false,
+          "source": null,
+          "issued": null
+        },
+        {
+          "signal": "main/Compressor_Freq",
+          "value": null,
+          "age": null,
+          "fresh": false,
+          "source": null,
+          "issued": null
+        },
+        {
+          "signal": "main/Defrosting_State",
+          "value": 0,
+          "age": 0.0,
+          "fresh": true,
+          "source": "heishamon",
+          "issued": null
+        },
+        {
+          "signal": "main/ThreeWay_Valve_State",
+          "value": 0,
+          "age": 0.0,
+          "fresh": true,
+          "source": "heishamon",
+          "issued": null
+        },
+        {
+          "signal": "main/Heating_Mode",
+          "value": 1,
+          "age": 0.0,
+          "fresh": true,
+          "source": "actual",
+          "issued": null
+        },
+        {
+          "signal": "main/Operating_Mode_State",
+          "value": 0,
+          "age": 0.0,
+          "fresh": true,
+          "source": "actual",
+          "issued": null
+        },
+        {
+          "signal": "main/Z1_Water_Target_Temp",
+          "value": null,
+          "age": null,
+          "fresh": false,
+          "source": null,
+          "issued": null
+        },
+        {
+          "signal": "main/Max_Pump_Duty",
+          "value": 159,
+          "age": 0.0,
+          "fresh": true,
+          "source": "actual",
+          "issued": null
+        },
+        {
+          "signal": "stats",
+          "value": true,
+          "age": 0.0,
+          "fresh": true,
+          "source": null,
+          "issued": null
+        }
+      ],
+      "controller_state": {
+        "crosscheck_latched_c": null,
+        "crosscheck_offset_k": null,
+        "crosscheck_since": null,
+        "frozen_by": "inputs_missing",
+        "integral_k": 0.0,
+        "last_change_at": null,
+        "last_tick_at": 1800000000.0,
+        "outside_at": null,
+        "outside_filtered_c": null,
+        "pump_duty": null,
+        "quiet_level": null,
+        "ramp_cap_c": null,
+        "ramp_elapsed_s": 0.0,
+        "ramp_phase": "idle",
+        "room_lost_at": null,
+        "run_started_at": null,
+        "running": null,
+        "setpoint": null,
+        "stopped_at": null
+      },
+      "reason": "inputs_missing",
+      "note": "Holding: missing or stale: main/Outside_Temp, main/Main_Outlet_Temp, main/Compressor_Freq; no previous intent to keep.",
+      "intents": [],
+      "actor": null
+    },
+    "delta_setpoint": null
+  },
+  "open_loop_run": {
+    "from": "2027-01-14T08:00:00Z",
+    "to": "2027-01-15T08:00:00Z",
+    "ticks": 0,
+    "skipped": 0,
+    "identity_ok": true,
+    "identity_ticks": 0,
+    "identity_mismatches": 0,
+    "identity_first_mismatch": null,
+    "open_loop": true,
+    "series": {
+      "at": [],
+      "recorded": [],
+      "candidate": [],
+      "candidate_pre_round": []
+    },
+    "summary": {
+      "mean_diff_k": 0.0,
+      "min_diff_k": 0,
+      "max_diff_k": 0,
+      "changes_recorded": 0,
+      "changes_candidate": 0,
+      "writes_per_day": 0.0,
+      "budget": 150,
+      "share_safety_clamped": 0.0,
+      "share_feedback_limited": 0.0,
+      "ladder": {},
+      "binding": {}
+    },
+    "limitations": []
+  }
+}

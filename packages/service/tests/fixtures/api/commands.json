@@ -1,0 +1,1 @@
+{"from":"2026-11-02T00:00:00Z","to":"2026-11-02T03:20:00Z","limit":500,"commands":[{"at":"2026-11-02T00:10:00Z","kind":"water_setpoint","value":31,"status":"verified","attempt":1,"topic":null,"payload":null,"detail":"verified"},{"at":"2026-11-02T00:20:00Z","kind":"heat_delta","value":5,"status":"refused","attempt":1,"topic":null,"payload":null,"detail":"out of range"}]}

@@ -1,0 +1,1122 @@
+{
+  "applied_version": 1,
+  "fields": {
+    "admin_password": {
+      "default": null,
+      "locked": true,
+      "source": "env",
+      "stored": null,
+      "value": "set"
+    },
+    "admin_username": {
+      "default": "admin",
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": "admin"
+    },
+    "allow_commands": {
+      "default": false,
+      "locked": true,
+      "source": "env",
+      "stored": null,
+      "value": true
+    },
+    "clock_speed": {
+      "default": 1.0,
+      "locked": true,
+      "source": "env",
+      "stored": null,
+      "value": 60.0
+    },
+    "clock_start": {
+      "default": null,
+      "locked": true,
+      "source": "env",
+      "stored": null,
+      "value": "2026-01-06T00:00:00+00:00"
+    },
+    "command_brokers": {
+      "default": [],
+      "locked": true,
+      "source": "env",
+      "stored": null,
+      "value": [
+        "mosquitto:1883"
+      ]
+    },
+    "command_daily_budget": {
+      "default": 150,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 150
+    },
+    "command_escalation_factor": {
+      "default": 4.0,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 4.0
+    },
+    "command_escalation_hours": {
+      "default": 12.0,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 12.0
+    },
+    "command_hold_s": {
+      "default": 3600.0,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 3600.0
+    },
+    "command_latch_after": {
+      "default": 3,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 3
+    },
+    "command_max_retries": {
+      "default": 3,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 3
+    },
+    "command_min_spacing_s": {
+      "default": 7.0,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 7.0
+    },
+    "command_pump_duty_max": {
+      "default": 200,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 200
+    },
+    "command_pump_duty_min": {
+      "default": 80,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 80
+    },
+    "command_setpoint_register": {
+      "default": "setcurves_target_high",
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": "setcurves_target_high"
+    },
+    "command_verify_timeout_s": {
+      "default": 30.0,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 30.0
+    },
+    "config_seed": {
+      "default": null,
+      "locked": true,
+      "source": "env",
+      "stored": null,
+      "value": "/seed/config-seed.json"
+    },
+    "control_comfort_c": {
+      "default": 21.0,
+      "locked": false,
+      "source": "store",
+      "stored": 21.5,
+      "value": 21.5
+    },
+    "control_curve": {
+      "default": [
+        [
+          -10.0,
+          39.0
+        ],
+        [
+          0.0,
+          34.0
+        ],
+        [
+          15.0,
+          25.0
+        ]
+      ],
+      "locked": false,
+      "source": "preset",
+      "stored": null,
+      "value": [
+        [
+          -10.0,
+          39.0
+        ],
+        [
+          0.0,
+          34.0
+        ],
+        [
+          15.0,
+          25.0
+        ]
+      ]
+    },
+    "control_cycling_decrease_headroom_k": {
+      "default": 0.5,
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": 0.5
+    },
+    "control_cycling_enabled": {
+      "default": true,
+      "locked": false,
+      "source": "preset",
+      "stored": null,
+      "value": true
+    },
+    "control_cycling_margin_k": {
+      "default": 0.5,
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": 0.5
+    },
+    "control_cycling_max_raise_k": {
+      "default": 3.0,
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": 3.0
+    },
+    "control_cycling_min_run_s": {
+      "default": 1800.0,
+      "locked": false,
+      "source": "preset",
+      "stored": null,
+      "value": 1800.0
+    },
+    "control_cycling_stop_delta_k": {
+      "default": 2.0,
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": 2.0
+    },
+    "control_deadband_k": {
+      "default": 1.0,
+      "locked": false,
+      "source": "preset",
+      "stored": null,
+      "value": 1.0
+    },
+    "control_dwell_s": {
+      "default": 900.0,
+      "locked": false,
+      "source": "preset",
+      "stored": null,
+      "value": 900.0
+    },
+    "control_emitter": {
+      "default": "mixed",
+      "locked": false,
+      "source": "store",
+      "stored": "mixed",
+      "value": "mixed"
+    },
+    "control_envelope_above_k": {
+      "default": 5.0,
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": 5.0
+    },
+    "control_envelope_below_k": {
+      "default": 6.0,
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": 6.0
+    },
+    "control_envelope_curve": {
+      "default": [
+        [
+          -10.0,
+          39.0
+        ],
+        [
+          0.0,
+          34.0
+        ],
+        [
+          15.0,
+          25.0
+        ]
+      ],
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": [
+        [
+          -10.0,
+          39.0
+        ],
+        [
+          0.0,
+          34.0
+        ],
+        [
+          15.0,
+          25.0
+        ]
+      ]
+    },
+    "control_feedback_enabled": {
+      "default": true,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": true
+    },
+    "control_feedback_integral_limit_k": {
+      "default": 3.0,
+      "locked": false,
+      "source": "preset",
+      "stored": null,
+      "value": 3.0
+    },
+    "control_feedback_kp": {
+      "default": 2.0,
+      "locked": false,
+      "source": "preset",
+      "stored": null,
+      "value": 2.0
+    },
+    "control_feedback_max_integration_step_s": {
+      "default": 300.0,
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": 300.0
+    },
+    "control_feedback_output_limit_k": {
+      "default": 3.0,
+      "locked": false,
+      "source": "preset",
+      "stored": null,
+      "value": 3.0
+    },
+    "control_feedback_ti_s": {
+      "default": 21600.0,
+      "locked": false,
+      "source": "preset",
+      "stored": null,
+      "value": 21600.0
+    },
+    "control_fixed_water_c": {
+      "default": 30.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 30.0
+    },
+    "control_interval_s": {
+      "default": 60.0,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 60.0
+    },
+    "control_max_supply_c": {
+      "default": 40.0,
+      "locked": false,
+      "source": "preset",
+      "stored": null,
+      "value": 40.0
+    },
+    "control_min_setpoint_c": {
+      "default": 20.0,
+      "locked": false,
+      "source": "store",
+      "stored": 24.0,
+      "value": 24.0
+    },
+    "control_mode": {
+      "default": "shadow",
+      "locked": true,
+      "source": "env",
+      "stored": null,
+      "value": "auto"
+    },
+    "control_outside_filter_s": {
+      "default": 14400.0,
+      "locked": false,
+      "source": "preset",
+      "stored": null,
+      "value": 14400.0
+    },
+    "control_outside_max_age_s": {
+      "default": 1800.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 1800.0
+    },
+    "control_outside_max_deviation_k": {
+      "default": 10.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 10.0
+    },
+    "control_outside_plausible_max_c": {
+      "default": 50.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 50.0
+    },
+    "control_outside_plausible_min_c": {
+      "default": -40.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": -40.0
+    },
+    "control_outside_signal": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "control_pump_duty": {
+      "default": false,
+      "locked": false,
+      "source": "store",
+      "stored": true,
+      "value": true
+    },
+    "control_pump_duty_heat": {
+      "default": 159,
+      "locked": false,
+      "source": "store",
+      "stored": 159,
+      "value": 159
+    },
+    "control_pump_duty_idle": {
+      "default": 102,
+      "locked": false,
+      "source": "store",
+      "stored": 102,
+      "value": 102
+    },
+    "control_pump_duty_idle_delay_s": {
+      "default": 300.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 300.0
+    },
+    "control_quiet_windows": {
+      "default": [],
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": []
+    },
+    "control_ramp_below_outlet_k": {
+      "default": 1.0,
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": 1.0
+    },
+    "control_ramp_dwell_s": {
+      "default": 180.0,
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": 180.0
+    },
+    "control_ramp_enabled": {
+      "default": true,
+      "locked": false,
+      "source": "preset",
+      "stored": null,
+      "value": true
+    },
+    "control_ramp_hold_s": {
+      "default": 900.0,
+      "locked": false,
+      "source": "preset",
+      "stored": null,
+      "value": 900.0
+    },
+    "control_ramp_max_below_curve_k": {
+      "default": 5.0,
+      "locked": false,
+      "source": "preset",
+      "stored": null,
+      "value": 5.0
+    },
+    "control_ramp_release_k_per_h": {
+      "default": 4.0,
+      "locked": false,
+      "source": "preset",
+      "stored": null,
+      "value": 4.0
+    },
+    "control_room_alive_decay_end_s": {
+      "default": 28800.0,
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": 28800.0
+    },
+    "control_room_alive_decay_start_s": {
+      "default": 10800.0,
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": 10800.0
+    },
+    "control_room_crosscheck_signal": {
+      "default": null,
+      "locked": false,
+      "source": "store",
+      "stored": "main/Room_Thermostat_Temp",
+      "value": "main/Room_Thermostat_Temp"
+    },
+    "control_room_crosscheck_sustain_s": {
+      "default": 7200.0,
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": 7200.0
+    },
+    "control_room_crosscheck_tau_s": {
+      "default": 86400.0,
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": 86400.0
+    },
+    "control_room_crosscheck_threshold_k": {
+      "default": 1.5,
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": 1.5
+    },
+    "control_room_decay_start_s": {
+      "default": 43200.0,
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": 43200.0
+    },
+    "control_room_liveness_signals": {
+      "default": [],
+      "locked": false,
+      "source": "store",
+      "stored": [
+        "room_humidity"
+      ],
+      "value": [
+        "room_humidity"
+      ]
+    },
+    "control_room_profile": {
+      "default": "periodic",
+      "locked": false,
+      "source": "store",
+      "stored": "on_change",
+      "value": "on_change"
+    },
+    "control_room_report_interval_s": {
+      "default": 300.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 300.0
+    },
+    "control_room_signal": {
+      "default": null,
+      "locked": false,
+      "source": "store",
+      "stored": "room_temperature",
+      "value": "room_temperature"
+    },
+    "control_room_silence_limit_s": {
+      "default": 86400.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 86400.0
+    },
+    "control_room_step_k": {
+      "default": 0.2,
+      "locked": false,
+      "source": "store",
+      "stored": 0.1,
+      "value": 0.1
+    },
+    "control_rounding_hysteresis_k": {
+      "default": 0.25,
+      "locked": true,
+      "source": "preset",
+      "stored": null,
+      "value": 0.25
+    },
+    "control_state_max_age_s": {
+      "default": 900.0,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 900.0
+    },
+    "control_stove_auto": {
+      "default": true,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": true
+    },
+    "control_stove_backoff_k": {
+      "default": 3.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 3.0
+    },
+    "control_stove_enabled": {
+      "default": false,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": false
+    },
+    "control_stove_enter_above_k": {
+      "default": 1.5,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 1.5
+    },
+    "control_stove_exit_hysteresis_k": {
+      "default": 1.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 1.0
+    },
+    "control_stove_max_active_s": {
+      "default": 28800.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 28800.0
+    },
+    "control_stove_min_active_s": {
+      "default": 3600.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 3600.0
+    },
+    "control_stove_reentry_hold_s": {
+      "default": 900.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 900.0
+    },
+    "control_stove_reference_band_k": {
+      "default": 1.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 1.0
+    },
+    "control_stove_reference_floor_c": {
+      "default": 19.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 19.0
+    },
+    "control_stove_reference_signal": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "control_stove_rise_enabled": {
+      "default": true,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": true
+    },
+    "control_stove_rise_k": {
+      "default": 1.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 1.0
+    },
+    "control_stove_rise_window_s": {
+      "default": 1800.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 1800.0
+    },
+    "control_stove_to_minimum": {
+      "default": false,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": false
+    },
+    "control_timezone": {
+      "default": "UTC",
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": "UTC"
+    },
+    "control_weather_compensation": {
+      "default": true,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": true
+    },
+    "data_dir": {
+      "default": "/data",
+      "locked": true,
+      "source": "env",
+      "stored": null,
+      "value": "/data"
+    },
+    "envelope_rule_installed": {
+      "default": false,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": false
+    },
+    "ha_entities": {
+      "default": [],
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": []
+    },
+    "ha_token": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": "unset"
+    },
+    "ha_url": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "heishamon_base": {
+      "default": "panasonic_heat_pump",
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": "panasonic_heat_pump"
+    },
+    "history_15m_days": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "history_1h_days": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "history_1m_days": {
+      "default": 90.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 90.0
+    },
+    "history_archive_enabled": {
+      "default": true,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": true
+    },
+    "history_decision_days": {
+      "default": 30.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 30.0
+    },
+    "history_min_free_mb": {
+      "default": 256,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 256
+    },
+    "history_queue_size": {
+      "default": 20000,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 20000
+    },
+    "history_raw_days": {
+      "default": 14.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 14.0
+    },
+    "history_snapshot_hours": {
+      "default": 6.0,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 6.0
+    },
+    "hot_water": {
+      "default": "auto",
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": "auto"
+    },
+    "house_floor_area_m2": {
+      "default": null,
+      "locked": false,
+      "source": "store",
+      "stored": 130,
+      "value": 130.0
+    },
+    "http_allowed_origins": {
+      "default": [],
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": []
+    },
+    "http_host": {
+      "default": "127.0.0.1",
+      "locked": true,
+      "source": "env",
+      "stored": null,
+      "value": "0.0.0.0"
+    },
+    "http_port": {
+      "default": 8099,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 8099
+    },
+    "ingress": {
+      "default": null,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "log_level": {
+      "default": "INFO",
+      "locked": true,
+      "source": "env",
+      "stored": null,
+      "value": "INFO"
+    },
+    "mqtt_ca_file": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "mqtt_client_id": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "mqtt_host": {
+      "default": "localhost",
+      "locked": true,
+      "source": "env",
+      "stored": null,
+      "value": "mosquitto"
+    },
+    "mqtt_inputs": {
+      "default": [],
+      "locked": true,
+      "source": "env",
+      "stored": null,
+      "value": [
+        {
+          "maximum": 45.0,
+          "minimum": -10.0,
+          "signal": "room_temperature",
+          "topic": "climate_manager_capture/room_temp",
+          "unit": "°C"
+        },
+        {
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "signal": "room_humidity",
+          "topic": "climate_manager_capture/room_humidity",
+          "unit": "%"
+        }
+      ]
+    },
+    "mqtt_password": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": "unset"
+    },
+    "mqtt_port": {
+      "default": 1883,
+      "locked": true,
+      "source": "env",
+      "stored": null,
+      "value": 1883
+    },
+    "mqtt_tls": {
+      "default": false,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": false
+    },
+    "mqtt_username": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "notify_deadman_allow_http": {
+      "default": false,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": false
+    },
+    "notify_deadman_interval_s": {
+      "default": 300.0,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 300.0
+    },
+    "notify_deadman_url": {
+      "default": null,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": "unset"
+    },
+    "notify_events": {
+      "default": false,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": false
+    },
+    "notify_language": {
+      "default": "en",
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": "en"
+    },
+    "notify_min_severity": {
+      "default": "warning",
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": "warning"
+    },
+    "notify_ntfy_token": {
+      "default": null,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": "unset"
+    },
+    "notify_ntfy_topic": {
+      "default": null,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": "unset"
+    },
+    "notify_ntfy_url": {
+      "default": null,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "operate_token": {
+      "default": null,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": "unset"
+    },
+    "safety_defrost_max_s": {
+      "default": 1200.0,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 1200.0
+    },
+    "safety_flow_sustain_s": {
+      "default": 120.0,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 120.0
+    },
+    "safety_interval_s": {
+      "default": 5.0,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 5.0
+    },
+    "safety_min_flow_lpm": {
+      "default": 8.0,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 8.0
+    },
+    "safety_outlet_margin_k": {
+      "default": 5.0,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 5.0
+    },
+    "safety_outlet_sustain_s": {
+      "default": 600.0,
+      "locked": true,
+      "source": "default",
+      "stored": null,
+      "value": 600.0
+    },
+    "safety_room_floor_k": {
+      "default": 1.5,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 1.5
+    },
+    "safety_room_floor_sustain_s": {
+      "default": 1800.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 1800.0
+    },
+    "simulation": {
+      "default": false,
+      "locked": true,
+      "source": "env",
+      "stored": null,
+      "value": true
+    },
+    "ui_dir": {
+      "default": "/opt/ovenbird/ui",
+      "locked": true,
+      "source": "env",
+      "stored": null,
+      "value": "/opt/ovenbird/ui"
+    },
+    "weather_enabled": {
+      "default": false,
+      "locked": false,
+      "source": "store",
+      "stored": false,
+      "value": false
+    },
+    "weather_latitude": {
+      "default": null,
+      "locked": false,
+      "source": "store",
+      "stored": 52.09,
+      "value": 52.09
+    },
+    "weather_location_source": {
+      "default": "ha_zone_home",
+      "locked": false,
+      "source": "store",
+      "stored": "manual",
+      "value": "manual"
+    },
+    "weather_longitude": {
+      "default": null,
+      "locked": false,
+      "source": "store",
+      "stored": 5.12,
+      "value": 5.12
+    },
+    "weather_sim_file": {
+      "default": null,
+      "locked": true,
+      "source": "env",
+      "stored": null,
+      "value": "/sim/weather/open_meteo_hourly.json"
+    }
+  },
+  "hot_water": {
+    "installed": null,
+    "setting": "auto",
+    "shown": true
+  },
+  "mode": {
+    "configured": "auto",
+    "effective": "auto",
+    "paused": false,
+    "reset_pending": false
+  },
+  "reset_pending": false,
+  "updated_at": "2026-11-07T00:00:00Z",
+  "updated_by": "ovenbird",
+  "version": 1
+}

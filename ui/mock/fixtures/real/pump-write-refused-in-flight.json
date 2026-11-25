@@ -1,0 +1,8 @@
+{
+  "status": 409,
+  "detail": {
+    "code": "in_flight",
+    "message": "a write of heat_delta is still in progress",
+    "params": {}
+  }
+}

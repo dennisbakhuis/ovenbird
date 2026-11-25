@@ -1,0 +1,40 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigestsToSemver", "docker:pinDigests"],
+  "schedule": ["before 6am on monday"],
+  "timezone": "Europe/Amsterdam",
+  "automerge": false,
+  "prConcurrentLimit": 5,
+  "labels": ["dependencies"],
+  "enabledManagers": ["github-actions", "dockerfile", "docker-compose", "pep621", "npm"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": false,
+    "schedule": ["before 6am on monday"]
+  },
+  "packageRules": [
+    {
+      "description": "GitHub Actions, pinned to SHAs with the digest and version comment kept current",
+      "matchManagers": ["github-actions"],
+      "pinDigests": true,
+      "groupName": "github actions"
+    },
+    {
+      "description": "Container base images, pinned by digest",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "pinDigests": true,
+      "groupName": "docker images"
+    },
+    {
+      "description": "Python dependencies and uv.lock",
+      "matchManagers": ["pep621"],
+      "groupName": "python dependencies"
+    },
+    {
+      "description": "UI npm dependencies",
+      "matchManagers": ["npm"],
+      "matchFileNames": ["ui/package.json"],
+      "groupName": "ui npm dependencies"
+    }
+  ]
+}

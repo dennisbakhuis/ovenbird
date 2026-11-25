@@ -1,0 +1,1 @@
+{"live":true,"ready":true,"version":"0.4.0","api_version":1,"checks":{"mqtt":"connected","heishamon":"alive","ha":"disabled","history":"error","alarms":"starting","weather":"disabled"}}
