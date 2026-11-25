@@ -26,6 +26,8 @@ ui/.svelte-kit/
 # Local test and tool output
 test-results/
 playwright-report/
+e2e/shots/
+e2e/results/
 .hypothesis/
 coverage/
 *.log
