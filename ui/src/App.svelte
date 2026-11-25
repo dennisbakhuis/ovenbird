@@ -582,6 +582,12 @@
     }
   }
 
+  @container topbar (max-width: 46rem) {
+    nav.top a:not([aria-current]) {
+      padding: 0 0.45rem;
+    }
+  }
+
   @media (--narrow) {
     .topbar,
     .topbar.framed {
