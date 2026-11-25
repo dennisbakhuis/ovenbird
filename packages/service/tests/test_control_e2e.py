@@ -340,6 +340,23 @@ def check_service_run(service: Any, board: Any) -> None:
     assert service.control.alarms.active() == ()
 
 
+def test_a_simulated_clock_also_drives_history_retention_and_the_archive(
+    make_settings: Callable[..., Settings],
+) -> None:
+    settings = sim_settings(
+        make_settings, clock_speed=120.0, clock_start=START, history_snapshot_hours=None
+    )
+    service = build_service(settings)
+    assert abs(service.writer._wall() - START.timestamp()) < 3600
+
+
+def test_the_real_clock_drives_history_retention_in_production(
+    make_settings: Callable[..., Settings],
+) -> None:
+    service = build_service(make_settings())
+    assert abs(service.writer._wall() - time.time()) < 60
+
+
 async def test_service_against_the_simulator(make_settings: Callable[..., Settings]) -> None:
     broker = Broker()
     settings = sim_settings(

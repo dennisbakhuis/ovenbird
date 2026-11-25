@@ -32,7 +32,7 @@ import uvicorn
 from ovenbird.api.app import create_app
 from ovenbird.api.ws import SNAPSHOT_INTERVAL_S, Broadcaster
 from ovenbird.backoff import Backoff
-from ovenbird.clock import Clock, Sleep, build_clock, sleeper
+from ovenbird.clock import Clock, Sleep, build_clock, sleeper, system_clock
 from ovenbird.config import Settings
 from ovenbird.configstore import ConfigManager
 from ovenbird.control import (
@@ -529,7 +529,11 @@ def build_service(
     started = clock()
     starts = record_start(facts, started)
     writer = build_writer(
-        settings, HistoryWriter, archive=True, archive_config=manager.archive_config
+        settings,
+        HistoryWriter,
+        wall=None if clock is system_clock else lambda: clock().wall.timestamp(),
+        archive=True,
+        archive_config=manager.archive_config,
     )
     runtime = build_runtime(settings, clock, writer)
     manager.dhw_installed = lambda: dhw_installed(runtime.store, runtime.clock())
