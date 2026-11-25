@@ -41,6 +41,9 @@ function brandFavicon(): Plugin {
   };
 }
 
+// Unit tests format times in one fixed zone, so they read the same on every machine and CI.
+if (process.env['VITEST']) process.env['TZ'] = 'Europe/Amsterdam';
+
 export default defineConfig(({ mode }) => ({
   base: './',
   resolve: {

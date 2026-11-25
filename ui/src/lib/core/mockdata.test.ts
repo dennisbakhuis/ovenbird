@@ -10,7 +10,7 @@ import {
 import { parseScenario, scenarioNow } from '$mock/scenario';
 
 const HOUR = 3_600_000;
-const now = new Date(2026, 10, 15, 14, 0).getTime();
+const now = Date.UTC(2026, 10, 15, 13, 0);
 
 describe('mock history', () => {
   it('serves 7 days of power, defrost, valve and quiet level at 15 min', () => {
