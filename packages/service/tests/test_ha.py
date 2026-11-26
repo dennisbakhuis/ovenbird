@@ -61,10 +61,17 @@ class FakeHomeAssistant:
             await ws.send(json.dumps({"type": "auth_invalid", "message": "Invalid access token"}))
             return
         await ws.send(json.dumps({"type": "auth_ok", "ha_version": "2026.11.0"}))
+        last_id = 0
         async for raw in ws:
             request = json.loads(raw)
             self.received.append(request)
             kind = request["type"]
+            if request["id"] <= last_id:
+                reuse = {"code": "id_reuse", "message": "Identifier values have to increase."}
+                reply = {"id": request["id"], "type": "result", "success": False, "error": reuse}
+                await ws.send(json.dumps(reply))
+                continue
+            last_id = request["id"]
             if kind == "get_config":
                 config = {"unit_system": {"temperature": self.temperature_unit}, "version": "x"}
                 await ws.send(json.dumps(result(request["id"], config)))

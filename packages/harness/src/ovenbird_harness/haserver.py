@@ -68,6 +68,7 @@ class MemorySocket:
         self.server = server
         self.outbox: asyncio.Queue[str | None] = asyncio.Queue()
         self.subscription: int | None = None
+        self.last_id = 0
         self.closed = False
 
     async def __aenter__(self) -> Self:
@@ -93,6 +94,12 @@ class MemorySocket:
         """Handle one client message."""
         request = json.loads(raw)
         kind = request.get("type")
+        if "id" in request:
+            if int(request["id"]) <= self.last_id:
+                error = {"code": "id_reuse", "message": "Identifier values have to increase."}
+                self.push({"id": request["id"], "type": "result", "success": False, "error": error})
+                return
+            self.last_id = int(request["id"])
         if kind == "auth":
             self.push({"type": "auth_ok", "ha_version": "2026.11.0"})
         elif kind == "subscribe_entities":

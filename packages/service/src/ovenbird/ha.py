@@ -89,11 +89,11 @@ from ovenbird_core.readings import echo
 LOGGER = logging.getLogger("ovenbird.ha")
 WS_LOGGER = logging.getLogger("ovenbird.ha.websockets")
 WS_LOGGER.setLevel(logging.WARNING)
-SUBSCRIBE_ID: Final = 1
-CONFIG_ID: Final = 2
-ENTITY_REGISTRY_ID: Final = 3
-DEVICE_REGISTRY_ID: Final = 4
-AREA_REGISTRY_ID: Final = 5
+CONFIG_ID: Final = 1
+ENTITY_REGISTRY_ID: Final = 2
+DEVICE_REGISTRY_ID: Final = 3
+AREA_REGISTRY_ID: Final = 4
+SUBSCRIBE_ID: Final = 5
 FIRST_READ_ID: Final = 6
 SESSION_REQUESTS: Final = (
     (CONFIG_ID, "get_config"),
