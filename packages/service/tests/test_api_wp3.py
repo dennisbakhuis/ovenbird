@@ -305,6 +305,19 @@ def test_pump_settings_shape(open_settings: Settings) -> None:
     ]
 
 
+def test_pump_settings_name_the_model_profile(open_settings: Settings) -> None:
+    rig = stack(open_settings)
+    with rig.client() as client:
+        assert client.get("/api/v1/pump/settings").json()["profile"] is None
+        rig.report({HeishaSignal.HEAT_PUMP_MODEL: "C2 D3 0B 33 65 B2 D3 0B 94 65"})
+        body = client.get("/api/v1/pump/settings").json()
+        assert (body["model"], body["profile"]) == ("C2 D3 0B 33 65 B2 D3 0B 94 65", None)
+        rig.report({HeishaSignal.HEAT_PUMP_MODEL: "32 D4 0B 88 84 73 90 0C 85 84"})
+        profile = client.get("/api/v1/pump/settings").json()["profile"]
+    assert profile["name"] == "WH-MXC12J9E8"
+    assert "14.2.2" in profile["source"]
+
+
 def test_an_unsupported_enum_is_not_supported(open_settings: Settings) -> None:
     rig = stack(open_settings)
     rig.runtime.apply(

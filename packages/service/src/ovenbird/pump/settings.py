@@ -1,7 +1,8 @@
 """The pump settings page: what HeishaMon reports, and the operator's three writable settings.
 
 :class:`PumpSettings` answers ``GET api/v1/pump/settings`` from the state store (value,
-label, unit, age, freshness, whether this model reports the topic at all) and hands an
+label, unit, age, freshness, whether this model reports the topic at all; the model
+bytes and their profile, :mod:`ovenbird_core.pumpmodel`) and hands an
 admin's ``POST api/v1/pump/settings/{id}`` to the command adapter
 (:meth:`~ovenbird.control.adapter.CommandAdapter.request_setting`), which owns every
 safety rule: the second closed allowlist, refusal instead of clamping, compare-and-set,
@@ -31,6 +32,7 @@ from ovenbird_core import (
     SignalView,
     ValueKind,
 )
+from ovenbird_core.pumpmodel import profile_for
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -234,11 +236,14 @@ class PumpSettings:
             settings.append(row)
         for item in READ_SETTINGS:
             settings.append(_row(item.id, item.signal, store.view(item.signal, moment), item.owner))
-        model = store.view(HeishaSignal.HEAT_PUMP_MODEL, moment)
+        view = store.view(HeishaSignal.HEAT_PUMP_MODEL, moment)
+        model = view.value if view is not None and view.reason is None else None
+        profile = profile_for(model)
         return {
             "writable": not refusals,
             "refusals": refusals,
-            "model": model.value if model is not None and model.reason is None else None,
+            "model": model,
+            "profile": None if profile is None else profile.to_json(),
             "settings": settings,
         }
 

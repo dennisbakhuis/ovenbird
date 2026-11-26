@@ -83,6 +83,8 @@ export const activity = {
   mon_setpoint_above_max: 'Setpoint {value}, limit {limit}',
   mon_outlet_overshoot: 'Outlet {value}, limit {limit}',
   mon_low_flow: 'Flow {value}, minimum {limit}',
+  mon_low_flow_defrost: 'Flow during the defrost {value}, minimum {limit}',
+  monFlowDefrostIdle: 'Not defrosting, minimum {limit}',
   mon_heating_off_outdoor: 'Outdoor {value}, pump heating cut-off {limit}',
   mon_room_below_floor: 'Room {value}, comfort floor {limit}',
   mon_room_sensor_silent: 'Last report {value} ago, limit {limit}',

@@ -86,6 +86,8 @@ export const activity: Record<keyof typeof en, string> = {
   mon_setpoint_above_max: 'Aanvoertemperatuur {value}, grens {limit}',
   mon_outlet_overshoot: 'Aanvoer {value}, grens {limit}',
   mon_low_flow: 'Debiet {value}, minimaal {limit}',
+  mon_low_flow_defrost: 'Debiet tijdens het ontdooien {value}, minimaal {limit}',
+  monFlowDefrostIdle: 'Geen ontdooiing bezig, minimaal {limit}',
   mon_heating_off_outdoor: 'Buiten {value}, uitschakeltemperatuur van de pomp {limit}',
   mon_room_below_floor: 'Kamer {value}, comfortondergrens {limit}',
   mon_room_sensor_silent: 'Laatste melding {value} geleden, grens {limit}',

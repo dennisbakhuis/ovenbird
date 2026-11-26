@@ -10,6 +10,7 @@
     "setpoint_above_max",
     "outlet_overshoot",
     "low_flow",
+    "low_flow_defrost",
     "pump_error",
     "backup_heater",
     "backup_heater_allowed",

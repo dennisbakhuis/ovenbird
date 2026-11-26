@@ -66,6 +66,7 @@ export const codes: Record<keyof typeof en, string> = {
   alarm_setpoint_above_max: 'Aanvoertemperatuur boven maximum',
   alarm_outlet_overshoot: 'Aanvoer te heet',
   alarm_low_flow: 'Laag debiet',
+  alarm_low_flow_defrost: 'Geen doorstroming tijdens ontdooien',
   alarm_pump_error: 'Pompfout',
   alarm_backup_heater: 'Bijverwarming aan',
   alarm_backup_heater_allowed: 'Bijverwarming toegestaan',
@@ -197,6 +198,8 @@ export const codes: Record<keyof typeof en, string> = {
   alarmText_setpoint_above_max: 'De gevraagde aanvoertemperatuur ligt boven het maximum.',
   alarmText_outlet_overshoot: 'Het aanvoerwater is warmer dan de grens.',
   alarmText_low_flow: 'Het debiet is te laag terwijl de compressor draait.',
+  alarmText_low_flow_defrost:
+    'De doorstroming bleef tijdens het ontdooien onder het minimum: zo bedoeld in ontdooimodus 2 van een bekend pompmodel, anders het nakijken waard.',
   alarmText_pump_error: 'De pomp meldt een foutcode.',
   alarmText_backup_heater: 'Het elektrische bijverwarmingselement draait.',
   alarmText_backup_heater_allowed: 'De pomp mag haar elektrische bijverwarming inschakelen.',
@@ -216,6 +219,23 @@ export const codes: Record<keyof typeof en, string> = {
   svc_outlet_over: 'Aanvoerwater {value} °C, boven de grens van {limit} °C.',
   svc_setpoint_over: 'Aanvoertemperatuur {value} °C, boven de maximale aanvoer van {limit} °C.',
   svc_low_flow: 'Doorstroming {value} l/min terwijl de compressor draait (minimaal {limit} l/min).',
+  svc_low_flow_defrost:
+    'Lage doorstroming tijdens het ontdooien (ontdooimodus 1, de waterpomp hoort te draaien): {value} l/min met de compressor op {freq} Hz (minimaal {limit} l/min).',
+  svc_deice_mode2_inlet:
+    'Ontdooimodus 2 (ontdooien met heet gas): de warmtepomp zet haar waterpomp bewust stil omdat het retourwater {inlet} °C was (onder {limit} °C); doorstroming {value} l/min, compressor {freq} Hz.',
+  svc_deice_mode2_cold:
+    'Ontdooimodus 2 (ontdooien met heet gas): de warmtepomp zet haar waterpomp bewust stil omdat de buitenlucht {outside} °C was (onder {cold} °C) bij retourwater van {inlet} °C (onder {limit} °C); doorstroming {value} l/min, compressor {freq} Hz.',
+  svc_low_flow_suspended:
+    'Gepauzeerd tijdens het ontdooien (zie Geen doorstroming tijdens ontdooien).',
+  svc_no_defrost: 'Er wordt niet ontdooid.',
+  svc_low_flow_defrost_generic:
+    'Lage doorstroming tijdens het ontdooien: {value} l/min met de compressor op {freq} Hz (minimaal {limit} l/min); de warmtepomp liet haar waterpomp tijdens het ontdooien trager draaien of zette hem stil.',
+  svc_defrost_flow: 'Doorstroming {value} l/min tijdens het ontdooien.',
+  svc_defrost_flow_mode: 'Doorstroming {value} l/min tijdens het ontdooien (ontdooimodus {mode}).',
+  svc_flow_defrost_logged:
+    'Wordt vanaf nu alleen vastgelegd (instelling Geen doorstroming tijdens ontdooien).',
+  svc_flow_defrost_alarm:
+    'Wordt vanaf nu weer als alarm gemeld (instelling Geen doorstroming tijdens ontdooien).',
   svc_pump_error: 'De pomp meldt storing {text}.',
   svc_backup_heater: 'De bijverwarming staat aan ({text}); die verwarmt met COP 1.',
   svc_backup_allowed: 'De pomp mag haar bijverwarming gebruiken voor verwarming.',

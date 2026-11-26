@@ -47,6 +47,11 @@ describe('monitorText', () => {
     expect(monitorText(heater, tools('en'))).toBe('Backup heater is off');
     const none = monitor({ code: 'room_sensor_quiet', value: null, limit: null });
     expect(monitorText(none, tools('nl'))).toBe('Nog geen waarde');
+    const idle = monitor({ code: 'low_flow_defrost', value: null, limit: 8, unit: 'l/min' });
+    expect(monitorText(idle, tools('en'))).toBe('Not defrosting, minimum 8\u202fl/min');
+    expect(monitorText({ ...idle, value: 0.1, status: 'active' }, tools('nl'))).toBe(
+      'Debiet tijdens het ontdooien 0,1\u202fl/min, minimaal 8\u202fl/min',
+    );
     expect(monitorText(monitor({ code: 'unknown_code' }), tools('en'))).toBe(
       '33\u202f°C, limit 45\u202f°C',
     );
@@ -73,6 +78,51 @@ describe('serviceMessageText', () => {
     expect(serviceMessageText('the pump reports error H23', tools('en'))).toBe(
       'The pump reports error H23.',
     );
+  });
+
+  it('translates the low-flow-during-defrost sentences', () => {
+    expect(
+      serviceMessageText(
+        'deice mode 2 (hot-gas defrost): the heat pump stops its water pump by design because the return water was 25.5 °C (below 27 °C); Pump_Flow 0.1 l/min, compressor 86 Hz',
+        tools('nl'),
+      ),
+    ).toBe(
+      'Ontdooimodus 2 (ontdooien met heet gas): de warmtepomp zet haar waterpomp bewust stil omdat het retourwater 25,5 °C was (onder 27 °C); doorstroming 0,1 l/min, compressor 86 Hz.',
+    );
+    expect(
+      serviceMessageText(
+        'deice mode 2 (hot-gas defrost): the heat pump stops its water pump by design because the outdoor air was -12.0 °C (below -10 °C) with return water 45.0 °C (below 60 °C); Pump_Flow 0.1 l/min, compressor 86 Hz',
+        tools('nl'),
+      ),
+    ).toContain('omdat de buitenlucht -12 °C was (onder -10 °C) bij retourwater van 45 °C');
+    expect(
+      serviceMessageText(
+        'low water flow during a defrost (deice mode 1, the pump should run): Pump_Flow 3.0 l/min with the compressor at 42 Hz (minimum 8.0 l/min)',
+        tools('nl'),
+      ),
+    ).toBe(
+      'Lage doorstroming tijdens het ontdooien (ontdooimodus 1, de waterpomp hoort te draaien): 3 l/min met de compressor op 42 Hz (minimaal 8 l/min).',
+    );
+    expect(
+      serviceMessageText('suspended during a defrost (see low_flow_defrost)', tools('nl')),
+    ).toBe('Gepauzeerd tijdens het ontdooien (zie Geen doorstroming tijdens ontdooien).');
+    expect(
+      serviceMessageText('Pump_Flow 24.8 l/min during the defrost (deice mode 1)', tools('nl')),
+    ).toBe('Doorstroming 24,8 l/min tijdens het ontdooien (ontdooimodus 1).');
+    expect(serviceMessageText('Pump_Flow 24.8 l/min during the defrost', tools('en'))).toBe(
+      'Flow 24.8 l/min during the defrost.',
+    );
+    expect(
+      serviceMessageText(
+        'low water flow during a defrost: Pump_Flow 0.1 l/min with the compressor at 86 Hz (minimum 8.0 l/min); the heat pump slowed or stopped its water pump while defrosting',
+        tools('nl'),
+      ),
+    ).toBe(
+      'Lage doorstroming tijdens het ontdooien: 0,1 l/min met de compressor op 86 Hz (minimaal 8 l/min); de warmtepomp liet haar waterpomp tijdens het ontdooien trager draaien of zette hem stil.',
+    );
+    expect(
+      serviceMessageText('logged only from now on (safety_defrost_low_flow)', tools('nl')),
+    ).toContain('alleen vastgelegd');
   });
 
   it('leaves unknown sentences to the caller', () => {

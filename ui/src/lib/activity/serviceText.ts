@@ -37,6 +37,10 @@ export function monitorText(
     const elapsed = formatDuration(Math.max(0, (nowMs - since) / 1000));
     return say('monDefrostRunning', { elapsed, limit: limitText }) ?? null;
   }
+  const idle = monitor.status === 'ok' && typeof value !== 'number';
+  if (code === 'low_flow_defrost' && idle && typeof limit === 'number') {
+    return say('monFlowDefrostIdle', { limit: amount(limit, unit, locale) }) ?? null;
+  }
   if (typeof value === 'number' && !Number.isFinite(value)) return null;
   if (typeof value === 'number' && typeof limit === 'number') {
     return (
@@ -136,6 +140,48 @@ const SERVICE_MESSAGES: [RegExp, string, string[]][] = [
     'svc_low_flow',
     ['value', 'limit'],
   ],
+  [
+    new RegExp(
+      String.raw`^low water flow during a defrost \(deice mode 1, the pump should run\): Pump_Flow ${NUM} l/min with the compressor at ${NUM} Hz \(minimum ${NUM} l/min\)$`,
+    ),
+    'svc_low_flow_defrost',
+    ['value', 'freq', 'limit'],
+  ],
+  [
+    new RegExp(
+      String.raw`^deice mode 2 \(hot-gas defrost\): the heat pump stops its water pump by design because the return water was ${NUM} °C \(below ${NUM} °C\); Pump_Flow ${NUM} l/min, compressor ${NUM} Hz$`,
+    ),
+    'svc_deice_mode2_inlet',
+    ['inlet', 'limit', 'value', 'freq'],
+  ],
+  [
+    new RegExp(
+      String.raw`^deice mode 2 \(hot-gas defrost\): the heat pump stops its water pump by design because the outdoor air was ${NUM} °C \(below ${NUM} °C\) with return water ${NUM} °C \(below ${NUM} °C\); Pump_Flow ${NUM} l/min, compressor ${NUM} Hz$`,
+    ),
+    'svc_deice_mode2_cold',
+    ['outside', 'cold', 'inlet', 'limit', 'value', 'freq'],
+  ],
+  [
+    new RegExp(
+      String.raw`^low water flow during a defrost: Pump_Flow ${NUM} l/min with the compressor at ${NUM} Hz \(minimum ${NUM} l/min\); the heat pump slowed or stopped its water pump while defrosting$`,
+    ),
+    'svc_low_flow_defrost_generic',
+    ['value', 'freq', 'limit'],
+  ],
+  [/^suspended during a defrost \(see low_flow_defrost\)$/, 'svc_low_flow_suspended', []],
+  [
+    new RegExp(String.raw`^Pump_Flow ${NUM} l/min during the defrost \(deice mode (1|2)\)$`),
+    'svc_defrost_flow_mode',
+    ['value', 'mode'],
+  ],
+  [
+    new RegExp(String.raw`^Pump_Flow ${NUM} l/min during the defrost$`),
+    'svc_defrost_flow',
+    ['value'],
+  ],
+  [/^no defrost running$/, 'svc_no_defrost', []],
+  [/^logged only from now on \(safety_defrost_low_flow\)$/, 'svc_flow_defrost_logged', []],
+  [/^raised as an alarm from now on \(safety_defrost_low_flow\)$/, 'svc_flow_defrost_alarm', []],
   [/^the pump reports error (.+)$/, 'svc_pump_error', ['text']],
   [/^backup heater running \((.+)\); it heats at COP 1$/, 'svc_backup_heater', ['text']],
   [

@@ -262,10 +262,11 @@ Each monitor also carries `limit` (the threshold it compares against, null for s
 monitors and while a threshold read from the pump is unknown), the `unit` of `limit` and
 `direction` (`above`: exceeding the limit is the condition; `below`: falling under it;
 null for state monitors): `setpoint_above_max` (maximum setpoint, °C, above),
-`outlet_overshoot` (maximum supply + margin, °C, above), `low_flow` (minimum flow,
-l/min, below), `heating_off_outdoor` (the pump's `Heating_Off_Outdoor_Temp`, °C,
+`outlet_overshoot` (maximum supply + margin, °C, above), `low_flow` and
+`low_flow_defrost` (minimum flow, l/min, below), `heating_off_outdoor` (the pump's `Heating_Off_Outdoor_Temp`, °C,
 above), `defrost_stuck` (longest defrost, s, above; it applies to the time since
-`since`, not to `value`), `room_below_floor` (comfort floor, °C, below),
+`since`, not to `value`; in a profile's deice mode 2 at least its longest mode 2
+defrost plus 5 min, 2100 s for the WH-MXC12J9E8), `room_below_floor` (comfort floor, °C, below),
 `room_sensor_silent` and `room_report_overdue` (s, above, against `value` = the report
 age); `pump_error`, `backup_heater`, `backup_heater_allowed`, `ha_link_down` and
 `room_unit_refused` have none.
@@ -278,6 +279,20 @@ cross-check signal).
 Alarm codes and severities: `setpoint_above_max`, `outlet_overshoot`, `low_flow`,
 `pump_error`, `correction_failed` (critical); `mode_mismatch`, `verification_failed`,
 `write_budget`, `foreign_writer`, `hold_latched`, `backup_heater`, `defrost_stuck`,
+`low_flow_defrost` (`Pump_Flow` below the minimum during a defrost while the compressor
+runs, for the flow sustain time; `low_flow` is suspended during a defrost and starts its
+sustain time again when it ends. For a model with a profile (`profile` of
+`GET api/v1/pump/settings`) the deice mode is judged from `Main_Inlet_Temp` and
+`Outside_Temp` when the defrost starts: for the WH-MXC12J9E8 (Panasonic service manual
+PAPAMY2110029CE, 14.2.2) mode 2, a hot-gas defrost with the water pump off by design,
+when the inlet is below 27 °C, or below 60 °C with the outdoor air below −10 °C; mode 1,
+with the pump running, otherwise. An unknown model gets a message that only describes
+what was seen. `safety_defrost_low_flow`: `auto` (default) only journals it in mode 2
+and raises it otherwise, `log` only journals it in mode 2 and for an unknown model,
+`alarm` always raises it; in mode 1 it is always raised. Journalled, it is never active
+and never notified: the journal gets a `started` and a `cleared` event with severity
+`info` and `detail` `logged_only` = true, `profile`, `deice_mode`, `inlet_at_start_c`
+and `outside_at_start_c`),
 `room_below_floor`, `room_sensor_quiet` (an `on_change` room sensor without any proof of
 life for 8 h; cooling learned since then is undone; clears on the next report),
 `room_sensor_silent` (an `on_change` room sensor without any proof of
@@ -1032,7 +1047,9 @@ is known).
 What HeishaMon reports of the pump's settings, and the operator's three writable ones:
 
 ```json
-{"writable": true, "refusals": [], "model": "C2 D3 0B 33 65 B2 D3 0B 94 65",
+{"writable": true, "refusals": [], "model": "32 D4 0B 88 84 73 90 0C 85 84",
+ "profile": {"name": "WH-MXC12J9E8",
+             "source": "Panasonic service manual PAPAMY2110029CE (WH-MXC09J3E8/WH-MXC12J9E8), 14.2.2 Deice Operation"},
  "settings": [{"id": "heat_delta", "signal": "main/Heat_Delta", "value": 5, "unit": "K",
                "label": null, "fresh": true, "age": 12.0, "supported": true,
                "access": "write", "owner": "operator", "command": "SetFloorHeatDelta",
@@ -1060,6 +1077,10 @@ What HeishaMon reports of the pump's settings, and the operator's three writable
   then `null`.
 - `writable` and `refusals`: why no write is possible now (paused, mode, hold,
   defrost, DHW run, a write in progress); `model` is `Heat_Pump_Model`.
+- `profile`: the model profile those ID bytes select (`name`, `source`: the manual
+  and section its facts come from), `null` for a model without one. Only ID bytes
+  verified on a real unit have a profile; the safety monitors use it to tell a defrost
+  that stops the water pump by design from one that should not.
 - `last_write`: the newest operator write of the setting (`status` is its latest
   command status), from memory or after a restart from the audit trail and the
   command journal; `null` when there was none.

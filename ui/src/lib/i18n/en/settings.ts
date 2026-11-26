@@ -15,7 +15,7 @@ export const settings = {
   group_curve: 'Curve',
   group_room: 'Room sensor and target',
   group_feedback: 'Room correction',
-  group_monitors: 'Room monitor',
+  group_monitors: 'Monitors',
   group_limits: 'Setpoint limits',
   group_behaviour: 'Dead band and wait time',
   group_ramp: 'Start ramp',

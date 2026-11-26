@@ -334,6 +334,13 @@ class Settings(
     safety_min_flow_lpm, safety_flow_sustain_s
         ``Pump_Flow`` below the minimum while the compressor runs for the sustain
         time is a critical alarm (the minimum is model dependent).
+    safety_defrost_low_flow
+        What low flow during a defrost (the warning ``low_flow_defrost``) does:
+        ``auto`` (default) only journals it when the model profile says the pump
+        stops its water pump by design (deice mode 2) and raises it otherwise;
+        ``log`` also only journals it for an unknown model; ``alarm`` always raises
+        it. Journalled means recorded in the alarm history, never active and never
+        notified. In a profile's deice mode 1 it is always raised.
     safety_defrost_max_s
         A defrost longer than this is a warning.
     safety_room_floor_k, safety_room_floor_sustain_s

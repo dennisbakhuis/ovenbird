@@ -27,6 +27,7 @@ from ovenbird.config.values import (
     MAX_QUIET_WINDOWS,
     ControlModeName,
     CurvePairs,
+    DefrostLowFlowMode,
     EmitterName,
     QuietWindowSetting,
     RoomProfileName,
@@ -276,6 +277,7 @@ class SafetySettings(FeatureSettings):
     safety_outlet_sustain_s: float = Field(default=600.0, ge=0.0, le=7200.0)
     safety_min_flow_lpm: float = Field(default=8.0, ge=0.0, le=60.0)
     safety_flow_sustain_s: float = Field(default=120.0, ge=0.0, le=3600.0)
+    safety_defrost_low_flow: DefrostLowFlowMode = "auto"
     safety_defrost_max_s: float = Field(default=1200.0, ge=60.0, le=14_400.0)
     safety_room_floor_k: float | None = Field(default=1.5, gt=0.0, le=10.0)
     safety_room_floor_sustain_s: float = Field(default=1800.0, ge=0.0, le=86_400.0)

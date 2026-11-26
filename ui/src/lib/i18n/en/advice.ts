@@ -39,6 +39,10 @@ export const advice = {
     'Releases only lower water temperatures until the flow is back above the minimum.',
   alarmYou_low_flow:
     'Open closed radiator or floor valves, check the water pressure and the filter. If it stays, call your installer.',
+  alarmNow_low_flow_defrost:
+    'Nothing to correct: the pump runs its own defrost and ovenbird never writes during a defrost. The normal low-flow protection resumes when the defrost ends.',
+  alarmYou_low_flow_defrost:
+    'If the message names deice mode 2, the pump stops its water pump by design (return water below 27 °C) and the defrost lasts longer than a normal one; if that happens often, a slightly higher minimum water temperature in frosty weather avoids it. Otherwise the pump should keep running: have the water pump, flow sensor and filter checked. Settings → Comfort temperature → Monitors → “No flow during defrost” decides whether this is an alarm or only logged.',
   alarmNow_pump_error: 'Releases only lower water temperatures while the pump reports an error.',
   alarmYou_pump_error:
     'Read the error code on the Panasonic remote and look it up in the manual, or call your installer.',

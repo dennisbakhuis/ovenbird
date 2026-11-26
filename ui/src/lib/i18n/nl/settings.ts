@@ -17,7 +17,7 @@ export const settings: Record<keyof typeof en, string> = {
   group_curve: 'Stooklijn',
   group_room: 'Kamersensor en doel',
   group_feedback: 'Ruimtecorrectie',
-  group_monitors: 'Kamerbewaking',
+  group_monitors: 'Bewaking',
   group_limits: 'Grenzen van de aanvoertemperatuur',
   group_behaviour: 'Dode band en wachttijd',
   group_ramp: 'Zachte start',

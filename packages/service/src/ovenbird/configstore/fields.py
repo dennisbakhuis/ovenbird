@@ -156,6 +156,7 @@ FIELDS: Final[dict[str, FieldMeta]] = {
     "control_emitter": FieldMeta("emitter", B),
     "safety_room_floor_k": FieldMeta("monitors", A, "K", step=0.1),
     "safety_room_floor_sustain_s": FieldMeta("monitors", A, "s", "min", step=60.0),
+    "safety_defrost_low_flow": FieldMeta("monitors", A),
     "weather_enabled": FieldMeta("weather", B),
     "weather_latitude": FieldMeta("weather", B, "°", step=0.01),
     "weather_longitude": FieldMeta("weather", B, "°", step=0.01),

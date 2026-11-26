@@ -2,6 +2,7 @@
   "writable": false,
   "refusals": ["control is paused"],
   "model": null,
+  "profile": null,
   "settings": [
     {
       "id": "heat_delta",

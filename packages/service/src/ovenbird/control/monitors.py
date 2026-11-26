@@ -10,6 +10,19 @@ the service clock, raises an alarm for every ``active`` finding, clears it only 
 ones to the command adapter (corrective action or safety hold) and sets the
 service's ``alarms`` health check.
 
+**Defrost and flow.** Some heat pumps stop their water pump during a defrost.
+:class:`SafetyMonitor` latches ``Main_Inlet_Temp`` and ``Outside_Temp`` when
+``Defrosting_State`` turns on (the inlet drifts while the water stands still) and
+reads the model profile (:mod:`ovenbird_core.pumpmodel`) from ``Heat_Pump_Model``,
+also when it arrives later; :func:`evaluate` gets both as :class:`DeiceOnset`. With a
+known profile the deice mode follows its manual: in mode 2 (hot gas) the water pump is
+off by design, in mode 1 it should run. ``safety_defrost_low_flow`` decides what a
+``low_flow_defrost`` does: ``auto`` (default) only journals it in mode 2 and raises it
+otherwise, ``log`` only journals it in mode 2 and for an unknown model, ``alarm``
+always raises it; in mode 1 it is always raised. Journalled means a ``started`` and a
+``cleared`` event (severity ``info``, detail ``logged_only``), never active on the
+board and never notified.
+
 Monitors (``critical`` ones concern the plant's safety):
 
 ========================  ========  ==================================================
@@ -21,7 +34,12 @@ code                      severity  condition
 ``outlet_overshoot``      critical  ``Main_Outlet_Temp`` above maximum supply + margin
                                     for the sustain time; suspended during DHW runs
 ``low_flow``              critical  ``Pump_Flow`` below the minimum while the
-                                    compressor runs, for the sustain time
+                                    compressor runs, for the sustain time; suspended
+                                    during a defrost
+``low_flow_defrost``      warning   ``Pump_Flow`` below the minimum during a defrost
+                                    while the compressor runs, for the sustain time;
+                                    by design in a profile's deice mode 2, an
+                                    anomaly in mode 1
 ``pump_error``            critical  ``Error`` is not ``No error``; immediate
 ``backup_heater``         warning   ``Internal_Heater_State`` or
                                     ``External_Heater_State`` active
@@ -29,6 +47,8 @@ code                      severity  condition
 ``heating_off_outdoor``   info      ``Outside_Temp`` at or above
                                     ``Heating_Off_Outdoor_Temp`` (clears 1 K below)
 ``defrost_stuck``         warning   ``Defrosting_State`` on for longer than the limit
+                                    (in deice mode 2 at least the profile's
+                                    longest mode 2 defrost + :data:`DEICE_MARGIN_S`)
 ``room_below_floor``      warning   room temperature below the comfort floor for the
                                     sustain time
 ``room_sensor_silent``    warning   ``on_change`` room sensor: no proof of life (the
@@ -65,7 +85,15 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
 
 from ovenbird.clock import Sleep, iso_z
-from ovenbird.control.alarms import SEVERITY, AlarmBoard, AlarmCode, Severity
+from ovenbird.config.values import DefrostLowFlowMode
+from ovenbird.control.alarms import (
+    SEVERITY,
+    AlarmBoard,
+    AlarmCode,
+    AlarmEvent,
+    AlarmEventKind,
+    Severity,
+)
 from ovenbird_core import (
     HeishaSignal,
     Instant,
@@ -79,6 +107,7 @@ from ovenbird_core.control.observe import as_number
 from ovenbird_core.control.types import RoomProfile
 from ovenbird_core.derived import compressor_running, defrost_active, dhw_active
 from ovenbird_core.inputs import HA_SIGNAL_PREFIX
+from ovenbird_core.pumpmodel import DeiceMode, DeiceSpec, PumpProfile, profile_for
 
 if TYPE_CHECKING:
     from ovenbird.config import Settings
@@ -92,6 +121,9 @@ EPSILON: Final = 1e-9
 SAFETY_INTERVAL_S: Final = 5.0
 OVERDUE_FACTOR: Final = 3.0
 HA_LINK_SUSTAIN_S: Final = 300.0
+DEICE_MARGIN_S: Final = 300.0
+LOGGED_ONLY: Final = "logged only from now on (safety_defrost_low_flow)"
+LOGGED_AS_ALARM: Final = "raised as an alarm from now on (safety_defrost_low_flow)"
 
 type Direction = Literal["above", "below"]
 
@@ -140,6 +172,9 @@ class MonitorConfig:
         Whether Home Assistant is configured (enables ``ha_link_down``).
     ha_link_sustain_s
         The HA link must be down this long to alarm.
+    defrost_low_flow
+        What a ``low_flow_defrost`` does (``safety_defrost_low_flow``): ``auto``,
+        ``alarm`` or ``log``.
     """
 
     max_supply_c: float
@@ -156,6 +191,7 @@ class MonitorConfig:
     room_silence_limit_s: float = 86_400.0
     ha_enabled: bool = False
     ha_link_sustain_s: float = HA_LINK_SUSTAIN_S
+    defrost_low_flow: DefrostLowFlowMode = "auto"
 
     @property
     def max_setpoint(self) -> int:
@@ -181,6 +217,7 @@ def monitor_config(settings: Settings, max_supply_c: float) -> MonitorConfig:
         room_report_interval_s=profile.report_interval_s,
         room_silence_limit_s=profile.silence_limit_s,
         ha_enabled=settings.ha_enabled,
+        defrost_low_flow=settings.safety_defrost_low_flow,
     )
 
 
@@ -240,6 +277,65 @@ class Finding:
 
 
 type Since = Mapping[AlarmCode, Instant]
+
+
+@dataclass(frozen=True, slots=True)
+class DeiceOnset:
+    """What is known about a defrost: the model profile and the values at its start.
+
+    Parameters
+    ----------
+    profile
+        Model profile; ``None`` for an unknown model.
+    inlet_c
+        ``Main_Inlet_Temp`` when the defrost started; ``None`` when unknown.
+    outside_c
+        ``Outside_Temp`` when the defrost started; ``None`` when unknown.
+    """
+
+    profile: PumpProfile | None = None
+    inlet_c: float | None = None
+    outside_c: float | None = None
+
+    @property
+    def spec(self) -> DeiceSpec | None:
+        """Deice rules of the profile; ``None`` when unknown."""
+        return None if self.profile is None else self.profile.deice
+
+    @property
+    def mode(self) -> DeiceMode | None:
+        """Deice mode the unit picks; ``None`` without deice rules."""
+        spec = self.spec
+        return None if spec is None else spec.mode(self.inlet_c, self.outside_c)
+
+    @property
+    def limit_s(self) -> float:
+        """Longest defrost by design plus :data:`DEICE_MARGIN_S`; ``0`` outside mode 2."""
+        spec = self.spec
+        return spec.mode2_max_s + DEICE_MARGIN_S if spec is not None and self.mode == 2 else 0.0
+
+    def reason(self) -> str:
+        """Why the unit picks deice mode 2."""
+        spec = self.spec or DeiceSpec()
+        if self.inlet_c is not None and self.inlet_c < spec.mode2_inlet_below_c:
+            return (
+                f"the return water was {self.inlet_c:.1f} °C "
+                f"(below {spec.mode2_inlet_below_c:.0f} °C)"
+            )
+        return (
+            f"the outdoor air was {self.outside_c:.1f} °C "
+            f"(below {spec.mode2_outside_below_c:.0f} °C) with return water "
+            f"{self.inlet_c:.1f} °C (below {spec.mode2_inlet_cold_below_c:.0f} °C)"
+        )
+
+    def detail(self) -> dict[str, Any]:
+        """Return the journal detail."""
+        return {
+            "profile": None if self.profile is None else self.profile.name,
+            "deice_mode": self.mode,
+            "inlet_at_start_c": self.inlet_c,
+            "outside_at_start_c": self.outside_c,
+        }
 
 
 def _fresh(snapshot: Snapshot, signal: SignalId) -> SignalView | None:
@@ -352,10 +448,14 @@ def _outlet(config: MonitorConfig, snapshot: Snapshot, since: Since) -> Finding:
 
 def _flow(config: MonitorConfig, snapshot: Snapshot, since: Since) -> Finding:
     code = AlarmCode.LOW_FLOW
+    flow = _number(snapshot, HeishaSignal.PUMP_FLOW)
+    if defrost_active(snapshot).value is True:
+        return Finding(
+            code, MonitorStatus.OK, "suspended during a defrost (see low_flow_defrost)", flow
+        )
     running = compressor_running(snapshot).value
     if running is False:
         return Finding(code, MonitorStatus.OK, "compressor off", None)
-    flow = _number(snapshot, HeishaSignal.PUMP_FLOW)
     if running is None or flow is None:
         return _unknown(code, "Compressor_Freq or Pump_Flow", since)
     message = (
@@ -365,6 +465,48 @@ def _flow(config: MonitorConfig, snapshot: Snapshot, since: Since) -> Finding:
     return _sustained(
         code, flow < config.min_flow_lpm, since, snapshot.now, config.flow_sustain_s, message, flow
     )
+
+
+def _flow_defrost(
+    config: MonitorConfig, snapshot: Snapshot, since: Since, deice: DeiceOnset | None
+) -> Finding:
+    code = AlarmCode.LOW_FLOW_DEFROST
+    defrost = defrost_active(snapshot).value
+    if defrost is None:
+        return _unknown(code, "Defrosting_State", since)
+    if not defrost:
+        return Finding(code, MonitorStatus.OK, "no defrost running", None)
+    flow = _number(snapshot, HeishaSignal.PUMP_FLOW)
+    frequency = _number(snapshot, HeishaSignal.COMPRESSOR_FREQ)
+    running = compressor_running(snapshot).value
+    if running is False:
+        return Finding(code, MonitorStatus.OK, "defrost with the compressor off", flow)
+    if running is None or flow is None or frequency is None:
+        return _unknown(code, "Compressor_Freq or Pump_Flow", since)
+    mode = None if deice is None else deice.mode
+    low = flow < config.min_flow_lpm
+    message = f"Pump_Flow {flow:.1f} l/min during the defrost"
+    if mode is not None:
+        message += f" (deice mode {mode})"
+    if low and deice is not None and mode == 2:
+        message = (
+            "deice mode 2 (hot-gas defrost): the heat pump stops its water pump by design "
+            f"because {deice.reason()}; Pump_Flow {flow:.1f} l/min, compressor "
+            f"{frequency:.0f} Hz"
+        )
+    elif low and mode == 1:
+        message = (
+            "low water flow during a defrost (deice mode 1, the pump should run): "
+            f"Pump_Flow {flow:.1f} l/min with the compressor at {frequency:.0f} Hz "
+            f"(minimum {config.min_flow_lpm:.1f} l/min)"
+        )
+    elif low:
+        message = (
+            f"low water flow during a defrost: Pump_Flow {flow:.1f} l/min with the compressor "
+            f"at {frequency:.0f} Hz (minimum {config.min_flow_lpm:.1f} l/min); the heat pump "
+            "slowed or stopped its water pump while defrosting"
+        )
+    return _sustained(code, low, since, snapshot.now, config.flow_sustain_s, message, flow)
 
 
 def _error(snapshot: Snapshot, since: Since) -> Finding:
@@ -423,15 +565,20 @@ def _heating_off(snapshot: Snapshot, since: Since) -> Finding:
     return Finding(code, MonitorStatus.OK, message, outside)
 
 
-def _defrost(config: MonitorConfig, snapshot: Snapshot, since: Since) -> Finding:
+def _defrost_limit(config: MonitorConfig, deice: DeiceOnset | None) -> float:
+    return max(config.defrost_max_s, deice.limit_s) if deice is not None else config.defrost_max_s
+
+
+def _defrost(
+    config: MonitorConfig, snapshot: Snapshot, since: Since, deice: DeiceOnset | None
+) -> Finding:
     code = AlarmCode.DEFROST_STUCK
     defrost = defrost_active(snapshot).value
     if defrost is None:
         return _unknown(code, "Defrosting_State", since)
-    message = f"defrost running (limit {config.defrost_max_s / 60:.0f} min)"
-    return _sustained(
-        code, defrost, since, snapshot.now, config.defrost_max_s, message, int(defrost)
-    )
+    limit = _defrost_limit(config, deice)
+    message = f"defrost running (limit {limit / 60:.0f} min)"
+    return _sustained(code, defrost, since, snapshot.now, limit, message, int(defrost))
 
 
 def _room(config: MonitorConfig, snapshot: Snapshot, since: Since) -> Finding | None:
@@ -501,19 +648,19 @@ def _ha_link(config: MonitorConfig, snapshot: Snapshot, since: Since) -> Finding
 
 
 def _bounds(
-    code: AlarmCode, config: MonitorConfig, snapshot: Snapshot
+    code: AlarmCode, config: MonitorConfig, snapshot: Snapshot, deice: DeiceOnset | None
 ) -> tuple[float | None, str | None, Direction | None]:
     match code:
         case AlarmCode.SETPOINT_ABOVE_MAX:
             return float(config.max_setpoint), "°C", "above"
         case AlarmCode.OUTLET_OVERSHOOT:
             return config.max_supply_c + config.outlet_margin_k, "°C", "above"
-        case AlarmCode.LOW_FLOW:
+        case AlarmCode.LOW_FLOW | AlarmCode.LOW_FLOW_DEFROST:
             return config.min_flow_lpm, "l/min", "below"
         case AlarmCode.HEATING_OFF_OUTDOOR:
             return _number(snapshot, HeishaSignal.HEATING_OFF_OUTDOOR_TEMP), "°C", "above"
         case AlarmCode.DEFROST_STUCK:
-            return config.defrost_max_s, "s", "above"
+            return _defrost_limit(config, deice), "s", "above"
         case AlarmCode.ROOM_BELOW_FLOOR:
             return config.room_floor_c, "°C", "below"
         case AlarmCode.ROOM_SENSOR_SILENT:
@@ -524,8 +671,10 @@ def _bounds(
             return None, None, None
 
 
-def _with_bounds(finding: Finding, config: MonitorConfig, snapshot: Snapshot) -> Finding:
-    limit, unit, direction = _bounds(finding.code, config, snapshot)
+def _with_bounds(
+    finding: Finding, config: MonitorConfig, snapshot: Snapshot, deice: DeiceOnset | None
+) -> Finding:
+    limit, unit, direction = _bounds(finding.code, config, snapshot, deice)
     return replace(finding, limit=limit, unit=unit, direction=direction)
 
 
@@ -535,6 +684,7 @@ def evaluate(
     since: Since,
     *,
     desired_setpoint: int | None = None,
+    deice: DeiceOnset | None = None,
 ) -> tuple[dict[AlarmCode, Instant], tuple[Finding, ...]]:
     """Run every monitor once.
 
@@ -548,6 +698,9 @@ def evaluate(
         When each condition was first seen, as returned by the previous call.
     desired_setpoint
         The controller's current water setpoint, if any.
+    deice
+        Model profile and the values at the start of the running defrost (latched
+        by :class:`SafetyMonitor`); ``None`` treats the pump as an unknown model.
 
     Returns
     -------
@@ -559,11 +712,12 @@ def evaluate(
         _setpoint(config, snapshot, since, desired_setpoint),
         _outlet(config, snapshot, since),
         _flow(config, snapshot, since),
+        _flow_defrost(config, snapshot, since, deice),
         _error(snapshot, since),
         _heater(snapshot, since),
         _heater_allowed(snapshot, since),
         _heating_off(snapshot, since),
-        _defrost(config, snapshot, since),
+        _defrost(config, snapshot, since, deice),
     ]
     for optional in (
         _room(config, snapshot, since),
@@ -573,7 +727,7 @@ def evaluate(
     ):
         if optional is not None:
             findings.append(optional)
-    findings = [_with_bounds(finding, config, snapshot) for finding in findings]
+    findings = [_with_bounds(finding, config, snapshot, deice) for finding in findings]
     updated: dict[AlarmCode, Instant] = {}
     for finding in findings:
         if finding.status in (MonitorStatus.PENDING, MonitorStatus.ACTIVE):
@@ -610,6 +764,14 @@ class SafetyMonitor:
         Seconds between evaluations.
     sleep
         Sleeps on the service clock.
+
+    Attributes
+    ----------
+    profile
+        Model profile from ``Heat_Pump_Model``; ``None`` for an unknown model.
+    deice
+        The current (or last) defrost: the profile and the values latched when
+        ``Defrosting_State`` turned on.
     """
 
     def __init__(
@@ -631,6 +793,11 @@ class SafetyMonitor:
         self.interval_s = interval_s
         self._sleep = sleep
         self._since: dict[AlarmCode, Instant] = {}
+        self._logged: set[AlarmCode] = set()
+        self._defrosting: bool | None = None
+        self._model: object = None
+        self.profile: PumpProfile | None = None
+        self.deice: DeiceOnset | None = None
         self.findings: tuple[Finding, ...] = ()
         self.evaluations = 0
 
@@ -639,10 +806,20 @@ class SafetyMonitor:
         moment = now or self.runtime.clock()
         snapshot = self.runtime.store.snapshot(moment)
         desired = self.desired() if self.desired is not None else None
+        self._latch_deice(snapshot)
         self._since, self.findings = evaluate(
-            self.config, snapshot, self._since, desired_setpoint=desired
+            self.config,
+            snapshot,
+            self._since,
+            desired_setpoint=desired,
+            deice=self.deice if self._defrosting else None,
         )
         for finding in self.findings:
+            if self._log_only(finding.code):
+                self._journal_only(finding, moment)
+                continue
+            if finding.code in self._logged:
+                self._close_log(finding.code, LOGGED_AS_ALARM, moment)
             if finding.status is MonitorStatus.ACTIVE:
                 self.alarms.raise_alarm(finding.code, finding.message, moment)
             elif finding.status is MonitorStatus.OK:
@@ -658,6 +835,69 @@ class SafetyMonitor:
         level = self.alarms.level()
         self.runtime.alarm_level = "ok" if level is None else level.value
         return self.findings
+
+    def _latch_deice(self, snapshot: Snapshot) -> None:
+        view = snapshot.get(HeishaSignal.HEAT_PUMP_MODEL)
+        model = view.value if view is not None and view.reason is None else None
+        if model is not None and model != self._model:
+            self._model = model
+            self.profile = profile_for(model)
+            name = None if self.profile is None else self.profile.name
+            LOGGER.info("pump model %s: profile %s", model, name)
+            if self.deice is not None:
+                self.deice = replace(self.deice, profile=self.profile)
+        defrost = defrost_active(snapshot).value
+        if defrost is True and self._defrosting is not True:
+            self.deice = DeiceOnset(
+                self.profile,
+                _number(snapshot, HeishaSignal.INLET_TEMP),
+                _number(snapshot, HeishaSignal.OUTSIDE_TEMP),
+            )
+            LOGGER.info("defrost started: deice mode %s expected", self.deice.mode)
+        if defrost is not None:
+            self._defrosting = defrost
+
+    def _log_only(self, code: AlarmCode) -> bool:
+        if code is not AlarmCode.LOW_FLOW_DEFROST:
+            return False
+        mode = None if self.deice is None else self.deice.mode
+        match self.config.defrost_low_flow:
+            case "alarm":
+                return False
+            case "log":
+                return mode != 1
+            case _:
+                return mode == 2
+
+    def _journal_only(self, finding: Finding, moment: Instant) -> None:
+        code = finding.code
+        if self.alarms.is_active(code):
+            self.alarms.clear(code, moment, LOGGED_ONLY)
+        if finding.status is MonitorStatus.ACTIVE and code not in self._logged:
+            self._logged.add(code)
+            detail = {"logged_only": True, "flow_lpm": finding.value, **self._deice_detail()}
+            self._journal(code, AlarmEventKind.STARTED, finding.message, moment, detail)
+        elif finding.status is MonitorStatus.OK and code in self._logged:
+            self._close_log(code, finding.message, moment)
+
+    def _close_log(self, code: AlarmCode, message: str, moment: Instant) -> None:
+        self._logged.discard(code)
+        detail = {"logged_only": True, **self._deice_detail()}
+        self._journal(code, AlarmEventKind.CLEARED, message, moment, detail)
+
+    def _deice_detail(self) -> dict[str, Any]:
+        return {} if self.deice is None else self.deice.detail()
+
+    def _journal(
+        self,
+        code: AlarmCode,
+        kind: AlarmEventKind,
+        message: str,
+        moment: Instant,
+        detail: dict[str, Any],
+    ) -> None:
+        LOGGER.warning("%s %s (logged only): %s", code.value, kind.value, message)
+        self.alarms.record(AlarmEvent(moment, code.value, Severity.INFO, kind, message, detail))
 
     def status(self) -> dict[str, Any]:
         """Return the API form: overall level and every monitor."""

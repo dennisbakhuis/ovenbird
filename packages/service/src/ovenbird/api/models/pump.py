@@ -41,12 +41,20 @@ class PumpSetting(ApiModel):
     last_write: PumpWrite | None = absent()
 
 
+class PumpProfileInfo(ApiModel):
+    """The model profile matched by ``Heat_Pump_Model``."""
+
+    name: str
+    source: str
+
+
 class PumpSettingsPage(ApiModel):
-    """``GET pump/settings``: whether writes are possible, and every row."""
+    """``GET pump/settings``: whether writes are possible, the model and its profile, every row."""
 
     writable: bool
     refusals: list[str]
     model: Scalar
+    profile: PumpProfileInfo | None
     settings: list[PumpSetting]
 
 

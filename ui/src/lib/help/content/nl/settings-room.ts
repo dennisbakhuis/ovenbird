@@ -44,8 +44,8 @@ export const topic: HelpTopic = {
     {
       id: 'monitor',
       kind: 'know',
-      title: 'Kamerbewaking',
-      body: 'Geeft een waarschuwing als de kamer te koud blijft: standaard 1,5 K onder het doel gedurende 30 minuten. Laat de marge leeg om de bewaking uit te zetten. Ze waarschuwt alleen; ze verandert niets aan de verwarming.',
+      title: 'Bewaking',
+      body: 'Geeft een waarschuwing als de kamer te koud blijft: standaard 1,5 K onder het doel gedurende 30 minuten. Laat de marge leeg om de bewaking uit te zetten. Ze waarschuwt alleen; ze verandert niets aan de verwarming.\n\n**Geen doorstroming tijdens ontdooien**: sommige warmtepompen zetten tijdens het ontdooien hun waterpomp stil. Bij een pompmodel dat ovenbird uit de servicehandleiding kent, weet ovenbird wanneer dat zo hoort (ontdooimodus 2); **Automatisch** legt dat geval alleen vast bij Activiteit → Alarmen en geeft anders de waarschuwing. **Alleen vastleggen** doet dat ook bij een onbekend pompmodel, **Alarm** geeft altijd de waarschuwing.',
       target: 'settings/room.monitor',
     },
   ],

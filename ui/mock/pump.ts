@@ -253,6 +253,7 @@ export function pumpSettings(state: PumpState, now: number, paused: boolean): Pu
     writable: refusals.length === 0,
     refusals,
     model: 'C2 D3 0B 33 65 B2 D3 0B 94 65',
+    profile: null,
     settings,
   };
 }

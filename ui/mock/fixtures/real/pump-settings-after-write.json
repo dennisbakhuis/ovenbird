@@ -2,6 +2,7 @@
   "writable": false,
   "refusals": ["a write of heat_delta is in progress"],
   "model": null,
+  "profile": null,
   "settings": [
     {
       "id": "heat_delta",
