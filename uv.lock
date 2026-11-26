@@ -483,7 +483,7 @@ numpy = [
 
 [[package]]
 name = "ovenbird"
-version = "0.4.0"
+version = "0.4.1"
 source = { editable = "packages/service" }
 dependencies = [
     { name = "aiomqtt" },
@@ -506,12 +506,12 @@ requires-dist = [
 
 [[package]]
 name = "ovenbird-core"
-version = "0.4.0"
+version = "0.4.1"
 source = { editable = "packages/core" }
 
 [[package]]
 name = "ovenbird-harness"
-version = "0.4.0"
+version = "0.4.1"
 source = { editable = "packages/harness" }
 dependencies = [
     { name = "aiomqtt" },
@@ -532,7 +532,7 @@ requires-dist = [
 
 [[package]]
 name = "ovenbird-sim"
-version = "0.4.0"
+version = "0.4.1"
 source = { editable = "packages/sim" }
 dependencies = [
     { name = "aiomqtt" },

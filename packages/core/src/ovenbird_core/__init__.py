@@ -50,7 +50,7 @@ from ovenbird_core.store import (
     StateStore,
 )
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 __all__ = [
     "CATALOGUE",

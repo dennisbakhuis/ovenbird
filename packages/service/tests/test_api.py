@@ -104,7 +104,7 @@ def test_health_shape(client: TestClient, runtime: Runtime, clock: FakeClock) ->
     body = client.get("/api/v1/health").json()
     assert set(body) == HEALTH_KEYS
     assert body["api_version"] == 1
-    assert body["version"] == "0.4.0"
+    assert body["version"] == "0.4.1"
     assert body["live"] is True
     assert body["ready"] is False
     assert body["checks"] == {

@@ -6,6 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-26
+
+### Fixed
+
+- The Home Assistant input never subscribed: the subscription went out with a lower
+  request id than the registry reads before it, which Home Assistant rejects
+  (`id_reuse`). The link stayed down and the room temperature stayed empty.
+
+### Changed
+
+- Low water flow during a defrost has its own warning, `low_flow_defrost`, instead of the
+  critical `low_flow` alarm. Some heat pumps stop their water pump while defrosting by
+  design. A model profile, recognised from HeishaMon's `Heat_Pump_Model`, carries the
+  deice facts from the service manual: on the WH-MXC12J9E8 deice mode 2 (hot-gas bypass,
+  water inlet below 27 °C) runs with the water pump off for up to 30 minutes.
+- New setting **No flow during defrost** (Settings → Monitors): Automatic (default) only
+  logs a mode 2 event under Activity → Alarms, Log only also logs it for an unknown model,
+  Alarm always raises the warning. Low flow in deice mode 1 always raises it.
+- `defrost_stuck` allows a mode 2 defrost its full length plus 5 minutes.
+- `api/v1/pump/settings` reports the active pump profile.
+- The settings group Room monitor is now called Monitors.
+
 ## [0.4.0] - 2026-11-25
 
 First public release. ovenbird is a standalone controller for air-to-water heat pumps
