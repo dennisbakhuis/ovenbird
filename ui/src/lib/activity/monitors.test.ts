@@ -47,6 +47,7 @@ describe('monitors', () => {
   it('suggests where to look', () => {
     expect(alarmAction('foreign_writer')).toBe('holds');
     expect(alarmAction('room_sensor_silent')).toBe('room');
+    expect(alarmAction('low_flow_defrost')).toBe('pump');
     expect(alarmAction('unknown_thing')).toBeNull();
   });
 });

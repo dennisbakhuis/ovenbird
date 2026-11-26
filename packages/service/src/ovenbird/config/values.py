@@ -49,6 +49,7 @@ type ControlModeName = Literal["off", "shadow", "auto"]
 type RoomProfileName = Literal["periodic", "on_change"]
 type EmitterName = Literal["screed_floor", "radiators", "mixed"]
 type SetpointRegister = Literal["setcurves_target_high", "z1_heat_request_temperature"]
+type DefrostLowFlowMode = Literal["auto", "alarm", "log"]
 
 type LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 type LocationSource = Literal["ha_zone_home", "manual", "browser"]

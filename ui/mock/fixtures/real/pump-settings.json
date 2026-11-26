@@ -2,6 +2,7 @@
   "writable": true,
   "refusals": [],
   "model": null,
+  "profile": null,
   "settings": [
     {
       "id": "heat_delta",

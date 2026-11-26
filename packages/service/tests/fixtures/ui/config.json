@@ -998,6 +998,13 @@
       "stored": null,
       "value": "unset"
     },
+    "safety_defrost_low_flow": {
+      "default": "auto",
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": "auto"
+    },
     "safety_defrost_max_s": {
       "default": 1200.0,
       "locked": true,

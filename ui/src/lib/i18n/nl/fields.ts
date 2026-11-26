@@ -59,6 +59,13 @@ export const fields: Record<keyof typeof en, string> = {
   'cfg.safety_room_floor_sustain_s.label': 'Duur voor te koude kamer',
   'cfg.safety_room_floor_sustain_s.help':
     'Hoe lang de kamer te koud moet blijven voordat de waarschuwing komt.',
+  'cfg.safety_defrost_low_flow.label': 'Geen doorstroming tijdens ontdooien',
+  'cfg.safety_defrost_low_flow.help':
+    'Sommige warmtepompen zetten tijdens het ontdooien hun waterpomp stil. Bij een pompmodel dat ovenbird uit de servicehandleiding kent, weet ovenbird wanneer dat zo hoort: de WH-MXC12J9E8 ontdooit onder 27 °C retourwater met heet gas en zet dan haar waterpomp stil (ontdooimodus 2). Automatisch legt dat geval alleen vast en geeft anders een alarm; Alleen vastleggen doet dat ook bij een pompmodel dat ovenbird niet kent; Alarm geeft altijd de waarschuwing. Vastleggen betekent bij Activiteit → Alarmen, zonder actief alarm of melding. Hoort de waterpomp volgens het model te draaien, dan is lage doorstroming altijd een alarm.',
+  'cfg.safety_defrost_low_flow.opt.auto':
+    'Automatisch (alleen vastleggen als het pompmodel dit zo hoort te doen)',
+  'cfg.safety_defrost_low_flow.opt.alarm': 'Alarm',
+  'cfg.safety_defrost_low_flow.opt.log': 'Alleen vastleggen (Activiteit → Alarmen)',
   'cfg.control_min_setpoint_c.label': 'Minimale aanvoertemperatuur',
   'cfg.control_min_setpoint_c.help':
     'De regelaar vraagt nooit koeler water dan dit. Leeg volgt de voorinstelling van de afgifte.',

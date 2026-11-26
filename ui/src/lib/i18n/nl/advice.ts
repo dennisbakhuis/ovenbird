@@ -39,6 +39,10 @@ export const advice = {
     'Laat alleen lagere watertemperaturen door tot het debiet weer boven het minimum zit.',
   alarmYou_low_flow:
     'Zet dichte kranen van radiatoren of vloergroepen open, controleer de waterdruk en het filter. Blijft het, bel je installateur.',
+  alarmNow_low_flow_defrost:
+    'Er valt niets te corrigeren: de pomp ontdooit zelf en ovenbird schrijft nooit tijdens het ontdooien. De gewone bewaking op laag debiet werkt weer zodra het ontdooien klaar is.',
+  alarmYou_low_flow_defrost:
+    'Noemt het bericht ontdooimodus 2, dan zet de pomp haar waterpomp bewust stil (retourwater onder 27 °C) en duurt het ontdooien langer dan normaal; gebeurt dat vaak, dan voorkomt een iets hogere minimale watertemperatuur bij vorst het. Anders hoort de waterpomp te blijven draaien: laat de waterpomp, de debietsensor en het filter nakijken. Bij Instellingen → Comforttemperatuur → Bewaking → “Geen doorstroming tijdens ontdooien” kies je of dit een alarm is of alleen wordt vastgelegd.',
   alarmNow_pump_error: 'Laat alleen lagere watertemperaturen door zolang de pomp een fout meldt.',
   alarmYou_pump_error:
     'Lees de foutcode af op de afstandsbediening van Panasonic en zoek hem op in de handleiding, of bel je installateur.',

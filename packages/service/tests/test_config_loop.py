@@ -111,6 +111,24 @@ def test_lower_maximum_moves_adapter_clamp_and_monitor(
     assert queued.get(IntentKind.WATER_SETPOINT.value) in {None, 31}
 
 
+def test_defrost_low_flow_setting_reaches_the_monitor_at_the_next_tick(
+    make_settings: Callable[..., Settings],
+) -> None:
+    run = rig(make_settings)
+    run.tick()
+    monitor = run.service.control.safety
+    assert monitor is not None
+    initial = monitor.config
+    assert initial.defrost_low_flow == "auto"
+    run.clock.advance(61.0)
+    run.apply(safety_defrost_low_flow="log")
+    row = run.tick()
+    assert row.config_version == 1
+    assert monitor.config.defrost_low_flow == "log"
+    with pytest.raises(ValueError, match="safety_defrost_low_flow"):
+        make_settings(safety_defrost_low_flow="sometimes")
+
+
 def test_a_new_configuration_is_announced_on_the_websocket(
     make_settings: Callable[..., Settings],
 ) -> None:

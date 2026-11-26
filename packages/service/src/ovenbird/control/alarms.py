@@ -50,6 +50,7 @@ class AlarmCode(StrEnum):
     SETPOINT_ABOVE_MAX = "setpoint_above_max"
     OUTLET_OVERSHOOT = "outlet_overshoot"
     LOW_FLOW = "low_flow"
+    LOW_FLOW_DEFROST = "low_flow_defrost"
     PUMP_ERROR = "pump_error"
     BACKUP_HEATER = "backup_heater"
     BACKUP_HEATER_ALLOWED = "backup_heater_allowed"
@@ -87,6 +88,7 @@ SEVERITY: Final[dict[AlarmCode, Severity]] = {
     AlarmCode.SETPOINT_ABOVE_MAX: Severity.CRITICAL,
     AlarmCode.OUTLET_OVERSHOOT: Severity.CRITICAL,
     AlarmCode.LOW_FLOW: Severity.CRITICAL,
+    AlarmCode.LOW_FLOW_DEFROST: Severity.WARNING,
     AlarmCode.PUMP_ERROR: Severity.CRITICAL,
     AlarmCode.BACKUP_HEATER: Severity.WARNING,
     AlarmCode.BACKUP_HEATER_ALLOWED: Severity.INFO,

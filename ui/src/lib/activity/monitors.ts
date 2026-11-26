@@ -50,7 +50,7 @@ const ACTIONS: [RegExp, string][] = [
   [/^(stove_reference_missing)$/, 'stove'],
   [/^(outside_sensor_stale|outside_sensor_implausible)$/, 'curve'],
   [
-    /^(pump_setting_changed|low_flow|pump_error|backup_heater|defrost_stuck|outlet_overshoot)/,
+    /^(pump_setting_changed|low_flow|low_flow_defrost|pump_error|backup_heater|defrost_stuck|outlet_overshoot)/,
     'pump',
   ],
 ];

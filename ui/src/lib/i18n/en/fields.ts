@@ -57,6 +57,13 @@ export const fields = {
   'cfg.safety_room_floor_sustain_s.label': 'Room too cold duration',
   'cfg.safety_room_floor_sustain_s.help':
     'How long the room must stay too cold before the warning is raised.',
+  'cfg.safety_defrost_low_flow.label': 'No flow during defrost',
+  'cfg.safety_defrost_low_flow.help':
+    'Some heat pumps stop their water pump while defrosting. For a pump model ovenbird knows from its service manual, it can tell when that is by design: the WH-MXC12J9E8 defrosts with hot gas below 27 °C return water and stops its water pump (deice mode 2). Automatic only logs that case and raises an alarm otherwise; Log only also only logs it for a pump model ovenbird does not know; Alarm always raises the warning. Logged means under Activity → Alarms, without an active alarm or a notification. When the model says the pump should run, low flow is always an alarm.',
+  'cfg.safety_defrost_low_flow.opt.auto':
+    'Automatic (log only when the pump model does this by design)',
+  'cfg.safety_defrost_low_flow.opt.alarm': 'Alarm',
+  'cfg.safety_defrost_low_flow.opt.log': 'Log only (Activity → Alarms)',
   'cfg.control_min_setpoint_c.label': 'Minimum water setpoint',
   'cfg.control_min_setpoint_c.help':
     'The controller never asks for water colder than this. Empty follows the emitter preset.',

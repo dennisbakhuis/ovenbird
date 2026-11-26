@@ -5796,6 +5796,22 @@
         ],
         "type": "object"
       },
+      "PumpProfileInfo": {
+        "description": "The model profile matched by ``Heat_Pump_Model``.",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "source"
+        ],
+        "type": "object"
+      },
       "PumpSetting": {
         "description": "One row of the pump settings; only the writable rows carry the write keys.",
         "properties": {
@@ -5902,7 +5918,7 @@
         "type": "object"
       },
       "PumpSettingsPage": {
-        "description": "``GET pump/settings``: whether writes are possible, and every row.",
+        "description": "``GET pump/settings``: whether writes are possible, the model and its profile, every row.",
         "properties": {
           "model": {
             "anyOf": [
@@ -5914,6 +5930,16 @@
               },
               {
                 "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PumpProfileInfo"
               },
               {
                 "type": "null"
@@ -5940,6 +5966,7 @@
           "writable",
           "refusals",
           "model",
+          "profile",
           "settings"
         ],
         "type": "object"

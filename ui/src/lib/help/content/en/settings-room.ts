@@ -44,8 +44,8 @@ export const topic: HelpTopic = {
     {
       id: 'monitor',
       kind: 'know',
-      title: 'Room monitor',
-      body: 'Raises a warning when the room stays too cold: by default 1.5 K below the target for 30 minutes. Leave the margin empty to switch the monitor off. It only warns; it does not change the heating.',
+      title: 'Monitors',
+      body: 'Raises a warning when the room stays too cold: by default 1.5 K below the target for 30 minutes. Leave the margin empty to switch the monitor off. It only warns; it does not change the heating.\n\n**No flow during defrost**: some heat pumps stop their water pump while defrosting. For a pump model ovenbird knows from its service manual it can tell when that is by design (deice mode 2); **Automatic** only logs that case under Activity → Alarms and raises the warning otherwise. **Log only** also only logs it for an unknown pump model, **Alarm** always raises it.',
       target: 'settings/room.monitor',
     },
   ],

@@ -26,6 +26,7 @@ EXPECTED = {
     "setpoint_above_max": (40.0, "°C", "above"),
     "outlet_overshoot": (45.0, "°C", "above"),
     "low_flow": (8.0, "l/min", "below"),
+    "low_flow_defrost": (8.0, "l/min", "below"),
     "pump_error": (None, None, None),
     "backup_heater": (None, None, None),
     "backup_heater_allowed": (None, None, None),

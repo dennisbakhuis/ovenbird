@@ -2442,6 +2442,29 @@
       "type": "secret",
       "unit": null
     },
+    "safety_defrost_low_flow": {
+      "display": null,
+      "editable": true,
+      "env": "OVENBIRD_SAFETY_DEFROST_LOW_FLOW",
+      "exclusive_max": false,
+      "exclusive_min": false,
+      "group": "monitors",
+      "max": null,
+      "min": null,
+      "nullable": false,
+      "options": [
+        "auto",
+        "alarm",
+        "log"
+      ],
+      "preset_default": false,
+      "soft_max": null,
+      "soft_min": null,
+      "step": null,
+      "tier": "advanced",
+      "type": "enum",
+      "unit": null
+    },
     "safety_defrost_max_s": {
       "display": null,
       "editable": false,
@@ -2836,6 +2859,7 @@
     },
     {
       "fields": [
+        "safety_defrost_low_flow",
         "safety_room_floor_k",
         "safety_room_floor_sustain_s"
       ],

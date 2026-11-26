@@ -2328,6 +2328,11 @@ export interface components {
       stale: boolean;
       validation: components['schemas']['ValidateResult'] | null;
     };
+    /** @description The model profile matched by ``Heat_Pump_Model``. */
+    PumpProfileInfo: {
+      name: string;
+      source: string;
+    };
     /** @description One row of the pump settings; only the writable rows carry the write keys. */
     PumpSetting: {
       /** @enum {string} */
@@ -2346,9 +2351,10 @@ export interface components {
       unit: string | null;
       value: number | string | boolean | null;
     };
-    /** @description ``GET pump/settings``: whether writes are possible, and every row. */
+    /** @description ``GET pump/settings``: whether writes are possible, the model and its profile, every row. */
     PumpSettingsPage: {
       model: number | string | boolean | null;
+      profile: components['schemas']['PumpProfileInfo'] | null;
       refusals: string[];
       settings: components['schemas']['PumpSetting'][];
       writable: boolean;

@@ -64,6 +64,7 @@ export const codes = {
   alarm_setpoint_above_max: 'Setpoint above maximum',
   alarm_outlet_overshoot: 'Outlet too hot',
   alarm_low_flow: 'Low flow',
+  alarm_low_flow_defrost: 'No flow during defrost',
   alarm_pump_error: 'Pump error',
   alarm_backup_heater: 'Backup heater on',
   alarm_backup_heater_allowed: 'Backup heater allowed',
@@ -195,6 +196,8 @@ export const codes = {
   alarmText_setpoint_above_max: 'The water setpoint is above the maximum supply temperature.',
   alarmText_outlet_overshoot: 'The supply water is warmer than its limit.',
   alarmText_low_flow: 'The water flow is below the minimum while the compressor runs.',
+  alarmText_low_flow_defrost:
+    'The water flow stayed below the minimum during a defrost: by design in deice mode 2 of a known pump model, otherwise worth a check.',
   alarmText_pump_error: 'The pump reports an error code.',
   alarmText_backup_heater: 'The electric backup heater is running.',
   alarmText_backup_heater_allowed: 'The pump is allowed to switch on its electric backup heater.',
@@ -214,6 +217,20 @@ export const codes = {
   svc_outlet_over: 'Supply water {value} °C, above the limit of {limit} °C.',
   svc_setpoint_over: 'Water setpoint {value} °C, above the maximum supply of {limit} °C.',
   svc_low_flow: 'Flow {value} l/min while the compressor runs (minimum {limit} l/min).',
+  svc_low_flow_defrost:
+    'Low water flow during a defrost (deice mode 1, the pump should run): {value} l/min with the compressor at {freq} Hz (minimum {limit} l/min).',
+  svc_deice_mode2_inlet:
+    'Deice mode 2 (hot-gas defrost): the heat pump stops its water pump by design because the return water was {inlet} °C (below {limit} °C); flow {value} l/min, compressor {freq} Hz.',
+  svc_deice_mode2_cold:
+    'Deice mode 2 (hot-gas defrost): the heat pump stops its water pump by design because the outdoor air was {outside} °C (below {cold} °C) with return water {inlet} °C (below {limit} °C); flow {value} l/min, compressor {freq} Hz.',
+  svc_low_flow_suspended: 'Paused during a defrost (see No flow during defrost).',
+  svc_no_defrost: 'No defrost running.',
+  svc_low_flow_defrost_generic:
+    'Low water flow during a defrost: {value} l/min with the compressor at {freq} Hz (minimum {limit} l/min); the heat pump slowed or stopped its water pump while defrosting.',
+  svc_defrost_flow: 'Flow {value} l/min during the defrost.',
+  svc_defrost_flow_mode: 'Flow {value} l/min during the defrost (deice mode {mode}).',
+  svc_flow_defrost_logged: 'Only logged from now on (setting No flow during defrost).',
+  svc_flow_defrost_alarm: 'Raised as an alarm from now on (setting No flow during defrost).',
   svc_pump_error: 'The pump reports error {text}.',
   svc_backup_heater: 'The backup heater is running ({text}); it heats at COP 1.',
   svc_backup_allowed: 'The pump may use its backup heater for heating.',

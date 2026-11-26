@@ -94,6 +94,15 @@ EN: Final[dict[str, AlarmText]] = {
         "Open closed radiator or floor valves, check the water pressure and the filter. If it "
         "stays, call your installer.",
     ),
+    "low_flow_defrost": AlarmText(
+        "No flow during defrost",
+        "Nothing to correct: the pump runs its own defrost and ovenbird never writes during a "
+        "defrost. The normal low-flow protection resumes when the defrost ends.",
+        "If the message names deice mode 2, the pump stops its water pump by design (return "
+        "water below 27 °C) and the defrost lasts longer; if that happens often, a slightly "
+        "higher minimum water temperature in frosty weather avoids it. Otherwise the pump "
+        "should keep running: have the water pump, flow sensor and filter checked.",
+    ),
     "pump_error": AlarmText(
         "Pump error",
         "Releases only lower water temperatures while the pump reports an error.",
@@ -285,6 +294,17 @@ NL: Final[dict[str, AlarmText]] = {
         "Laat alleen lagere watertemperaturen door tot het debiet weer boven het minimum zit.",
         "Zet dichte kranen van radiatoren of vloergroepen open, controleer de waterdruk en het "
         "filter. Blijft het, bel je installateur.",
+    ),
+    "low_flow_defrost": AlarmText(
+        "Geen doorstroming tijdens ontdooien",
+        "Er valt niets te corrigeren: de pomp ontdooit zelf en ovenbird schrijft nooit tijdens "
+        "het ontdooien. De gewone bewaking op laag debiet werkt weer zodra het ontdooien klaar "
+        "is.",
+        "Noemt het bericht ontdooimodus 2, dan zet de pomp haar waterpomp bewust stil "
+        "(retourwater onder 27 °C) en duurt het ontdooien langer; gebeurt dat vaak, dan "
+        "voorkomt een iets hogere minimale watertemperatuur bij vorst het. Anders hoort de "
+        "waterpomp te blijven draaien: laat de waterpomp, de debietsensor en het filter "
+        "nakijken.",
     ),
     "pump_error": AlarmText(
         "Pompfout",

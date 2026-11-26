@@ -175,10 +175,11 @@ every mode, also during holds:
 |---|---|---|
 | `setpoint_above_max` | critical | `Z1_Water_Target_Temp`, `Z1_Heat_Request_Temp` (Direct mode) or the controller's setpoint above the preset's maximum supply (40 °C for `mixed`); immediate |
 | `outlet_overshoot` | critical | `Main_Outlet_Temp` above maximum supply + `OVENBIRD_SAFETY_OUTLET_MARGIN_K` (5 K) for `_OUTLET_SUSTAIN_S` (600 s); not during DHW |
-| `low_flow` | critical | `Pump_Flow` below `OVENBIRD_SAFETY_MIN_FLOW_LPM` (8 l/min, model dependent) while the compressor runs, for `_FLOW_SUSTAIN_S` (120 s) |
+| `low_flow` | critical | `Pump_Flow` below `OVENBIRD_SAFETY_MIN_FLOW_LPM` (8 l/min, model dependent) while the compressor runs, for `_FLOW_SUSTAIN_S` (120 s); not during a defrost |
 | `pump_error` | critical | `Error` is not `No error`; immediate |
 | `backup_heater` | warning | `Internal_Heater_State` or `External_Heater_State` active |
-| `defrost_stuck` | warning | `Defrosting_State` on for longer than `OVENBIRD_SAFETY_DEFROST_MAX_S` (20 min) |
+| `defrost_stuck` | warning | `Defrosting_State` on for longer than `OVENBIRD_SAFETY_DEFROST_MAX_S` (20 min; in a profile's deice mode 2 at least its longest mode 2 defrost + 5 min) |
+| `low_flow_defrost` | warning | `Pump_Flow` below the minimum during a defrost while the compressor runs, for `_FLOW_SUSTAIN_S`; journal only or alarm per `OVENBIRD_SAFETY_DEFROST_LOW_FLOW` (see below) |
 | `room_below_floor` | warning | room more than `OVENBIRD_SAFETY_ROOM_FLOOR_K` (1.5 K) below comfort for `_ROOM_FLOOR_SUSTAIN_S` (30 min) |
 | `room_sensor_quiet` | warning | `on_change` room sensor: no proof of life for 8 h (`OVENBIRD_CONTROL_ROOM_ALIVE_DECAY_END_S`); raised by the control loop, clears on the next report |
 | `room_sensor_silent` | warning | `on_change` room sensor: no proof of life (its value or a liveness signal) for longer than the silence limit |
@@ -209,6 +210,21 @@ A monitor whose inputs are missing or stale is `unknown` and keeps its alarm as 
 an alarm clears only when its monitor reports `ok`. Every transition goes to the
 `alarm` table (`GET api/v1/alarms`). `checks.alarms` in `api/v1/health` is the highest
 active severity; a critical alarm makes `ready` false.
+
+Some heat pumps stop their water pump while defrosting. `Heat_Pump_Model` selects a
+model profile (`ovenbird_core.pumpmodel`; only ID bytes verified on a real unit) with
+facts from Panasonic's service manual: for the WH-MXC12J9E8 (PAPAMY2110029CE, 14.2.2
+"Deice Operation") deice mode 1 is the reverse-cycle defrost with the water pump
+running (at most 9.5 min), mode 2 a hot-gas-bypass defrost with the water pump off by
+design (at most 30 min), picked when the water inlet is below 27 °C, or below 60 °C with
+the outdoor air below −10 °C. The monitor latches `Main_Inlet_Temp` and `Outside_Temp`
+when `Defrosting_State` turns on (the profile may arrive later). An unknown model gets
+no deice mode and a message that only describes what was seen.
+`OVENBIRD_SAFETY_DEFROST_LOW_FLOW` (editable under Settings): `auto` (default) only
+journals a low flow in mode 2 and raises the warning otherwise, `log` also only
+journals it for an unknown model, `alarm` always raises it; in mode 1 it is always the
+warning. Journalled means a `started` and a `cleared` event with severity `info` and
+`detail.logged_only`, never an active alarm and never a notification.
 
 While publishing is permitted, critical alarms act on the adapter:
 
