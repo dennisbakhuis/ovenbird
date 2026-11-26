@@ -677,11 +677,13 @@ function withScenario(control: MockControl, scenario: Scenario, now: number): Mo
 /**
  * Vite plugin serving fixture JSON for the api/v1 endpoints in mock mode: health, snapshot,
  * history, decisions (+latest, series), commands, alarms, config, audit and the control actions.
+ * Pause and resume act per scenario key, so parallel browsers never see each other's pause.
  */
 export function mockApi(): Plugin {
   const state = initialState();
   const configState = initialConfigState();
   const pump = initialPumpState();
+  const pausedKeys = new Set<string>();
   const stoveRequests = new Map<string, StoveRequestState>();
   const brokers = new Map<string, MqttMock>();
   return {
@@ -702,7 +704,7 @@ export function mockApi(): Plugin {
         const to = param('to') ? Date.parse(param('to') as string) : now;
         const key = scenarioKey(req.headers.cookie);
         const release = () => releaseHold(key, now);
-        const paused = () => state.paused || release() === 'paused';
+        const paused = () => pausedKeys.has(key) || release() === 'paused';
         const mode = () =>
           inShadow(scenario, paused()) || release() === 'releasing' ? 'shadow' : 'auto';
         const controlState = () => ({
@@ -951,14 +953,14 @@ export function mockApi(): Plugin {
               });
             }
             if (path.endsWith('/control/pause')) {
-              state.paused = true;
+              pausedKeys.add(key);
               return send({ mode: modeDoc(), control: control() });
             }
             if (path.endsWith('/control/resume')) {
               const refused = resumeRelease(key, now);
               if (refused)
                 return send({ ...(refused.body as object), mode: modeDoc() }, refused.status);
-              state.paused = false;
+              pausedKeys.delete(key);
               return send({ mode: modeDoc(), control: control() });
             }
             return send({ detail: 'not found' }, 404);
