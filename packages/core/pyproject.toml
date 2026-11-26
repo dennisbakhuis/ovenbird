@@ -1,6 +1,6 @@
 [project]
 name = "ovenbird-core"
-version = "0.4.0"
+version = "0.4.1"
 description = "Pure domain logic for the ovenbird heat pump controller."
 readme = "README.md"
 requires-python = ">=3.14"

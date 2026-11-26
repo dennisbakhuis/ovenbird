@@ -1017,7 +1017,7 @@ export function exportDoc(state: ConfigState, now: number, paused: boolean) {
   const doc = configDoc(state, paused);
   return {
     ovenbird_config: 1,
-    app_version: '0.4.0',
+    app_version: '0.4.1',
     exported_at: new Date(now).toISOString(),
     version: state.version,
     values: { ...state.stored },
