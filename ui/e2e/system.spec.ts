@@ -110,7 +110,7 @@ test.describe('System overview tiles', () => {
     await english(page);
     await page.goto('./#/system');
     const about = page.getByTestId('about-card');
-    await expect(about.getByTestId('about-facts')).toContainText('0.4.1');
+    await expect(about.getByTestId('about-facts')).toContainText('0.5.0');
     await about.getByTestId('about-details').locator('summary').click();
     await expect(about).toContainText('setcurves_target_high');
     const download = page.waitForEvent('download');

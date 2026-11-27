@@ -43,7 +43,8 @@ CMD ["--host", "mosquitto", "--port", "1883", "--scenario", "cold-week", "--spee
 # below carries the same learner (numpy, scipy, ovenbird_sim without the tools extra,
 # through the service's learner extra) and the service starts it itself as a child
 # process; this image is for running it standalone, in isolation, when house_learn_enabled
-# is off or the runtime image lacks the extra. Run one of the two, not both. It runs as its
+# is off or the runtime image lacks the extra. Both can run: a lock file in the models directory lets
+# one run at a time. It runs as its
 # own user (uid 10003) in the service's group (gid 10001) and needs two sub-directories of
 # the data volume only: learner/ read-only (the service writes learner-config.json and
 # history.snapshot.db there, mode 0750/0640) at /learner, and models/ (mode 2770, its

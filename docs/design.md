@@ -430,12 +430,13 @@ now; `shadow` computes and records it without effect).
   to 4 MB, strict JSON, an allow-list of keys with bounded sizes and checked types;
   anything else is served as `state: learning` with the reason. A model whose learner
   has not run for twice its interval is reported as stale (`learner.stale`).
-- **Running it.** Planned default (2026-11-27): the fit runs inside the ovenbird image
-  as a supervised low-priority child process of the service (one container), weekly at
-  night and on request, limited to 30 min wall time and 768 MB. Core stays pure Python;
-  the service still reads the model files through the trust checks above. Until that is
-  built, and as an option afterwards, the learner is its own image (`Dockerfile` target
-  `learner`, with numpy/scipy). It runs as its own uid in the service's group and mounts only `learner/`
+- **Running it.** Default since 0.5.0 (decided 2026-11-27): the fit runs inside the
+  ovenbird image as a supervised low-priority child process of the service (one container),
+  weekly at night and on request, limited to 30 min wall time and 512 MB, and skipped while
+  less than 400 MB of memory is free. Core stays pure Python; the service still reads the
+  model files through the trust checks above. As an option for source builds, the learner
+  is its own image (`Dockerfile` target `learner`, with numpy/scipy); a lock file in
+  `models/` lets it run next to the built-in one, one run at a time. It runs as its own uid in the service's group and mounts only `learner/`
   (read-only) and `models/` of the data volume, never `options.json`, `config.db` or the
   live history; no network, read-only root, no capabilities. In the dev stack it is the
   optional compose service `learner` (`COMPOSE_PROFILES=learner`, weekly loop); the

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 - 2026-11-28
+
+- New House page with the learned house model: facts, limits, learning settings, three trust
+  checks, what-if and heat balance. The model is refitted weekly at night inside the app
+  (low priority, off with `house_learn_enabled`); the image grows from 146 to about 356 MB.
+- Model plan: off by default, `shadow` computes a bounded room-target shift without effect.
+- Deice mode shown during a defrost; Home Assistant's copies of the heat pump are grouped
+  in the sensor pickers. Settings is an icon in the top bar.
+
 ## 0.4.1 - 2026-11-26
 
 - Fixed: the Home Assistant connection never subscribed to the sensors, so the room

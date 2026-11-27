@@ -1,6 +1,6 @@
 name: ovenbird
 slug: ovenbird
-version: "0.4.1"
+version: "0.5.0"
 description: Standalone heat pump controller; starts in shadow and sends nothing until enabled.
 url: https://github.com/dennisbakhuis/ovenbird
 arch:

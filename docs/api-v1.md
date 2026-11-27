@@ -74,7 +74,7 @@ A single-use pass for `WS api/v1/ws` (see Roles and request rules); sent with
 ## `GET api/v1/health`
 
 ```json
-{"live": true, "ready": true, "version": "0.4.1", "api_version": 1,
+{"live": true, "ready": true, "version": "0.5.0", "api_version": 1,
  "checks": {"mqtt": "connected", "heishamon": "alive", "ha": "disabled", "history": "ok",
             "alarms": "ok", "weather": "disabled"}}
 ```
@@ -1046,7 +1046,7 @@ responses as `PUT`; audited as `config_rollback`. `404` for an unknown version.
 A download (`Content-Disposition: attachment`):
 
 ```json
-{"ovenbird_config": 1, "app_version": "0.4.1", "exported_at": "...", "version": 13,
+{"ovenbird_config": 1, "app_version": "0.5.0", "exported_at": "...", "version": 13,
  "values": {"control_comfort_c": 21.6}, "effective": {"<every non-secret field>": "..."}}
 ```
 
@@ -1359,7 +1359,7 @@ as `state` `learning` with the reason in `missing`. Always `200`; with the champ
               "mean_change_k": -1.17, "max_change_k": 2.0, "method": "..."},
  "events": [], "limits": ["single room sensor: the UA is apparent ...", "..."],
  "provenance": {"data_from": "...", "data_to": "...", "fit_days": 40.75, "step_s": 60,
-                "config_hash": "35767f480b5ce141", "code_version": "0.4.1",
+                "config_hash": "35767f480b5ce141", "code_version": "0.5.0",
                 "method": "full_plant", "fallback_reason": null, "seed": 0,
                 "bootstrap": 20, "folds": 2, "generated": "...",
                 "constraints": {"h_air_out": [150.0, 250.0]},
@@ -1639,7 +1639,7 @@ and last result. Always `200`:
   the status kept. The same fields are in `last_run` of `insight/house`.
 - `failure`: the service's last failed attempt (`at`, `reason` and `detail`, the tail of
   the child's output), or `null`. `reason` is `timeout` (30 minutes), `memory` (the child
-  exceeded 768 MB), `exit` (non-zero exit) or `spawn` (it could not start, or there is no
+  exceeded 512 MB), `exit` (non-zero exit) or `spawn` (it could not start, or there is no
   history snapshot yet). It is kept across restarts and cleared by the next successful run.
 
 Scheduling: with `house_learn_enabled` a run is due when `status.json` is older than
@@ -2478,7 +2478,7 @@ malformed period. Audited as `archive_delete`.
 ### `GET api/v1/system/about` (read)
 
 ```json
-{"version": "0.4.1", "api_version": 1, "service_time": "...",
+{"version": "0.5.0", "api_version": 1, "service_time": "...",
  "timezone": "Europe/Amsterdam", "started_at": "...", "uptime_s": 86400.0,
  "service_starts": 7, "previous_start": "...", "failing_components": {},
  "restored_state": true, "setpoint_register": "setcurves_target_high",

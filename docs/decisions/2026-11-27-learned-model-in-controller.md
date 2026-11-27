@@ -28,7 +28,7 @@ is unlocked and `on` stays locked. The rest of this record stays in force.
    trusted; no wood-stove episode is active and its recovery tail has passed.
 4. **Where the fit runs.** The fit runs inside the ovenbird image, as a supervised
    low-priority child process of the service (one container): weekly at night and on
-   request. Limits for the child: 30 min wall time and 768 MB memory. This replaces the
+   request. Limits for the child: 30 min wall time and 512 MB memory. This replaces the
    separate learner container as the default; the separate image stays possible. The
    controller package (core) stays pure Python. Model files stay untrusted JSON, read
    through the existing checks.
