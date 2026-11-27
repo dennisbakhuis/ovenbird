@@ -105,6 +105,20 @@ Start ramp, cycling floor, rounding, dwell and the safety clamps act after it as
 always, and the integrator follows the shifted target under the same freezes and
 anti-windup as without a plan.
 
+A model *water* slice (``PlanSlice.water_offset_k``, a feed-forward from the forecast
+sun) does not shift the room target. Under the same blocks it is clamped to
+``[-max_lower_water_k, +max_raise_water_k]`` and scaled by the room authority of the
+trusted room value against comfort (full down to ``comfort - authority_full_k`` or one
+sensor step, whichever is further, none from ``comfort - authority_zero_k``, mirrored
+above comfort for a raise). The result is the ``plan`` term: added after the curve and
+the room feedback, before the start ramp, the cycling floor, rounding, dwell and the
+safety clamps, which all act after it as always. The integrator's anti-windup sees
+the summed value (``pre_clamp``) and the floor, so an offset that runs into the minimum
+setpoint or the cycling floor freezes cooling integration as any other term does; with
+a correct plan the room error stays zero and the integrator does not move. Ladder
+``model_plan`` and the plan's reason apply only while the applied water offset is
+non-zero.
+
 Because deadband and dwell keep the issued setpoint below or above ``pre_round``
 for a while, the integrator keeps integrating through them; this is intended (it
 is what eventually moves the setpoint by one step) and bounded by its clamp.
@@ -1084,7 +1098,10 @@ class OvenbirdController:
 
         A model slice is clamped to the model bounds and gets the reason of its sign;
         it does not apply (``None``) while blocked or when the bounds cut it to zero.
-        Every other slice passes unchanged.
+        A model water slice is clamped to the water bounds and scaled by the room
+        authority of the trusted room value against comfort
+        (:meth:`~ovenbird_core.control.config.ModelPlanConfig.authority`), under the
+        same blocks. Every other slice passes unchanged.
         """
         if plan is None or plan.source is not PlanSource.MODEL:
             return plan, None
@@ -1097,12 +1114,33 @@ class OvenbirdController:
             block = ModelPlanBlock.STOVE_RECOVERY
         elif plan.valid_until.since(plan.valid_from) > MODEL_PLAN_MAX_SLICE_S:
             block = ModelPlanBlock.SLICE_TOO_LONG
+        if plan.water:
+            return self._model_water(plan, room, block)
         applied = 0.0 if block is not None else self.config.model_plan.clamp(plan.room_offset_k)
         model = ModelPlan(plan.room_offset_k, applied, block)
         if applied == 0.0:
             return None, model
         reason = ReasonCode.PLAN_SETBACK if applied < 0.0 else ReasonCode.PLAN_PREHEAT
         return replace(plan, room_offset_k=applied, reason=reason), model
+
+    def _model_water(
+        self, plan: PlanSlice, room: RoomInput | None, block: ModelPlanBlock | None
+    ) -> tuple[PlanSlice | None, ModelPlan]:
+        """Return a model water slice as it applies this tick (bounded, authority-scaled)."""
+        mp = self.config.model_plan
+        requested = plan.water_offset_k
+        applied = 0.0
+        authority: float | None = None
+        if block is None and room is not None:
+            authority = mp.authority(
+                room.value, self.config.comfort_room_c, requested, room.quantum_k
+            )
+            applied = mp.clamp_water(requested) * authority + 0.0
+        model = ModelPlan(plan.room_offset_k, 0.0, block, requested, applied, authority)
+        if applied == 0.0:
+            return None, model
+        reason = ReasonCode.PLAN_SETBACK if applied < 0.0 else ReasonCode.PLAN_PREHEAT
+        return replace(plan, water_offset_k=applied, reason=reason), model
 
     def _sum(self, state: OvenbirdState, tick: _Tick) -> _Sum:
         """Add the terms up to the continuous, safety-clamped ``pre_round`` (stages 3-4)."""
@@ -1350,6 +1388,10 @@ class OvenbirdController:
             extra["model_plan_ignored"] = (
                 None if tick.model.block is None else tick.model.block.value
             )
+            if tick.model.water:
+                extra["model_plan_water_requested_k"] = tick.model.water_requested_k
+                extra["model_plan_water_applied_k"] = tick.model.water_applied_k
+                extra["model_plan_authority"] = tick.model.authority
         on_change = pi_room is not None and pi_room.profile is RoomProfile.ON_CHANGE
         stove = stove_mode.sentence(
             tick.stove,
@@ -1389,6 +1431,9 @@ class OvenbirdController:
             stove=stove,
             fixed=not cfg.weather_compensation,
             model_ignored=None if tick.model is None else tick.model.ignored_text(),
+            model_water=(
+                tick.model.water_text() if tick.model is not None and tick.model.water else None
+            ),
         )
         return self._record(
             new_state,

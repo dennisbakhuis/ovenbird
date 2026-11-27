@@ -170,12 +170,19 @@ class PlanRequest:
         Offset of the slice issued by the previous call (0 when none, or expired).
     forecast
         View of the stored forecast.
+    previous_slice
+        The slice issued by the previous call while it is still valid (``None``
+        otherwise); a planner with other outputs than the room offset reads them here.
+    room_c
+        The room value the controller sees at ``now`` (``None`` when it has none).
     """
 
     now: Instant
     outside_filtered_c: float
     previous_offset_k: float
     forecast: ForecastView
+    previous_slice: PlanSlice | None = None
+    room_c: float | None = None
 
 
 type PlanProvider = Callable[[PlanRequest], PlanSlice | None]
@@ -695,11 +702,16 @@ def simulate[S](
         ):
             filtered = _outside_filtered(cstate)
             if filtered is not None:
-                previous = (
-                    plan.room_offset_k if plan is not None and plan.active(snapshot.now) else 0.0
-                )
+                valid = plan if plan is not None and plan.active(snapshot.now) else None
                 plan = options.plan_provider(
-                    PlanRequest(snapshot.now, filtered, previous, options.plan_forecast)
+                    PlanRequest(
+                        snapshot.now,
+                        filtered,
+                        valid.room_offset_k if valid is not None else 0.0,
+                        options.plan_forecast,
+                        valid,
+                        room_in.value if room_in is not None else None,
+                    )
                 )
         inputs = ControlInputs(
             now=snapshot.now,

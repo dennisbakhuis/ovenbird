@@ -1,315 +1,688 @@
-"""KPI rows of a paired run, the pass/fail gate of the model plan and its tables.
+"""KPIs of a run, paired differences over replicas and the three-valued gate of a planner.
 
-A *row* is the set of period KPIs of one closed-loop run (:data:`ROW_KPIS`), measured
-after the first simulated day (the warm-up) has been dropped. A *pair* is the same
-scenario simulated without and with the planner. The gate (:func:`judge`) compares the
-two rows of a pair, or the seed means of a cell, against fixed tolerances; it is not
-tuned: the bounds are the constants below.
+KPIs (:func:`run_result`)
+-------------------------
+Every KPI of a run is per kept day (the first simulated day is dropped as warm-up):
+degree-hours below comfort minus :data:`BAND_K`, below comfort and above comfort plus
+:data:`BAND_K`; compressor starts and short runs; electricity and heat; COP; setpoint
+writes (setpoint changes actually sent to the pump); the largest setpoint step; the
+share of ticks with a plan applied and the mean and largest absolute offset. The
+comfort reference is always the owner's comfort target :data:`COMFORT_C`.
+
+Statistics
+----------
+A cell's statistic is the mean over its weather replicas of the paired difference
+(with minus without) per day; replicas are independent, the days within a run are
+not, so the interval is a bootstrap over replicas (:func:`bootstrap`). With few
+replicas the plain percentile bootstrap is too narrow; the expanded percentile
+interval widens its quantiles to the coverage of a t interval (:func:`expanded_alpha`).
+
+Gate (:func:`judge_cell`)
+-------------------------
+Per criterion and cell, on the interval of the difference against its margin:
+``PASS`` when the upper bound is within the margin, ``FAIL`` when the lower bound is
+beyond it, ``INCONCLUSIVE`` otherwise. Margins are per day: :data:`CRITERIA`.
+
+Starts are the noisiest criterion and the only one with a second look: a cell whose
+starts interval straddles the margin after :data:`BASE_REPLICAS` replicas gets the
+replicas up to :data:`MAX_REPLICAS` once, and the starts verdict on all of them is
+final. Two looks at a fixed level would let the error rate grow, so both looks of
+the starts criterion use the Pocock level for two equally spaced looks
+(:data:`POCOCK_ALPHA`); every other criterion is judged on the first
+:data:`BASE_REPLICAS` replicas only, at :data:`ALPHA`, extension or not.
+
+Benefit (:func:`benefit`): per replica the mean over the pooled cells of
+``delta above + 2 delta below`` per day; it holds when the upper bound of its
+interval is below zero.
+
+Combined verdict (:func:`combine`): no cell fails any criterion; every credible cell
+passes the comfort criteria (``INCONCLUSIVE`` there blocks); the cost criteria
+(starts, electricity, writes) pass on the mean over the credible cells; the benefit
+holds. The cost criteria are not required to pass in every credible cell because
+their per-cell noise is too close to the margins: with independent,
+controller-irrelevant sensor noise as the only difference (the ``noise`` planner)
+4 of 42 credible cells were inconclusive on starts or writes, so a rule requiring
+every credible cell to pass them blocks a harmless planner almost surely, whereas no
+cell was inconclusive on a comfort criterion (see the evaluation notes).
 """
 
 from __future__ import annotations
 
 import math
+import zlib
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from typing import Final
+from dataclasses import dataclass, replace
+from enum import StrEnum
+from typing import Any, Final
 
 import numpy as np
+from scipy import stats
 
-from ovenbird_sim.evaluate import kpi
+from ovenbird_sim.data.series import FloatArray
 from ovenbird_sim.evaluate.closedloop import Trace
+from ovenbird_sim.evaluate.kpi import SHORT_RUN_S
 
 DAY_S: Final = 86400.0
+HOUR_S: Final = 3600.0
+QUARTER_S: Final = 900.0
+QUARTERS_PER_DAY: Final = 96
 COMFORT_C: Final = 21.0
 BAND_K: Final = 0.5
-BELOW_BAND_TOLERANCE_KH: Final = 0.1
-BELOW_RELATIVE: Final = 0.05
-BELOW_ABSOLUTE_KH: Final = 0.5
-STARTS_RELATIVE: Final = 0.05
-STARTS_ABSOLUTE_PER_DAY: Final = 0.5
-BENEFIT_EPSILON_KH: Final = 1e-6
-DAY_COLUMNS: Final = ("below_kh", "below_band_kh", "above_kh")
+ALPHA: Final = 0.05
+POCOCK_ALPHA: Final = 0.0294
+BASE_REPLICAS: Final = 24
+MAX_REPLICAS: Final = 48
+RESAMPLES: Final = 4000
+BENEFIT_BELOW_WEIGHT: Final = 2.0
+MARGIN_EPSILON: Final = 1e-9
 ROW_KPIS: Final = (
-    "below_kh",
     "below_band_kh",
+    "below_kh",
     "above_kh",
     "starts_per_day",
     "short_runs_per_day",
-    "heat_kwh_per_day",
     "elec_kwh_per_day",
+    "heat_kwh_per_day",
     "cop",
-    "room_mean_c",
+    "writes_per_day",
     "max_setpoint_step_k",
     "plan_share",
     "offset_mean_abs_k",
     "offset_max_abs_k",
+    "room_mean_c",
 )
 
 type Row = Mapping[str, float]
 
 
 @dataclass(frozen=True, slots=True)
-class RunKpis:
-    """KPIs of one run over the kept days.
+class RunResult:
+    """KPIs of one run over its kept days.
 
     Parameters
     ----------
     row
-        Period KPIs (:data:`ROW_KPIS`): the degree-hours are sums over the kept days.
+        :data:`ROW_KPIS`, per kept day.
+    deficit_q
+        Degree-hours below comfort per quarter hour of the kept days.
+    active_q
+        Share of the ticks of each quarter hour with a plan applied.
     days
-        Per kept day: ``below_kh``, ``below_band_kh``, ``above_kh`` (for the bootstrap).
+        Number of kept days.
     """
 
     row: Row
-    days: Mapping[str, Row]
+    deficit_q: FloatArray
+    active_q: FloatArray
+    days: int
 
 
-def run_kpis(trace: Trace, dt: float, t0: float, comfort_c: float = COMFORT_C) -> RunKpis:
-    """Return the KPIs of a closed-loop trace after dropping its first day.
+def run_result(
+    trace: Trace, offsets: FloatArray, dt: float, t0: float, comfort_c: float = COMFORT_C
+) -> RunResult:
+    """Return the KPIs of a closed-loop run after dropping its first day.
 
     Parameters
     ----------
     trace
         The run.
+    offsets
+        Plan offset applied per tick (0: none).
     dt
         Tick period.
     t0
-        Start of the first (dropped) day.
+        Start of the first (dropped) day, a UTC midnight.
     comfort_c
-        Room target; the band is :data:`BAND_K` wide around it.
+        The owner's comfort target.
 
     Returns
     -------
-    RunKpis
-        Period row and per-day degree-hours.
+    RunResult
+        The per-day row and the quarter-hour comfort deficit and plan share.
     """
-    series = kpi.from_trace(trace, dt)
-    at_target = kpi.compute(series, comfort_c)
-    at_band = kpi.compute(series, comfort_c - BAND_K)
-    every = list(at_target.days)
-    labels = every[1:]
     day_index = np.floor((trace.t - t0) / DAY_S).astype(np.int64)
-    days: dict[str, dict[str, float]] = {}
-    rows: list[Row] = []
-    for index, label in enumerate(every):
-        if index == 0:
-            continue
-        over = np.clip(trace.room_c[day_index == index] - (comfort_c + BAND_K), 0.0, None)
-        row = dict(at_target.days[label])
-        days[label] = {
-            "below_kh": row["degree_hours_below"],
-            "below_band_kh": at_band.days[label]["degree_hours_below"],
-            "above_kh": float(over.sum() * dt / 3600.0),
-        }
-        rows.append(row)
-    totals = kpi.aggregate_rows(rows, [at_target.runs.get(label, ()) for label in labels])
     keep = day_index >= 1
-    offsets = np.abs(trace.plan_offset_k[keep]) if trace.plan_offset_k.size else np.zeros(1)
-    steps = np.abs(np.diff(trace.setpoint[keep])) if keep.sum() > 1 else np.zeros(1)
-    count = max(len(labels), 1)
-    row_out = {
-        "below_kh": sum(d["below_kh"] for d in days.values()),
-        "below_band_kh": sum(d["below_band_kh"] for d in days.values()),
-        "above_kh": sum(d["above_kh"] for d in days.values()),
-        "starts_per_day": totals["starts_per_day"],
-        "short_runs_per_day": sum(r["short_runs"] for r in rows) / count,
-        "heat_kwh_per_day": totals["heat_kwh_per_day"],
-        "elec_kwh_per_day": totals["elec_kwh_per_day"],
-        "cop": totals["cop"],
-        "room_mean_c": totals["room_mean_c"],
+    days = max(int(day_index.max()), 1)
+    hours = dt / HOUR_S
+    room = trace.room_c[keep]
+    deficit = np.clip(comfort_c - room, 0.0, None)
+    heat = float(trace.heat_w[keep].sum() * dt / 3.6e6)
+    elec = float(trace.elec_w[keep].sum() * dt / 3.6e6)
+    kept_from = t0 + DAY_S
+    in_kept = trace.run_start >= kept_from
+    short = int(np.sum(trace.run_length_s[in_kept] < SHORT_RUN_S))
+    setpoints = trace.setpoint[keep]
+    steps = np.abs(np.diff(setpoints)) if setpoints.size > 1 else np.zeros(1)
+    applied = np.abs(offsets[keep])
+    row = {
+        "below_band_kh": float(np.clip(comfort_c - BAND_K - room, 0.0, None).sum() * hours / days),
+        "below_kh": float(deficit.sum() * hours / days),
+        "above_kh": float(np.clip(room - comfort_c - BAND_K, 0.0, None).sum() * hours / days),
+        "starts_per_day": float(trace.start[keep].sum() / days),
+        "short_runs_per_day": short / days,
+        "elec_kwh_per_day": elec / days,
+        "heat_kwh_per_day": heat / days,
+        "cop": heat / elec if elec > 0.0 else math.nan,
+        "writes_per_day": float(trace.write[keep].sum() / days),
         "max_setpoint_step_k": float(steps.max()),
-        "plan_share": float(np.mean(offsets > 0.0)),
-        "offset_mean_abs_k": float(offsets.mean()),
-        "offset_max_abs_k": float(offsets.max()),
+        "plan_share": float(np.mean(applied > 0.0)),
+        "offset_mean_abs_k": float(applied.mean()),
+        "offset_max_abs_k": float(applied.max()),
+        "room_mean_c": float(room.mean()),
     }
-    return RunKpis(row_out, days)
+    per_quarter = round(QUARTER_S / dt)
+    quarters = deficit.size // per_quarter
+    deficit_q = deficit[: quarters * per_quarter].reshape(quarters, per_quarter).sum(axis=1) * hours
+    active_q = (applied[: quarters * per_quarter] > 0.0).reshape(quarters, per_quarter).mean(axis=1)
+    return RunResult(row, deficit_q, active_q, days)
 
 
 def mean_row(rows: Sequence[Row]) -> dict[str, float]:
-    """Return the mean of every KPI over ``rows`` (the max offset stays a maximum)."""
+    """Return the mean of every KPI over replicas (the largest offset stays a maximum)."""
     out = {name: float(np.nanmean([r[name] for r in rows])) for name in ROW_KPIS}
     out["offset_max_abs_k"] = max(r["offset_max_abs_k"] for r in rows)
+    out["max_setpoint_step_k"] = max(r["max_setpoint_step_k"] for r in rows)
     return out
 
 
+class Outcome(StrEnum):
+    """Three-valued result of a criterion."""
+
+    PASSED = "PASS"
+    FAILED = "FAIL"
+    INCONCLUSIVE = "INCONCLUSIVE"
+
+
 @dataclass(frozen=True, slots=True)
-class Check:
-    """One gate criterion of a cell.
+class Criterion:
+    """A gate criterion on the paired difference of one KPI.
 
     Parameters
     ----------
     name
-        ``below_band``, ``below``, ``starts`` or ``benefit``.
-    passed
-        Whether the criterion holds.
-    detail
-        Plain statement of the numbers.
+        Short name.
+    kpi
+        Row KPI.
+    margin
+        Largest acceptable rise: per day, or a share of the baseline when relative.
+    relative
+        The difference is divided by the baseline mean (at least ``floor``).
+    floor
+        Smallest denominator of a relative criterion.
+    adaptive
+        Eligible for the one extension to :data:`MAX_REPLICAS` replicas.
+    cost
+        A cost criterion (wear, energy, writes): judged for the verdict on the mean over
+        the credible cells; per cell only a failure blocks. Otherwise a comfort
+        criterion: every credible cell must pass.
     """
 
     name: str
-    passed: bool
-    detail: str
+    kpi: str
+    margin: float
+    relative: bool = False
+    floor: float = 1e-9
+    adaptive: bool = False
+    cost: bool = False
+
+    def statistic(self, without: FloatArray, with_plan: FloatArray) -> FloatArray:
+        """Return the statistic over the last axis (replicas) of the two arrays."""
+        if self.relative:
+            base = without.mean(axis=-1)
+            return np.asarray(
+                (with_plan.mean(axis=-1) - base) / np.maximum(base, self.floor), dtype=np.float64
+            )
+        return np.asarray((with_plan - without).mean(axis=-1), dtype=np.float64)
+
+    @property
+    def unit(self) -> str:
+        """Unit of the statistic."""
+        if self.relative:
+            return "share"
+        return "Kh/day" if self.kpi.endswith("_kh") else "/day"
+
+
+CRITERIA: Final = (
+    Criterion("below_band", "below_band_kh", 0.15),
+    Criterion("below", "below_kh", 0.5),
+    Criterion("starts", "starts_per_day", 0.5, adaptive=True, cost=True),
+    Criterion("elec", "elec_kwh_per_day", 0.02, relative=True, cost=True),
+    Criterion("writes", "writes_per_day", 0.20, relative=True, floor=1.0, cost=True),
+)
+CRITERION: Final = {c.name: c for c in CRITERIA}
 
 
 @dataclass(frozen=True, slots=True)
-class Verdict:
-    """Gate result of one cell.
+class Interval:
+    """Estimate and bootstrap interval of a statistic.
+
+    Parameters
+    ----------
+    estimate
+        The statistic on all replicas.
+    low, high
+        Bounds of the interval.
+    n
+        Number of replicas.
+    alpha
+        Two-sided error level of the interval.
+    """
+
+    estimate: float
+    low: float
+    high: float
+    n: int
+    alpha: float
+
+
+def expanded_alpha(alpha: float, n: int) -> float:
+    """Return the percentile level of the expanded percentile bootstrap.
+
+    The percentile bootstrap of a mean has the coverage of a normal interval with the
+    plug-in variance, which is too narrow for small ``n``. Taking the quantiles at
+    ``Phi(sqrt(n / (n - 1)) t_{alpha/2, n-1})`` instead gives the coverage of the t
+    interval (Hesterberg's expanded percentile interval).
+    """
+    if n < 2:
+        return alpha
+    t = float(stats.t.ppf(alpha / 2.0, n - 1))
+    return float(2.0 * stats.norm.cdf(math.sqrt(n / (n - 1)) * t))
+
+
+def seed_of(label: str) -> int:
+    """Return a stable resampling seed for a label."""
+    return zlib.crc32(label.encode())
+
+
+def bootstrap(
+    criterion: Criterion,
+    without: Sequence[float],
+    with_plan: Sequence[float],
+    alpha: float = ALPHA,
+    label: str = "",
+    resamples: int = RESAMPLES,
+) -> Interval:
+    """Return the expanded percentile bootstrap interval of a criterion's statistic.
+
+    Parameters
+    ----------
+    criterion
+        The criterion (its statistic).
+    without, with_plan
+        The KPI per replica, paired by position.
+    alpha
+        Two-sided error level.
+    label
+        Identity of the cell (seeds the resampling, so the interval is reproducible).
+    resamples
+        Number of bootstrap resamples of the replicas.
+
+    Returns
+    -------
+    Interval
+        Estimate and bounds (``nan`` without replicas).
+    """
+    a = np.asarray(without, dtype=np.float64)
+    b = np.asarray(with_plan, dtype=np.float64)
+    n = int(a.size)
+    if n == 0 or n != b.size:
+        return Interval(math.nan, math.nan, math.nan, n, alpha)
+    estimate = float(criterion.statistic(a, b))
+    rng = np.random.default_rng(seed_of(f"{label}|{criterion.name}|{n}"))
+    picks = rng.integers(0, n, size=(resamples, n))
+    values = criterion.statistic(a[picks], b[picks])
+    level = expanded_alpha(alpha, n)
+    low, high = np.quantile(values, [level / 2.0, 1.0 - level / 2.0])
+    return Interval(estimate, float(low), float(high), n, alpha)
+
+
+def outcome(interval: Interval, margin: float) -> Outcome:
+    """Return the three-valued result of an interval against a margin."""
+    if interval.high <= margin + MARGIN_EPSILON:
+        return Outcome.PASSED
+    if interval.low > margin + MARGIN_EPSILON:
+        return Outcome.FAILED
+    return Outcome.INCONCLUSIVE
+
+
+@dataclass(frozen=True, slots=True)
+class Check:
+    """Result of one criterion in one cell.
+
+    Parameters
+    ----------
+    criterion
+        The criterion's name.
+    interval
+        The interval of its statistic.
+    outcome
+        ``PASS``, ``FAIL`` or ``INCONCLUSIVE``.
+    extended
+        Judged on the extended replicas.
+    """
+
+    criterion: str
+    interval: Interval
+    outcome: Outcome
+    extended: bool = False
+
+    @property
+    def margin(self) -> float:
+        """The criterion's margin."""
+        return CRITERION[self.criterion].margin
+
+
+@dataclass(frozen=True, slots=True)
+class CellVerdict:
+    """The checks of a cell.
 
     Parameters
     ----------
     checks
-        The criteria that apply to the cell.
+        One per criterion of :data:`CRITERIA`.
     """
 
     checks: tuple[Check, ...]
 
     @property
-    def passed(self) -> bool:
-        """Whether every criterion holds."""
-        return all(c.passed for c in self.checks)
+    def outcome(self) -> Outcome:
+        """``FAIL`` if any check fails, else ``INCONCLUSIVE`` if any is, else ``PASS``."""
+        found = {c.outcome for c in self.checks}
+        if Outcome.FAILED in found:
+            return Outcome.FAILED
+        if Outcome.INCONCLUSIVE in found:
+            return Outcome.INCONCLUSIVE
+        return Outcome.PASSED
 
-    @property
-    def failed(self) -> tuple[str, ...]:
-        """Names of the criteria that fail."""
-        return tuple(c.name for c in self.checks if not c.passed)
+    def named(self, outcome_: Outcome) -> tuple[str, ...]:
+        """Names of the criteria with this outcome."""
+        return tuple(c.criterion for c in self.checks if c.outcome is outcome_)
+
+    def check(self, name: str) -> Check:
+        """Return the check of a criterion."""
+        return next(c for c in self.checks if c.criterion == name)
 
 
-def judge(without: Row, with_plan: Row, benefit_required: bool = False) -> Verdict:
-    """Apply the gate to the KPIs without and with the planner.
+def judge_cell(
+    without: Sequence[Row],
+    with_plan: Sequence[Row],
+    label: str = "",
+    base_n: int = BASE_REPLICAS,
+) -> CellVerdict:
+    """Apply the gate to the replicas of a cell.
 
     Parameters
     ----------
     without, with_plan
-        Rows of the pair (or of the seed means of a cell).
-    benefit_required
-        Also require the degree-hours above the band to improve (the sunny scenarios
-        with the correct model).
+        Rows per replica, paired by position; more than ``base_n`` only after the
+        extension.
+    label
+        Identity of the cell (resampling seed).
+    base_n
+        Replicas of the first look; every criterion but the adaptive one uses only these.
+
+    Returns
+    -------
+    CellVerdict
+        One check per criterion.
+    """
+    checks: list[Check] = []
+    for criterion in CRITERIA:
+        n = len(with_plan) if criterion.adaptive else min(base_n, len(with_plan))
+        alpha = POCOCK_ALPHA if criterion.adaptive else ALPHA
+        interval = bootstrap(
+            criterion,
+            [r[criterion.kpi] for r in without[:n]],
+            [r[criterion.kpi] for r in with_plan[:n]],
+            alpha,
+            label,
+        )
+        checks.append(
+            Check(criterion.name, interval, outcome(interval, criterion.margin), n > base_n)
+        )
+    return CellVerdict(tuple(checks))
+
+
+def wants_extension(verdict: CellVerdict, base_n: int, max_n: int) -> bool:
+    """Whether a cell gets the one extension: an adaptive criterion straddles its margin.
+
+    Decided on the first look only: a check judged on more than ``base_n`` replicas
+    is final.
+    """
+    return max_n > base_n and any(
+        CRITERION[c.criterion].adaptive
+        and c.outcome is Outcome.INCONCLUSIVE
+        and c.interval.n == base_n
+        for c in verdict.checks
+    )
+
+
+def pooled_check(
+    criterion: Criterion,
+    cells: Sequence[tuple[Sequence[Row], Sequence[Row]]],
+    n: int,
+    label: str = "pooled",
+) -> Check:
+    """Return a criterion on the mean over cells, paired by replica (the first ``n``).
+
+    Per replica the KPI is averaged over the cells without and with the planner, and
+    the criterion's statistic and interval are taken on those means (replicas are
+    resampled jointly, so the cells that share a baseline stay paired).
+    """
+    if not cells:
+        empty = Interval(math.nan, math.nan, math.nan, 0, ALPHA)
+        return Check(criterion.name, empty, Outcome.INCONCLUSIVE)
+    without = np.mean([[r[criterion.kpi] for r in w[:n]] for w, _ in cells], axis=0)
+    with_plan = np.mean([[r[criterion.kpi] for r in p[:n]] for _, p in cells], axis=0)
+    interval = bootstrap(criterion, without.tolist(), with_plan.tolist(), ALPHA, label)
+    return Check(criterion.name, interval, outcome(interval, criterion.margin))
+
+
+BENEFIT: Final = Criterion("benefit", "benefit", 0.0)
+
+
+def benefit_values(cells: Sequence[tuple[Sequence[Row], Sequence[Row]]], n: int) -> FloatArray:
+    """Return per replica the mean over cells of ``delta above + 2 delta below`` per day."""
+    per_cell = [
+        [
+            (w["above_kh"] - b["above_kh"]) + BENEFIT_BELOW_WEIGHT * (w["below_kh"] - b["below_kh"])
+            for b, w in zip(without[:n], with_plan[:n], strict=True)
+        ]
+        for without, with_plan in cells
+    ]
+    return np.asarray(np.mean(np.asarray(per_cell, dtype=np.float64), axis=0), dtype=np.float64)
+
+
+def benefit(
+    cells: Sequence[tuple[Sequence[Row], Sequence[Row]]], n: int, label: str = "benefit"
+) -> Interval:
+    """Return the interval of the pooled benefit statistic (negative is better).
+
+    Parameters
+    ----------
+    cells
+        ``(without, with)`` rows per pooled cell, paired by replica.
+    n
+        Replicas used (the first look).
+    label
+        Resampling seed label.
+
+    Returns
+    -------
+    Interval
+        Estimate and bounds; the benefit holds when the upper bound is below zero.
+    """
+    if not cells:
+        return Interval(math.nan, math.nan, math.nan, 0, ALPHA)
+    values = benefit_values(cells, n)
+    return bootstrap(BENEFIT, np.zeros(values.size).tolist(), values.tolist(), ALPHA, label)
+
+
+@dataclass(frozen=True, slots=True)
+class Verdict:
+    """The combined verdict (rule in :func:`combine`).
+
+    Parameters
+    ----------
+    unlocked
+        Whether the planner may be switched on from this evaluation.
+    credible_fail
+        Credible cells with a failing criterion.
+    credible_inconclusive
+        Credible cells with an inconclusive comfort criterion (these block).
+    credible_cost_inconclusive
+        Credible cells inconclusive only on cost criteria (reported; the pooled
+        cost criteria decide).
+    stress_fail, stress_inconclusive
+        The same for the stress cells (only a failure blocks).
+    benefit
+        The pooled benefit interval.
+    pooled
+        Every criterion on the mean over the credible cells.
+    """
+
+    unlocked: bool
+    credible_fail: tuple[str, ...]
+    credible_inconclusive: tuple[str, ...]
+    credible_cost_inconclusive: tuple[str, ...]
+    stress_fail: tuple[str, ...]
+    stress_inconclusive: tuple[str, ...]
+    benefit: Interval
+    pooled: tuple[Check, ...] = ()
+
+    @property
+    def benefit_holds(self) -> bool:
+        """Whether the upper bound of the benefit statistic is below zero."""
+        return self.benefit.high < 0.0
+
+    @property
+    def pooled_blocking(self) -> tuple[Check, ...]:
+        """The pooled cost criteria that do not pass."""
+        return tuple(
+            k
+            for k in self.pooled
+            if CRITERION[k.criterion].cost and k.outcome is not Outcome.PASSED
+        )
+
+    def lines(self) -> list[str]:
+        """Return the verdict in plain sentences."""
+        out = [
+            "UNLOCK: no cell fails, every credible cell passes the comfort criteria, the "
+            "cost criteria pass on the credible mean, the benefit holds."
+            if self.unlocked
+            else "BLOCKED: the planner may not be switched on from this evaluation."
+        ]
+        if self.credible_fail:
+            out.append(f"{len(self.credible_fail)} credible cells FAIL.")
+        if self.credible_inconclusive:
+            out.append(
+                f"{len(self.credible_inconclusive)} credible cells are INCONCLUSIVE on comfort; "
+                "an inconclusive credible cell blocks unlocking as much as a failing one."
+            )
+        if self.credible_cost_inconclusive:
+            out.append(
+                f"{len(self.credible_cost_inconclusive)} credible cells are INCONCLUSIVE on a "
+                "cost criterion only; that does not block, the credible mean decides."
+            )
+        for k in self.pooled_blocking:
+            out.append(f"Cost criterion {k.criterion} on the credible mean is {k.outcome.value}.")
+        if self.stress_fail:
+            out.append(f"{len(self.stress_fail)} stress cells FAIL.")
+        b = self.benefit
+        state = "holds" if self.benefit_holds else "is not shown"
+        out.append(
+            f"Benefit (delta above + 2 delta below, Kh/day, pooled): {b.estimate:+.3f} "
+            f"[{b.low:+.3f}, {b.high:+.3f}]; it {state}."
+        )
+        return out
+
+
+def combine(
+    verdicts: Sequence[tuple[str, bool, CellVerdict]],
+    benefit_interval: Interval,
+    pooled: Sequence[Check] = (),
+) -> Verdict:
+    """Return the combined verdict of the cells, the pooled cost criteria and the benefit.
+
+    The planner is unlocked when
+
+    1. no cell, credible or stress, fails any criterion;
+    2. every credible cell passes the comfort criteria (an inconclusive one blocks);
+    3. every cost criterion (:attr:`Criterion.cost`) passes on the mean over the
+       credible cells (:func:`pooled_check`); a credible cell inconclusive on a cost
+       criterion is reported but does not block;
+    4. the benefit holds.
+
+    Parameters
+    ----------
+    verdicts
+        ``(label, credible, verdict)`` per cell.
+    benefit_interval
+        The pooled benefit interval.
+    pooled
+        The criteria on the mean over the credible cells.
 
     Returns
     -------
     Verdict
-        Per-criterion result.
-
-    Notes
-    -----
-    ``below_band``: degree-hours below comfort minus 0.5 K rise by at most 0.1 Kh over
-    the period. ``below``: degree-hours below comfort rise by at most 5 % or 0.5 Kh,
-    whichever is larger. ``starts``: compressor starts per day rise by at most 5 % or
-    0.5 per day, whichever is larger. ``benefit``: degree-hours above the band fall.
+        Lists of the failing and inconclusive cells and the decision.
     """
-    d_band = with_plan["below_band_kh"] - without["below_band_kh"]
-    d_below = with_plan["below_kh"] - without["below_kh"]
-    d_starts = with_plan["starts_per_day"] - without["starts_per_day"]
-    allowed_below = max(BELOW_RELATIVE * without["below_kh"], BELOW_ABSOLUTE_KH)
-    allowed_starts = max(STARTS_RELATIVE * without["starts_per_day"], STARTS_ABSOLUTE_PER_DAY)
-    checks = [
-        Check(
-            "below_band",
-            d_band <= BELOW_BAND_TOLERANCE_KH + BENEFIT_EPSILON_KH,
-            f"{d_band:+.2f} Kh (allowed {BELOW_BAND_TOLERANCE_KH:+.2f})",
-        ),
-        Check(
-            "below",
-            d_below <= allowed_below + BENEFIT_EPSILON_KH,
-            f"{d_below:+.2f} Kh (allowed {allowed_below:+.2f})",
-        ),
-        Check(
-            "starts",
-            d_starts <= allowed_starts + BENEFIT_EPSILON_KH,
-            f"{d_starts:+.2f}/day (allowed {allowed_starts:+.2f})",
-        ),
-    ]
-    if benefit_required:
-        d_above = with_plan["above_kh"] - without["above_kh"]
-        checks.append(Check("benefit", d_above < -BENEFIT_EPSILON_KH, f"{d_above:+.2f} Kh above"))
-    return Verdict(tuple(checks))
 
+    def text(verdict: CellVerdict, outcome_: Outcome, cost: bool | None = None) -> str:
+        names = [
+            c.criterion
+            for c in verdict.checks
+            if c.outcome is outcome_ and (cost is None or CRITERION[c.criterion].cost is cost)
+        ]
+        return ", ".join(names)
 
-def bootstrap_interval(
-    differences: Sequence[float],
-    replicates: int = 1000,
-    seed: int = 0,
-    period_days: int | None = None,
-) -> tuple[float, float]:
-    """Return the 95 % day-block bootstrap interval of the summed difference.
+    def listed(credible: bool, outcome_: Outcome, cost: bool | None = None) -> tuple[str, ...]:
+        found = [(lb, text(v, outcome_, cost)) for lb, c, v in verdicts if c is credible]
+        return tuple(f"{lb} [{names}]" for lb, names in found if names)
 
-    Parameters
-    ----------
-    differences
-        Paired difference (with minus without) of one KPI per day (and seed).
-    replicates
-        Number of resamples of the days with repeats.
-    seed
-        Seed of the resampling.
-    period_days
-        Days of one run's period (default: the number of differences); with several
-        seeds pooled it keeps the interval on the scale of a single run.
-
-    Returns
-    -------
-    tuple
-        Lower and upper bound of the mean daily difference times ``period_days``
-        (the period total), or ``nan`` without days.
-    """
-    values = np.asarray(differences, dtype=np.float64)
-    if values.size == 0:
-        return math.nan, math.nan
-    rng = np.random.default_rng(seed)
-    picks = rng.integers(0, values.size, size=(replicates, values.size))
-    totals = values[picks].mean(axis=1) * (values.size if period_days is None else period_days)
-    low, high = np.percentile(totals, [2.5, 97.5])
-    return float(low), float(high)
-
-
-def day_differences(
-    without: Mapping[str, Row], with_plan: Mapping[str, Row], name: str
-) -> list[float]:
-    """Return the per-day difference with minus without of a day column."""
-    return [
-        with_plan[label][name] - without[label][name] for label in without if label in with_plan
-    ]
-
-
-def format_row_table(
-    title: str,
-    lines: Sequence[tuple[str, Row, Row, Verdict]],
-) -> str:
-    """Return a Markdown table of one scenario.
-
-    Parameters
-    ----------
-    title
-        Heading text (scenario name).
-    lines
-        ``(label, without, with, verdict)`` per model/forecast variant.
-
-    Returns
-    -------
-    str
-        Markdown with, per variant, the key KPIs without and with the plan, the
-        difference and the gate verdict.
-    """
-    head = (
-        f"### {title}\n\n"
-        "Kh = K·h summed over the 7 kept days. Each cell: without / with / change.\n\n"
-        "| variant | below 21 °C (Kh) | below 20.5 °C (Kh) | above 21.5 °C (Kh) "
-        "| starts/day | heat kWh/day | COP | plan applied | mean / max abs offset (K) | gate |\n"
-        "|---|---|---|---|---|---|---|---|---|---|\n"
+    cf = listed(True, Outcome.FAILED)
+    ci = listed(True, Outcome.INCONCLUSIVE, cost=False)
+    blocking = {item.split(" [")[0] for item in ci}
+    cc = tuple(
+        item
+        for item in listed(True, Outcome.INCONCLUSIVE, cost=True)
+        if item.split(" [")[0] not in blocking
     )
-    body = []
-    for label, a, b, verdict in lines:
-        failed = ", ".join(verdict.failed)
-        gate = "pass" if verdict.passed else f"FAIL ({failed})"
-        body.append(
-            f"| {label} | {_triple(a, b, 'below_kh')} | {_triple(a, b, 'below_band_kh')} "
-            f"| {_triple(a, b, 'above_kh')} | {_triple(a, b, 'starts_per_day')} "
-            f"| {_triple(a, b, 'heat_kwh_per_day', 1)} | {_triple(a, b, 'cop')} "
-            f"| {b['plan_share'] * 100:.0f} % "
-            f"| {b['offset_mean_abs_k']:.2f} / {b['offset_max_abs_k']:.1f} | {gate} |"
-        )
-    return head + "\n".join(body) + "\n"
+    sf = listed(False, Outcome.FAILED)
+    si = listed(False, Outcome.INCONCLUSIVE)
+    verdict = Verdict(False, cf, ci, cc, sf, si, benefit_interval, tuple(pooled))
+    costs = {k.criterion for k in pooled if CRITERION[k.criterion].cost}
+    complete = costs == {c.name for c in CRITERIA if c.cost}
+    unlocked = (
+        not cf
+        and not ci
+        and not sf
+        and complete
+        and not verdict.pooled_blocking
+        and verdict.benefit_holds
+    )
+    return replace(verdict, unlocked=unlocked)
 
 
-def _triple(a: Row, b: Row, name: str, digits: int = 2) -> str:
-    x, y = a[name], b[name]
-    return f"{x:.{digits}f} / {y:.{digits}f} / {y - x:+.{digits}f}"
+def plan_split(without: Sequence[RunResult], with_plan: Sequence[RunResult]) -> dict[str, Any]:
+    """Return the diagnostic split of the paired below-comfort difference (Kh/day).
+
+    The difference of every quarter hour is attributed to the plan-active part by the
+    share of its ticks with a plan applied in the planned run; the two parts add up to
+    the difference. By hour of day: the mean over kept days and replicas.
+    """
+    active: list[float] = []
+    idle: list[float] = []
+    hourly: list[FloatArray] = []
+    for b, w in zip(without, with_plan, strict=True):
+        diff = w.deficit_q - b.deficit_q
+        active.append(float((w.active_q * diff).sum() / w.days))
+        idle.append(float(((1.0 - w.active_q) * diff).sum() / w.days))
+        per_day = diff.reshape(w.days, QUARTERS_PER_DAY)
+        hourly.append(per_day.reshape(w.days, 24, 4).sum(axis=2).mean(axis=0))
+    by_hour = np.mean(np.asarray(hourly), axis=0) if hourly else np.zeros(24)
+    return {
+        "below_plan_active_kh": float(np.mean(active)) if active else math.nan,
+        "below_plan_none_kh": float(np.mean(idle)) if idle else math.nan,
+        "below_by_hour_kh": [round(float(x), 5) for x in by_hour],
+    }

@@ -39,7 +39,10 @@ from ovenbird_core.control.types import (
     ActualValue,
     ControlInputs,
     Mode,
+    PlanSlice,
+    PlanSource,
     PumpActual,
+    ReasonCode,
     RoomInput,
 )
 from ovenbird_core.instant import Instant
@@ -48,6 +51,7 @@ from ovenbird_core.store import HeishaMonStatus, SignalView, Snapshot
 
 ROOM_SOURCE: Final = "room"
 ACTUAL_SOURCE: Final = "actual"
+RECORDED_PLAN_S: Final = 900.0
 STATE_TIME_FIELDS: Final = frozenset(
     {
         "last_change_at",
@@ -286,4 +290,48 @@ def replay_inputs(
             heating_mode=actual.get("heating_mode"),
             operating_mode=actual.get("operating_mode"),
         ),
+    )
+
+
+def _offset(value: StateValue) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
+
+
+def recorded_model_plan(record: DecisionRecord) -> PlanSlice | None:
+    """Return the model plan slice a decision was made with, rebuilt from its record.
+
+    The controller records what the planner asked for only on ticks that were given a
+    model slice: the room offset (``model_plan_requested_k``) and, for a water slice,
+    the water offset (``model_plan_water_requested_k``). The slice is rebuilt valid for
+    that tick alone (:data:`RECORDED_PLAN_S`), and the controller decides again what
+    became of it (bounds, room authority, stove, untrusted room). ``None`` for every
+    other record.
+
+    Parameters
+    ----------
+    record
+        A stored decision record.
+
+    Returns
+    -------
+    PlanSlice | None
+        The model slice, or ``None`` when the tick had none.
+    """
+    state = record.controller_state
+    room = _offset(state.get("model_plan_requested_k"))
+    water = _offset(state.get("model_plan_water_requested_k")) or 0.0
+    if room is None and water == 0.0:
+        return None
+    room_k = 0.0 if water != 0.0 or room is None else room
+    asked = water or room_k
+    reason = ReasonCode.PLAN_SETBACK if asked < 0.0 else ReasonCode.PLAN_PREHEAT
+    return PlanSlice(
+        room_offset_k=room_k,
+        reason=reason,
+        valid_from=record.at,
+        valid_until=record.at.shifted(RECORDED_PLAN_S),
+        source=PlanSource.MODEL,
+        water_offset_k=water,
     )

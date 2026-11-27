@@ -20,7 +20,7 @@ from ovenbird_core.control.ovenbird import OvenbirdController
 from ovenbird_core.control.types import RoomProfile
 from ovenbird_core.store import HA_MAX_AGE_S
 from ovenbird_sim import local
-from ovenbird_sim.evaluate import modelplan_run
+from ovenbird_sim.evaluate import modelplan, modelplan_run
 from ovenbird_sim.evaluate.claims import GateBounds
 from ovenbird_sim.evaluate.counterfactual import (
     ASSUMED_CONFIRM_S,
@@ -198,14 +198,37 @@ def build_parser() -> argparse.ArgumentParser:
 
     plan = sub.add_parser(
         "model-plan",
-        help="paired closed-loop runs with and without the model planner on the reference plant",
+        help="paired closed-loop runs with and without a planner over weather replicas",
     )
     plan.add_argument("--out", type=Path, required=True)
-    plan.add_argument("--quick", action="store_true", help="small subset (for tests)")
+    plan.add_argument(
+        "--planner",
+        choices=tuple(modelplan.PLANNERS),
+        default=modelplan_run.DEFAULT_PLANNER,
+        help="planner to evaluate (none: pairing check, noise: false-alarm calibration)",
+    )
+    plan.add_argument(
+        "--param",
+        action="append",
+        metavar="NAME=VALUE",
+        help="planner parameter (repeatable), e.g. gain=0.3 or lead_h=3",
+    )
+    plan.add_argument("--replicas", type=int, help="weather replicas per cell (default 24)")
+    plan.add_argument(
+        "--max-replicas", type=int, help="replicas after the starts extension (default 48)"
+    )
+    plan.add_argument("--scenarios", nargs="+", choices=tuple(modelplan.SCENARIOS))
+    plan.add_argument("--models", nargs="+", choices=tuple(modelplan.MODEL_VARIANTS))
     plan.add_argument("--days", type=int, help="simulated days per run (default 8)")
-    plan.add_argument("--seeds", type=int, help="seeds of the noisy forecast (default 3)")
+    plan.add_argument("--seed", type=int, help="base seed of the replicas (default 0)")
     plan.add_argument("--workers", type=int, help="worker processes (default: CPU count)")
-    plan.add_argument("--no-sweep", action="store_true", help="skip the setting sweep")
+    plan.add_argument(
+        "--quick", action="store_true", help="2 scenarios, 2 models, 4 replicas, 3 days (tests)"
+    )
+    plan.add_argument(
+        "--sweep", action="store_true", help="run the planner's parameter sweep instead"
+    )
+    plan.add_argument("--sweep-replicas", type=int, help="replicas per cell of the sweep")
     return parser
 
 

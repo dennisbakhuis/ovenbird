@@ -37,6 +37,10 @@ MODEL_BLOCK_TEXT: Final[dict[ModelPlanBlock, str]] = {
     ModelPlanBlock.STOVE_RECOVERY: "wood-stove recovery (the detection has not re-armed yet)",
     ModelPlanBlock.SLICE_TOO_LONG: "slice longer than a model slice may be",
 }
+MODEL_WATER_BLOCK_TEXT: Final[dict[ModelPlanBlock, str]] = {
+    **MODEL_BLOCK_TEXT,
+    ModelPlanBlock.ROOM_UNTRUSTED: "no trusted room value to judge its authority by",
+}
 
 
 class RampPhase(StrEnum):
@@ -94,11 +98,27 @@ class ModelPlan:
         bounds, ``0`` while ``block`` is set.
     block
         Why the slice has no effect this tick (``None``: it applies).
+    water_requested_k
+        Water offset the planner sent (``0`` on a room-target slice).
+    water_applied_k
+        Water offset applied: ``water_requested_k`` clamped to the model water bounds
+        and scaled by ``authority``; ``0`` while ``block`` is set.
+    authority
+        Room authority of a water slice (``None`` on a room-target slice or while
+        ``block`` is set).
     """
 
     requested_k: float
     applied_k: float
     block: ModelPlanBlock | None
+    water_requested_k: float = 0.0
+    water_applied_k: float = 0.0
+    authority: float | None = None
+
+    @property
+    def water(self) -> bool:
+        """Whether the slice is a water slice."""
+        return self.water_requested_k != 0.0
 
     @property
     def clamped(self) -> bool:
@@ -109,7 +129,29 @@ class ModelPlan:
         """Return why the slice is ignored, for the notes (``None`` when it applies)."""
         if self.block is None:
             return None
+        if self.water:
+            return (
+                f"model plan {signed(self.water_requested_k)} K water ignored: "
+                f"{MODEL_WATER_BLOCK_TEXT[self.block]}"
+            )
         return f"model plan {signed(self.requested_k)} K ignored: {MODEL_BLOCK_TEXT[self.block]}"
+
+    def water_text(self) -> str:
+        """Return what became of a water slice, for the notes."""
+        asked = signed(self.water_requested_k)
+        if self.block is not None:
+            return self.ignored_text() or ""
+        if self.water_applied_k == 0.0 and self.authority == 0.0:
+            return f"model plan {asked} K water has no effect: room authority 0 % (room cool)"
+        if self.water_applied_k == 0.0:
+            return f"model plan {asked} K water cut to 0 by the model water bounds"
+        text = f"model plan {signed(self.water_applied_k)} K water for the forecast sun"
+        details: list[str] = []
+        if self.authority is not None and self.authority < 1.0:
+            details.append(f"room authority {math.floor(self.authority * 100):.0f} %")
+        if self.water_applied_k != self.water_requested_k:
+            details.append(f"asked {self.water_requested_k:+.2f} K")
+        return f"{text} ({', '.join(details)})" if details else text
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,13 +294,19 @@ def plan_term(
     """Return the plan's water offset before and after its clamp, and its term.
 
     With an active room PI the plan shifts the room target instead (no water offset).
-    A model plan (``PlanSource.MODEL``) only ever shifts the room target: without an
-    active room PI it has no effect at all, and ``model`` says why it was ignored or
-    whether its bounds cut it.
+    A model plan (``PlanSource.MODEL``) room-target slice only ever shifts the room
+    target: without an active room PI it has no effect at all, and ``model`` says why
+    it was ignored or whether its bounds cut it. A model water slice adds its applied
+    water offset (bounded, scaled by the room authority); the term's raw value is the
+    offset the planner asked for.
     """
     plan_raw = plan_w = 0.0
     ignored = None if model is None else model.ignored_text()
-    if ignored is not None:
+    if model is not None and model.water:
+        plan_note = model.water_text()
+        if plan is not None and model.block is None:
+            plan_raw, plan_w = model.water_requested_k, plan.water_offset_k
+    elif ignored is not None:
         plan_note = ignored
     elif plan is None and model is not None:
         plan_note = f"model plan {signed(model.requested_k)} K cut to 0 by the model bounds"

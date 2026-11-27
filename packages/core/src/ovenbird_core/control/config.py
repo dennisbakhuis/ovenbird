@@ -89,7 +89,9 @@ __all__ = [
     "HEAT_OPERATING_MODE",
     "MAX_SILENCE_LIMIT_S",
     "MIN_DEADBAND_K",
+    "MODEL_PLAN_MAX_LOWER_WATER_K",
     "MODEL_PLAN_MAX_PREHEAT_K",
+    "MODEL_PLAN_MAX_RAISE_WATER_K",
     "MODEL_PLAN_MAX_SETBACK_K",
     "MODEL_PLAN_MAX_SLICE_S",
     "ON_CHANGE_STEP_K",
@@ -143,6 +145,9 @@ HEAT_OPERATING_MODE: Final = 0
 MODEL_PLAN_MAX_SETBACK_K: Final = 1.0
 MODEL_PLAN_MAX_PREHEAT_K: Final = 0.5
 MODEL_PLAN_MAX_SLICE_S: Final = 3600.0
+MODEL_PLAN_MAX_LOWER_WATER_K: Final = 4.0
+MODEL_PLAN_MAX_RAISE_WATER_K: Final = 2.0
+AUTHORITY_DIGITS: Final = 6
 _WEEK_S: Final = 604_800.0
 _DAY_S: Final = 86_400.0
 _HOUR_S: Final = 3600.0
@@ -600,6 +605,18 @@ class ModelPlanConfig:
     ``plan_max_water_k``). A model slice valid for longer than
     :data:`MODEL_PLAN_MAX_SLICE_S` is ignored, so a plan cannot outlive its planner by
     more than that. The settings are described on the fields.
+
+    Water slices
+    ------------
+    A model slice with a water offset (a feed-forward from the forecast sun) is
+    clamped to ``[-max_lower_water_k, +max_raise_water_k]`` (absolute ceilings
+    :data:`MODEL_PLAN_MAX_LOWER_WATER_K`, 4 K, and :data:`MODEL_PLAN_MAX_RAISE_WATER_K`,
+    2 K) and then scaled by the room authority (:meth:`authority`): full while the
+    trusted room value is no more than ``authority_full_k`` (at least one sensor
+    step) on the side the offset works against (below comfort for a lowering, above
+    it for a raise), none from ``authority_zero_k`` on, linear in between. The
+    room-target bounds above do not apply to water slices, and the fade does not apply
+    to room-target slices, so each path keeps its own settings.
     """
 
     max_setback_k: float = setting(
@@ -617,13 +634,96 @@ class ModelPlanConfig:
         doc="Largest room-target pre-heat a model plan may ask for.",
     )
 
+    max_lower_water_k: float = setting(
+        3.0,
+        ge=0.0,
+        le=MODEL_PLAN_MAX_LOWER_WATER_K,
+        unit="K",
+        doc="Largest water-setpoint lowering a model water plan may apply.",
+    )
+    max_raise_water_k: float = setting(
+        0.0,
+        ge=0.0,
+        le=MODEL_PLAN_MAX_RAISE_WATER_K,
+        unit="K",
+        doc="Largest water-setpoint raise a model water plan may apply (0: never raises).",
+    )
+    authority_full_k: float = setting(
+        0.1,
+        ge=0.0,
+        le=1.0,
+        unit="K",
+        doc=(
+            "A model water plan keeps its full effect while the room is at most this far "
+            "below comfort (above it, for a raise)."
+        ),
+    )
+    authority_zero_k: float = setting(
+        0.4,
+        gt=0.0,
+        le=2.0,
+        unit="K",
+        doc=(
+            "A model water plan has no effect once the room is this far below comfort "
+            "(above it, for a raise); linear in between."
+        ),
+    )
+
     def __post_init__(self) -> None:
-        """Validate the bounds."""
+        """Validate the bounds and the authority fade."""
         check_settings(self)
+        _check(
+            self.authority_full_k < self.authority_zero_k,
+            "authority_full_k must be below authority_zero_k",
+        )
 
     def clamp(self, room_offset_k: float) -> float:
         """Return ``room_offset_k`` clamped to ``[-max_setback_k, +max_preheat_k]``."""
         return min(max(room_offset_k, -self.max_setback_k), self.max_preheat_k)
+
+    def clamp_water(self, water_offset_k: float) -> float:
+        """Return ``water_offset_k`` clamped to ``[-max_lower_water_k, +max_raise_water_k]``."""
+        return min(max(water_offset_k, -self.max_lower_water_k), self.max_raise_water_k)
+
+    def authority(
+        self, room_c: float, comfort_c: float, sign: float, quantum_k: float = 0.0
+    ) -> float:
+        """Return the share in ``[0, 1]`` of a water offset of ``sign`` the room allows.
+
+        A lowering (``sign < 0``) fades with the room's shortfall below comfort, a
+        raise (``sign > 0``) with its excess above it: 1 up to the full edge, 0 from
+        ``authority_zero_k``, linear in between (a step at the full edge when that
+        lies at or beyond ``authority_zero_k``). The full edge is
+        ``authority_full_k``, but at least one sensor step ``quantum_k``: a value
+        one step off comfort is within what the sensor can tell, and the room PI's
+        integrator dead zone accepts it too, so the room's normal toggling between
+        comfort and one step below does not toggle the offset (and the setpoint)
+        with it. The distance is rounded to :data:`AUTHORITY_DIGITS` decimals, so a
+        sensor value on an edge (20.9 °C against 21.0 °C) lands on it exactly.
+        ``sign == 0`` gives 1.
+
+        Parameters
+        ----------
+        room_c
+            Trusted room value.
+        comfort_c
+            Comfort room temperature.
+        sign
+            Sign of the water offset.
+        quantum_k
+            The room sensor's step (``0``: unknown).
+
+        Returns
+        -------
+        float
+            The authority.
+        """
+        if sign == 0.0:
+            return 1.0
+        against = comfort_c - room_c if sign < 0.0 else room_c - comfort_c
+        distance = round(against, AUTHORITY_DIGITS)
+        full = round(max(self.authority_full_k, quantum_k), AUTHORITY_DIGITS)
+        return linear_ramp(distance, full, self.authority_zero_k)
 
 
 def default_curve(emitter: EmitterType) -> HeatingCurve:

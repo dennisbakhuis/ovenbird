@@ -172,7 +172,7 @@ def test_dhw_run_freezes_and_does_not_start_a_ramp() -> None:
     assert all((r.decision.setpoint or 0) >= held for r in run)
 
 
-HOUSE = HouseModel(h_air_out=250.0)
+HOUSE = HouseModel(h_air_out=250.0, h_water_air=150.0, solar_mass_fraction=0.5)
 HOUSE_OUTSIDE_C = 5.0
 PUMP_W_PER_K = 1500.0
 PUMP_MAX_W = 8000.0

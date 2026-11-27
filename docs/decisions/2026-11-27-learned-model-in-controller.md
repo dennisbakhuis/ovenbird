@@ -2,6 +2,9 @@
 
 Date: 2026-11-27. Source: [design.md](../design.md), "Planner" and "Learning loop".
 Supersedes in part: [The learner proposes, the owner approves](2026-11-14-learning-proposes-owner-approves.md).
+Amended by: [The model plan after the evaluation](2026-11-28-model-plan-after-evaluation.md)
+(2026-11-28). A water feed-forward, rejected below, was built and evaluated; neither planner
+is unlocked and `on` stays locked. The rest of this record stays in force.
 
 ## Decision
 
