@@ -65,6 +65,48 @@ export const topic: HelpTopic = {
       body: 'The bars are the room error per day: how far the model was off when it predicted the room temperature 24 h ahead, on days it was not fitted on. Lower is better. **Show as table** lists every day. Below it you see the periods that were left out, such as wood-stove fires, and what data and method the model in use was fitted on.',
       target: 'house.timeline',
     },
+    {
+      id: 'inputs',
+      kind: 'do',
+      title: 'Tell it what you know about the house',
+      body: 'Build period, share of floor heating, number of occupants, volume and windows are **starting points** for the model, not facts it must keep. The learner begins from them, and when the measurements disagree the measurements win. Fill in what you know, leave out what you do not. While the model is still learning, this is the card to fill in.\n\nChanges go through the bar at the bottom like any setting and are used at the next learner run.',
+      steps: [
+        'Open **What you know about the house** on the Overview tab.',
+        'Fill in a few fields.',
+        'Press **Review and apply** in the bar at the bottom.',
+      ],
+      target: 'house.inputs',
+    },
+    {
+      id: 'bounds',
+      kind: 'do',
+      title: 'Pin or limit what is learned',
+      body: 'For the heat loss, the time constant, the solar aperture and the internal gains you can set a minimum and a maximum. The card shows what was learned with its 90 % range next to them.\n\n**Pinning** is setting both to the same number: the model then uses exactly that value and you **overrule the measurements**. Use it when you know better, for instance a heat loss from an energy audit. A single side only limits. The next learner run applies it.',
+      steps: [
+        'Open **Pin or limit what is learned** on the Model tab.',
+        'Fill in a minimum, a maximum or both. Equal values pin.',
+        'Press **Review and apply**, then start a run on the Learning tab or wait for the next one.',
+      ],
+      target: 'house.bounds',
+    },
+    {
+      id: 'learning-settings',
+      kind: 'know',
+      title: 'Learning settings',
+      body: 'The Learning tab has a collapsed card with how the learner works: how many days it learns from (21 to 90, 60 by default), how many recent days it keeps back to test a new model (7 to 21, 14 by default), how much worse than the model in use a new model may be and still be taken, and the days it leaves out. The learning days must be at least 8 more than the test days.',
+      target: 'house.learning',
+    },
+    {
+      id: 'leave-out',
+      kind: 'do',
+      title: 'Leave a day out',
+      body: 'Leave a day out when the house was not lived in as usual: a holiday, windows open all day, visitors. Such a day would only mislead the model. In the chart of the room error per day, press a bar to leave that day out; press it again to take it back in. **Show as table** has the same buttons, and the learning settings hold the full list.',
+      steps: [
+        'Open the **Learning** tab and find the room error per day.',
+        'Press the bar of the day, or its button in the table.',
+        'Press **Review and apply**. The next learner run skips the day.',
+      ],
+    },
   ],
   questions: [
     {

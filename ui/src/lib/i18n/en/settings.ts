@@ -12,6 +12,9 @@ export const settings = {
   section_stove: 'Wood stove',
   section_versions: 'Versions and backup',
   sectionChanges: '{n} unsaved changes in this section',
+  group_house: 'Facts about the house',
+  group_house_bounds: 'Pin or limit what is learned',
+  group_house_learning: 'Learning',
   group_curve: 'Curve',
   group_room: 'Room sensor and target',
   group_feedback: 'Room correction',
@@ -32,7 +35,6 @@ export const settings = {
   group_safety: 'Safety monitors',
   group_history: 'History retention',
   group_installation: 'Installation',
-  group_house: 'House',
   origin_reset: 'automatic reset',
   resetPending:
     'The configuration store was lost or damaged, so the controller is running in Shadow with the installation defaults. Check the settings and acknowledge to continue.',
@@ -53,6 +55,15 @@ export const settings = {
   lockedInstall: 'Fixed by the installation ({env}). It cannot be edited here.',
   stepperDecrease: 'Decrease {label}',
   stepperIncrease: 'Increase {label}',
+  fieldNotSet: 'not set',
+  check_not_dates: 'The days must be a list of dates.',
+  check_date_format: 'Write each day as YYYY-MM-DD, a real date.',
+  check_date_future: 'A day to leave out cannot be more than a day ahead.',
+  check_date_repeated: 'Each day can be left out only once.',
+  check_house_bounds_order:
+    '{min_field} ({min} {unit}) must not exceed {max_field} ({max} {unit}).',
+  check_house_fit_days_short:
+    'Days to learn from ({fit_days}) must be at least {min}: the days kept for testing ({test_days}) plus 8.',
   check_below_min: 'Must be at least {min} {unit}.',
   check_above_max: 'Must be at most {max} {unit}.',
   check_not_a_number: 'Enter a number.',

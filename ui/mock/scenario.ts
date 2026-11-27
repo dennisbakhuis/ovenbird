@@ -40,7 +40,8 @@ export type PumpPhase = 'idle' | 'heating' | 'defrost' | 'dhw';
  *   episode that reached its longest time) | disabled (wood-stove mode switched off)
  * - `house`: learning (no model promoted yet: 200 with `state: learning`) | notrun (the learner
  *   never ran) | noarea (no floor area: no band) | uncredible (a model, but too few cold days for a
- *   score and a credible proposal); default: a ready, credible model
+ *   score and a credible proposal) | facts (a ready model, with house facts, a heat-loss limit
+ *   and a left-out day already stored in the configuration); default: a ready, credible model
  * - `learner`: running (a learner run is going and never finishes) | unavailable (no built-in
  *   learner: state `unavailable`, `POST insight/house/run` answers 409 `learner_unavailable`) |
  *   failed (the last run failed with a timeout; a manual run clears it) | disabled (automatic
@@ -67,6 +68,9 @@ export type PumpPhase = 'idle' | 'heating' | 'defrost' | 'dhw';
  *   and the pause a release leaves apart from other browsers (the mock stores them per scenario
  *   cookie)
  *
+ * The configuration (stored values, versions) is kept per scenario cookie, so a test that applies
+ * a change never moves the version of another browser; without a cookie it is shared.
+ *
  * A second cookie, `ovenbird_clock`, holds a number of minutes (0 … 1440) by which the service
  * clock runs behind the browser. It moves the mock through its 6-hour decision cycle and the
  * day, so a test can pin a cycle minute or the suite can run at another time of day.
@@ -85,7 +89,7 @@ export interface Scenario {
   hold?: 'latched' | 'timed' | 'none';
   simulation?: 'on';
   stove?: 'active' | 'manual' | 'waiting' | 'disabled';
-  house?: 'learning' | 'notrun' | 'noarea' | 'uncredible';
+  house?: 'learning' | 'notrun' | 'noarea' | 'uncredible' | 'facts';
   learner?: 'running' | 'unavailable' | 'failed' | 'disabled';
   notify?: 'off' | 'failing';
   snapshot?: 'none';
@@ -115,7 +119,7 @@ export const SCENARIO_OPTIONS: {
   hold: ['latched', 'timed', 'none'],
   simulation: ['on'],
   stove: ['active', 'manual', 'waiting', 'disabled'],
-  house: ['learning', 'notrun', 'noarea', 'uncredible'],
+  house: ['learning', 'notrun', 'noarea', 'uncredible', 'facts'],
   learner: ['running', 'unavailable', 'failed', 'disabled'],
   notify: ['off', 'failing'],
   snapshot: ['none'],

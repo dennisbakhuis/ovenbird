@@ -294,6 +294,71 @@ export const fields: Record<keyof typeof en, string> = {
   'cfg.house_learn_interval_h.label': 'Leerinterval',
   'cfg.house_learn_interval_h.help':
     'Uren tussen twee leerrondes, van 24 (dagelijks) tot 720 (maandelijks). Standaard 168, eens per week.',
+  'cfg.house_volume_m3.label': 'Verwarmd volume',
+  'cfg.house_volume_m3.help':
+    'Het verwarmde volume van het huis in m³, ongeveer het vloeroppervlak maal de kamerhoogte. Een beginpunt voor het model: de metingen gaan voor als ze anders zeggen.',
+  'cfg.house_build_period.label': 'Bouwperiode',
+  'cfg.house_build_period.help':
+    'Wanneer het huis is gebouwd. Oudere huizen verliezen meestal meer warmte; het model gebruikt dit als beginpunt en de metingen gaan voor. Laat leeg als je het niet zeker weet.',
+  'cfg.house_build_period.opt.before_1945': 'Voor 1945',
+  'cfg.house_build_period.opt.1945_1974': '1945–1974',
+  'cfg.house_build_period.opt.1975_1991': '1975–1991',
+  'cfg.house_build_period.opt.1992_2005': '1992–2005',
+  'cfg.house_build_period.opt.2006_2014': '2006–2014',
+  'cfg.house_build_period.opt.2015_later': '2015 of later',
+  'cfg.house_floor_heating_share.label': 'Aandeel vloerverwarming',
+  'cfg.house_floor_heating_share.help':
+    'Het deel van het verwarmde oppervlak met vloerverwarming, van 0 % (alleen radiatoren) tot 100 %. Vloerverwarming reageert traag; het model gebruikt dit als beginpunt.',
+  'cfg.house_window_area_m2.label': 'Raamoppervlak',
+  'cfg.house_window_area_m2.help':
+    'Het totale glasoppervlak in m². Het vertelt het model hoeveel zon er binnen kan komen; de metingen gaan voor.',
+  'cfg.house_window_orientation.label': 'Hoofdrichting van de ramen',
+  'cfg.house_window_orientation.help':
+    'De kant waar het meeste glas op uitkijkt. Kies Gemengd als het over meerdere kanten verdeeld is.',
+  'cfg.house_window_orientation.opt.north': 'Noord',
+  'cfg.house_window_orientation.opt.east': 'Oost',
+  'cfg.house_window_orientation.opt.south': 'Zuid',
+  'cfg.house_window_orientation.opt.west': 'West',
+  'cfg.house_window_orientation.opt.mixed': 'Gemengd',
+  'cfg.house_occupants.label': 'Bewoners',
+  'cfg.house_occupants.help':
+    'Hoeveel mensen er in het huis wonen. Mensen geven warmte af; het model gebruikt dat als beginpunt voor de interne warmtewinst.',
+  'cfg.house_ua_min_w_per_k.label': 'Warmteverlies, minimaal',
+  'cfg.house_ua_min_w_per_k.help':
+    'Het geleerde warmteverlies komt niet onder deze waarde (30 tot 1500 W/K). Zet minimum en maximum gelijk om het vast te zetten. Geldt vanaf de volgende leerronde.',
+  'cfg.house_ua_max_w_per_k.label': 'Warmteverlies, maximaal',
+  'cfg.house_ua_max_w_per_k.help':
+    'Het geleerde warmteverlies komt niet boven deze waarde (30 tot 1500 W/K). Geldt vanaf de volgende leerronde.',
+  'cfg.house_time_constant_min_h.label': 'Tijdconstante, minimaal',
+  'cfg.house_time_constant_min_h.help':
+    'De geleerde tijdconstante, hoe langzaam het huis afkoelt, komt niet onder deze waarde (5 tot 500 uur). Gelijk minimum en maximum zetten haar vast. Geldt vanaf de volgende leerronde.',
+  'cfg.house_time_constant_max_h.label': 'Tijdconstante, maximaal',
+  'cfg.house_time_constant_max_h.help':
+    'De geleerde tijdconstante komt niet boven deze waarde (5 tot 500 uur). Geldt vanaf de volgende leerronde.',
+  'cfg.house_solar_aperture_min_m2.label': 'Zonopening, minimaal',
+  'cfg.house_solar_aperture_min_m2.help':
+    'De geleerde zonopening, het glasoppervlak waardoor de zon effectief verwarmt, komt niet onder deze waarde (0 tot 40 m²). Geldt vanaf de volgende leerronde.',
+  'cfg.house_solar_aperture_max_m2.label': 'Zonopening, maximaal',
+  'cfg.house_solar_aperture_max_m2.help':
+    'De geleerde zonopening komt niet boven deze waarde (0 tot 40 m²). Gelijk minimum en maximum zetten haar vast. Geldt vanaf de volgende leerronde.',
+  'cfg.house_internal_gain_min_w.label': 'Interne warmtewinst, minimaal',
+  'cfg.house_internal_gain_min_w.help':
+    'De geleerde warmte van mensen en apparaten komt niet onder deze waarde (0 tot 2000 W). Geldt vanaf de volgende leerronde.',
+  'cfg.house_internal_gain_max_w.label': 'Interne warmtewinst, maximaal',
+  'cfg.house_internal_gain_max_w.help':
+    'De geleerde warmte van mensen en apparaten komt niet boven deze waarde (0 tot 2000 W). Gelijk minimum en maximum zetten haar vast. Geldt vanaf de volgende leerronde.',
+  'cfg.house_learn_fit_days.label': 'Dagen om van te leren',
+  'cfg.house_learn_fit_days.help':
+    'Hoeveel dagen geschiedenis het leerprogramma gebruikt, van 21 tot 90. Standaard 60. Het moet minstens 8 dagen meer zijn dan de dagen voor de test.',
+  'cfg.house_learn_test_days.label': 'Dagen voor de test',
+  'cfg.house_learn_test_days.help':
+    'De laatste dagen waarop het leerprogramma niet leert maar een nieuw model test, van 7 tot 21. Standaard 14.',
+  'cfg.house_learn_tolerance_k.label': 'Marge voor een nieuw model',
+  'cfg.house_learn_tolerance_k.help':
+    'Hoeveel slechter dan het model in gebruik een nieuw model de kamer mag voorspellen, in K, om toch gekozen te worden. 0 betekent minstens even goed; een negatieve waarde vraagt een duidelijk beter model. Van −0,1 tot 0,2.',
+  'cfg.house_learn_excluded_days.label': 'Overgeslagen dagen',
+  'cfg.house_learn_excluded_days.help':
+    'Dagen die het leerprogramma overslaat: een vakantie, de hele dag open ramen, bezoek. Hoogstens 60. Geldt vanaf de volgende leerronde.',
   'cfg.mqtt_host.help':
     'Hostnaam of IP-adres van de MQTT-broker waarop HeishaMon publiceert, zoals 192.0.2.20 of mosquitto.',
   'cfg.mqtt_port.help': 'De poort van de broker: meestal 1883, of 8883 met TLS.',

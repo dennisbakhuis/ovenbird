@@ -14,6 +14,9 @@ export const settings: Record<keyof typeof en, string> = {
   section_stove: 'Houtkachel',
   section_versions: 'Versies en back-up',
   sectionChanges: '{n} niet-opgeslagen wijzigingen in dit onderdeel',
+  group_house: 'Gegevens over het huis',
+  group_house_bounds: 'Geleerde waarden vastzetten of begrenzen',
+  group_house_learning: 'Leren',
   group_curve: 'Stooklijn',
   group_room: 'Kamersensor en doel',
   group_feedback: 'Ruimtecorrectie',
@@ -34,7 +37,6 @@ export const settings: Record<keyof typeof en, string> = {
   group_safety: 'Veiligheidsbewaking',
   group_history: 'Bewaartermijn historie',
   group_installation: 'Installatie',
-  group_house: 'Huis',
   origin_reset: 'automatische reset',
   resetPending:
     'De configuratieopslag is kwijtgeraakt of beschadigd, dus de regelaar draait in Schaduw met de standaardwaarden van de installatie. Controleer de instellingen en bevestig om door te gaan.',
@@ -55,6 +57,15 @@ export const settings: Record<keyof typeof en, string> = {
   lockedInstall: 'Vast door de installatie ({env}). Hier kan het niet worden gewijzigd.',
   stepperDecrease: '{label} verlagen',
   stepperIncrease: '{label} verhogen',
+  fieldNotSet: 'niet ingesteld',
+  check_not_dates: 'De dagen moeten een lijst met datums zijn.',
+  check_date_format: 'Schrijf elke dag als JJJJ-MM-DD, een echte datum.',
+  check_date_future: 'Een dag om over te slaan mag niet meer dan een dag vooruit liggen.',
+  check_date_repeated: 'Elke dag kan maar één keer worden overgeslagen.',
+  check_house_bounds_order:
+    '{min_field} ({min} {unit}) mag niet hoger zijn dan {max_field} ({max} {unit}).',
+  check_house_fit_days_short:
+    'Dagen om van te leren ({fit_days}) moeten minstens {min} zijn: de dagen voor de test ({test_days}) plus 8.',
   check_below_min: 'Moet minimaal {min} {unit} zijn.',
   check_above_max: 'Mag maximaal {max} {unit} zijn.',
   check_not_a_number: 'Voer een getal in.',

@@ -24,9 +24,13 @@ async function size(page: Page): Promise<{ height: number; scroll: number; inner
 }
 
 const TABS: [string, string, string[]][] = [
-  ['overview', '#/house', ['house-status', 'house-score', 'house-facts']],
-  ['model', '#/house/model', ['house-signature', 'house-quality']],
-  ['learning', '#/house/learning', ['house-run', 'house-timeline', 'house-proposal']],
+  ['overview', '#/house', ['house-status', 'house-score', 'house-facts', 'house-facts-input']],
+  ['model', '#/house/model', ['house-signature', 'house-quality', 'house-bounds-card']],
+  [
+    'learning',
+    '#/house/learning',
+    ['house-run', 'house-learning-settings', 'house-timeline', 'house-proposal'],
+  ],
 ];
 
 for (const width of [1400, 400]) {
@@ -44,6 +48,7 @@ for (const width of [1400, 400]) {
       for (const id of cards) await expect(page.getByTestId(id)).toBeVisible();
       const dims = await size(page);
       expect(dims.scroll, `overflow on ${name}`).toBeLessThanOrEqual(dims.inner);
+      await page.screenshot({ path: `e2e/shots/house-${name}-${width}.png`, fullPage: true });
     }
     await page.goto('./#/house');
     await expect(page.getByTestId('house-score')).toContainText('240');
@@ -373,4 +378,192 @@ test('the Dutch learning tab speaks Dutch', async ({ page, context, baseURL }) =
   await expect(page.getByTestId('house-run')).toContainText('Het leerprogramma');
   await expect(page.getByTestId('run-now')).toHaveText('Nu uitvoeren');
   await expect(page.getByTestId('house-timeline')).toContainText('Kamerfout per dag');
+});
+
+async function applyDraft(page: Page): Promise<void> {
+  await page.getByTestId('draft-review').click();
+  await page.getByTestId('preview-apply').click();
+  await expect(page.getByTestId('preview-dialog')).toBeHidden();
+  await expect(page.getByTestId('apply-notice')).toContainText(/Version \d+/);
+}
+
+test('a fact edited on the House page goes through the draft bar and applies', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await scenario(context, tag(), baseURL);
+  await language(page, 'en');
+  await page.goto('./#/house');
+  const card = page.getByTestId('house-facts-input');
+  await expect(card).toContainText('What you know about the house');
+  await expect(page.getByTestId('field-house_build_period')).toBeVisible();
+  await page.locator('select#field-house_build_period').selectOption('1975_1991');
+  await expect(page.getByTestId('draft-count')).toHaveText('1 change');
+  await expect(page.getByTestId('house-pending')).toHaveAttribute('data-source', 'draft');
+  await applyDraft(page);
+  await expect(page.getByTestId('draft-bar')).toHaveCount(0);
+  await expect(page.getByTestId('house-facts-input-details')).not.toHaveAttribute('open', '');
+  await expect(page.getByTestId('house-pending')).toHaveAttribute('data-source', 'stored');
+  await page.getByTestId('house-facts-input-details').locator('summary').click();
+  await expect(page.locator('select#field-house_build_period')).toHaveValue('1975_1991');
+  await page.goto('./#/settings/house');
+  await expect(page.locator('select#field-house_build_period')).toHaveValue('1975_1991');
+});
+
+test('pinning the heat loss with equal limits applies and shows the pin', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await scenario(context, tag(), baseURL);
+  await language(page, 'en');
+  await page.goto('./#/house/model');
+  const card = page.getByTestId('house-bounds-card');
+  await expect(card.getByTestId('bounds-explain')).toContainText('pin the value');
+  await card.getByTestId('house-bounds-card-details').locator('summary').click();
+  await expect(page.getByTestId('bound-learned-ua')).toContainText('Learned: 240 W/K');
+  await expect(page.getByTestId('bound-learned-ua')).toContainText('90 % range 230–251');
+  await page.locator('#field-house_ua_min_w_per_k').fill('250');
+  await page.locator('#field-house_ua_max_w_per_k').fill('250');
+  await expect(page.getByTestId('draft-count')).toHaveText('2 changes');
+  await expect(page.getByTestId('bound-pinned-ua')).toBeVisible();
+  await applyDraft(page);
+  await expect(page.locator('#field-house_ua_min_w_per_k')).toHaveValue('250');
+  await expect(page.getByTestId('bound-pinned-ua')).toBeVisible();
+});
+
+test('a minimum above its maximum is refused by the service and explained', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await scenario(context, tag(), baseURL);
+  await language(page, 'en');
+  await page.goto('./#/house/model');
+  await page.getByTestId('house-bounds-card-details').locator('summary').click();
+  await page.locator('#field-house_ua_min_w_per_k').fill('300');
+  await page.locator('#field-house_ua_max_w_per_k').fill('200');
+  await expect(page.getByTestId('field-house_ua_max_w_per_k')).toContainText(
+    'Heat loss, at least (300 W/K) must not exceed Heat loss, at most (200 W/K).',
+  );
+  await page.getByTestId('draft-review').click();
+  await expect(page.getByTestId('preview-errors')).toContainText('must not exceed');
+  await expect(page.getByTestId('preview-apply')).toBeDisabled();
+});
+
+test('days left out are added and removed in the editor and the timeline', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await scenario(context, tag(), baseURL);
+  await language(page, 'en');
+  await page.goto('./#/house/learning');
+  await page.getByTestId('house-learning-settings-details').locator('summary').click();
+  await page.getByTestId('excluded-day-input').fill('2026-11-02');
+  await page.getByTestId('excluded-day-add').click();
+  await expect(page.getByTestId('excluded-chip-2026-11-02')).toBeVisible();
+  await expect(page.getByTestId('draft-count')).toHaveText('1 change');
+  await page.getByRole('button', { name: /Take .* back in/ }).click();
+  await expect(page.getByTestId('excluded-days-none')).toBeVisible();
+  await expect(page.getByTestId('draft-bar')).toHaveCount(0);
+
+  await expect(page.getByTestId('leave-out-why')).toContainText('holiday');
+  const bar = page.locator('[data-testid^="day-bar-"]').first();
+  const day = ((await bar.getAttribute('data-testid')) ?? '').replace('day-bar-', '');
+  await bar.focus();
+  await page.keyboard.press('Enter');
+  await expect(bar).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('draft-count')).toHaveText('1 change');
+  await expect(page.getByTestId(`excluded-chip-${day}`)).toBeVisible();
+  await page.keyboard.press('Space');
+  await expect(bar).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('draft-bar')).toHaveCount(0);
+
+  await page.getByTestId('daily-error-toggle').click();
+  const toggle = page.getByTestId(`day-toggle-${day}`);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId(`excluded-chip-${day}`)).toBeVisible();
+  await applyDraft(page);
+  await expect(page.getByTestId(`excluded-chip-${day}`)).toBeVisible();
+  await toggle.click();
+  await expect(page.getByTestId('draft-count')).toHaveText('1 change');
+});
+
+test('Settings → House shows the same fields as the House page', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await scenario(context, `${tag()}.house:facts`, baseURL);
+  await language(page, 'en');
+  await page.goto('./#/settings/house');
+  const section = page.getByTestId('house-section');
+  for (const subset of ['facts', 'bounds', 'learning'])
+    await expect(section.getByTestId(`house-subset-${subset}`)).toBeVisible();
+  await expect(page.locator('select#field-house_build_period')).toHaveValue('1975_1991');
+  await expect(page.locator('#field-house_occupants')).toHaveValue('3');
+  await expect(page.locator('#field-house_floor_heating_share')).toHaveValue('60');
+  await page.getByTestId('advanced-house_bounds').locator('summary').click();
+  await expect(page.locator('#field-house_ua_min_w_per_k')).toHaveValue('200');
+  await page.getByTestId('advanced-house_learning').locator('summary').click();
+  await expect(page.getByTestId('excluded-days-list').locator('li')).toHaveCount(1);
+  await page.screenshot({ path: 'e2e/shots/house-settings-1400.png', fullPage: true });
+  await page.goto('./#/house');
+  await expect(page.locator('select#field-house_build_period')).toHaveCount(0);
+  await page.getByTestId('house-facts-input-details').locator('summary').click();
+  await expect(page.locator('select#field-house_build_period')).toHaveValue('1975_1991');
+});
+
+test('while the model is still learning the facts card is open and first', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await page.setViewportSize({ width: 400, height: 900 });
+  await scenario(context, `${tag()}.house:learning`, baseURL);
+  await language(page, 'en');
+  await page.goto('./#/house');
+  await expect(page.getByTestId('house-facts-intro')).toBeVisible();
+  await expect(page.locator('select#field-house_build_period')).toBeVisible();
+  await page.locator('#field-house_occupants').fill('3');
+  await expect(page.getByTestId('draft-count')).toHaveText('1 change');
+  const dims = await size(page);
+  expect(dims.scroll).toBeLessThanOrEqual(dims.inner);
+  await page.screenshot({ path: 'e2e/shots/house-learning-state-400.png', fullPage: true });
+});
+
+for (const lang of ['en', 'nl'] as const) {
+  for (const [name, hash, cards] of TABS) {
+    test(`the phone ${name} tab with facts and bounds set fits the budget in ${lang}`, async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await page.setViewportSize({ width: 400, height: 900 });
+      await scenario(context, `${tag()}.house:facts`, baseURL);
+      await language(page, lang);
+      await page.goto(`./${hash}`);
+      await expect(page.getByTestId(cards[cards.length - 1]!)).toBeVisible();
+      const dims = await size(page);
+      expect(dims.scroll).toBeLessThanOrEqual(dims.inner);
+      expect(dims.height, `phone height ${name} ${lang}`).toBeLessThanOrEqual(
+        allowedHeight(PHONE_BUDGET),
+      );
+    });
+  }
+}
+
+test('the Dutch House cards use natural Dutch', async ({ page, context, baseURL }) => {
+  await scenario(context, `${tag()}.house:facts`, baseURL);
+  await language(page, 'nl');
+  await page.goto('./#/house/model');
+  await expect(page.getByTestId('house-bounds-card')).toContainText(
+    'Geleerde waarden vastzetten of begrenzen',
+  );
+  await expect(page.getByTestId('bound-learned-ua')).toContainText('bereik van 90 %');
+  await page.goto('./#/house');
+  await expect(page.getByTestId('house-facts-input')).toContainText('Wat je van het huis weet');
 });

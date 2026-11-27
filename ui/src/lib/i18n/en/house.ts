@@ -198,6 +198,51 @@ export const house = {
   houseFittedMade: 'Made',
   houseFittedVersion: 'learner version {v}',
 
+  houseFactsInputTitle: 'What you know about the house',
+  houseFactsInputSubtitle:
+    'Starting points for the model. The measurements overrule them when they disagree.',
+  houseFactsInputIntro:
+    'Fill in what you know while the model is still learning: the learner starts from it and the measurements overrule it. Everything is optional.',
+  houseBoundsTitle: 'Pin or limit what is learned',
+  houseBoundsSubtitle: 'You overrule the measurements. Use it when you know better.',
+  houseBoundsExplain:
+    'Equal minimum and maximum pin the value: the model then uses exactly that number instead of what it measured. The next learner run applies it.',
+  houseBoundsNoModel: 'There is no learned value yet. Bounds apply from the first model on.',
+  houseBoundsLearned: 'Learned: {value} {unit} · 90 % range {lo}–{hi}',
+  houseBoundsLearnedPlain: 'Learned: {value} {unit}',
+  houseBoundsPinned: 'Pinned: the model uses this value.',
+  houseBound_ua: 'Heat loss',
+  houseBound_tau: 'Time constant',
+  houseBound_aperture: 'Solar aperture',
+  houseBound_gain: 'Internal gains',
+  houseBoundMin: 'At least',
+  houseBoundMax: 'At most',
+  houseLearningSettingsTitle: 'Learning settings',
+  houseLearningSettingsSummary: 'Learning settings',
+  houseLearningSettingsHint:
+    'How much history the learner uses, how it judges a new model and which days it skips.',
+  houseFieldsToggle: 'Show the settings',
+  houseNextRunNote: 'Applies at the next learner run.',
+  houseNextRunChanged: 'Changed since this model was made: applies at the next learner run.',
+  houseNextRunDraft: 'In your draft: applies at the next learner run once you have applied it.',
+  houseNextRunNow: 'Run now',
+  houseNextRunToRun: 'Go to the learner',
+  houseDaysDate: 'Day to leave out',
+  houseDaysAdd: 'Add day',
+  houseDaysRemove: 'Take {day} back in',
+  houseDaysNone: 'No days left out.',
+  houseDaysCount: '{n} of {max} days left out',
+  houseDaysFull: 'The list is full: take a day back in first.',
+  houseDaysFuture: 'A day cannot lie in the future.',
+  houseDaysWhy:
+    'Leave a day out when the house was not lived in as usual: a holiday, windows open all day, visitors. The learner then skips it at the next run.',
+  houseDayLeaveOut: 'Leave {day} out',
+  houseDayKeepIn: 'Take {day} back in',
+  houseDayLeftOut: 'left out',
+  houseColLeaveOut: 'Leave out',
+  houseDayPickHint:
+    'Select a day to leave it out of the next fit; select it again to take it back in.',
+
   houseSectionText:
     'The floor area turns the learned heat loss into an indicative insulation score.',
   houseSectionLink: 'Open the House page',

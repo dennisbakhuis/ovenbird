@@ -20,7 +20,8 @@ What differs from a capture (:func:`ovenbird_sim.data.dataset.assemble`, 5 s dat
 * rooms, time zone and the wood-stove reference come from the service
   configuration (:class:`HistoryRoles`), not from the owner's entity ids;
 * the service's wood-stove journal (alarm code ``stove_mode``) adds known events
-  next to the detector (which needs a reference room);
+  next to the detector (which needs a reference room), and the days the owner left
+  out can be passed in as known events too;
 * weather comes from the stored forecasts (``forecast``): per target hour the row
   with the shortest lead (non-negative first) stands in for the observation. Only
   global horizontal irradiance (GHI, preceding-hour mean) is stored, so direct and
@@ -333,6 +334,7 @@ def history_dataset(
     start: float | None = None,
     end: float | None = None,
     weather: Mapping[str, Series] | None = None,
+    excluded: tuple[ev.Event, ...] = (),
 ) -> HistoryData:
     """Assemble a dataset from a history database.
 
@@ -348,6 +350,9 @@ def history_dataset(
         Optional span in unix seconds (clipped to the stored rollups).
     weather
         Weather series replacing the stored forecasts (an Open-Meteo cache).
+    excluded
+        Days the owner left out (:func:`ovenbird_sim.data.events.excluded_days`),
+        flagged like the wood-stove events but kept apart from them.
 
     Returns
     -------
@@ -393,6 +398,7 @@ def history_dataset(
         wx,
         journal,
         roles,
+        excluded=tuple(e for e in excluded if e.tail_end > t0 and e.start < t1),
         notes={
             "source": str(path),
             "step_s": step,
@@ -427,6 +433,7 @@ def _assemble(
     journal: tuple[ev.Event, ...],
     roles: HistoryRoles,
     notes: dict[str, Any],
+    excluded: tuple[ev.Event, ...] = (),
 ) -> HistoryData:
     columns: dict[str, FloatArray] = {}
     flags: dict[str, BoolArray] = {}
@@ -482,6 +489,7 @@ def _assemble(
         rooms=roles.room_roles(),
         extra_events=journal,
         notes={"source": "service history", "heat": str(notes["heat"])},
+        kept_events=excluded,
     )
     if not weather:
         dataset.columns["outside"] = fill_outside(

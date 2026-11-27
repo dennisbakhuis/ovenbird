@@ -13,14 +13,24 @@ Steps (each timed in the log and in ``status.json``):
 3. **Champion / challenger**: the challenger is the latest fold's train-only
    building (fitted before the latest ``test_days``); its free-run room error at
    24 h on those days is compared with the champion's on the same days (events
-   masked). The new model is promoted when its error is not worse (``<=`` champion +
-   ``tolerance_k``), or when there is no champion. The champion has usually seen part
-   of these days (it was fitted up to its own run), so the rule leans towards keeping
-   it; both errors are reported.
+   masked; the champion is re-scored on the newest held-out days every run). The new
+   model is promoted when its error is not worse (``<=`` champion + ``tolerance_k``),
+   or when there is no champion. The champion has usually seen part of these days
+   (it was fitted up to its own run), so the rule leans towards keeping it; both
+   errors are reported. When the owner's house facts or bounds differ from those the
+   champion was fitted with, the new model is promoted whenever its held-out error is
+   finite: the changed settings are the owner's intent, and both errors are kept so a
+   worse fit shows.
 4. **Insight**: the energy signature over the whole 15 min history (kept forever;
    event days left out) with its credibility rules, the insulation score
    (:mod:`ovenbird_sim.learn.score`) and the curve proposal
    (:mod:`ovenbird_sim.learn.proposal`).
+
+The ``house_*`` settings of the configuration (:mod:`ovenbird_sim.learn.priors`)
+add weak priors from the owner's facts, bounds and pins on four learned quantities,
+the learning options and the days the owner left out (masked like wood-stove
+periods in the fit, the scoring and the signature). Invalid settings stop the run
+before the fit (outcome ``failed``, the error names the setting).
 
 Runtime is bounded by ``fit_days``, the folds, the bootstrap replicates and the
 optimisers' evaluation budgets; results are deterministic for a given database,
@@ -83,6 +93,13 @@ from ovenbird_sim.insight.signature import (
     energy_signature,
 )
 from ovenbird_sim.learn import models as store
+from ovenbird_sim.learn.priors import (
+    HouseSettings,
+    LearnSettings,
+    SettingError,
+    house_settings,
+    told_json,
+)
 from ovenbird_sim.learn.proposal import CurveLimits, propose_curve
 from ovenbird_sim.learn.score import DESIGN_OUTSIDE_C, score
 from ovenbird_sim.model.building import J_PER_KWH, BuildingParams
@@ -101,7 +118,8 @@ LIMITS: Final = (
     "weather: forecast temperature and global horizontal irradiance only; the solar "
     "aperture is an effective GHI aperture without orientation",
     "wood-stove periods and their recovery tail are left out of the fit, the scoring "
-    "and the signature",
+    "and the signature, and so are the days the owner left out (without a tail)",
+    "house facts are weak priors the data can overrule; bounds and pins are kept",
     "the proposal is a steady-state estimate without sun; the room feedback trims it",
 )
 
@@ -115,9 +133,11 @@ class LearnOptions:
     floor_area_m2
         Heated floor area; overrides ``house_floor_area_m2`` of the configuration.
     fit_days
-        Days of 1 min history used for the identification (the latest ones).
+        Days of 1 min history used for the identification (the latest ones);
+        ``house_learn_fit_days`` replaces it unless it is in ``explicit``.
     test_days
-        Held-out block of the champion/challenger comparison.
+        Held-out block of the champion/challenger comparison
+        (``house_learn_test_days`` likewise).
     folds
         Rolling-origin folds (fewer when the history is short).
     bootstrap
@@ -127,7 +147,8 @@ class LearnOptions:
     seed
         Random seed.
     tolerance_k
-        Promote when the challenger's error is at most the champion's plus this.
+        Promote when the challenger's error is at most the champion's plus this
+        (``house_learn_tolerance_k`` likewise).
     weather
         Weather series replacing the stored forecasts (an Open-Meteo cache).
     full_plant
@@ -135,6 +156,9 @@ class LearnOptions:
     interval_h
         Hours between runs when the learner repeats (``--every-h``), written to
         ``status.json`` so the service can tell a learner that stopped running.
+    explicit
+        Fields given explicitly (command-line flags): they win over the
+        configuration's ``house_learn_*`` settings.
     """
 
     floor_area_m2: float | None = None
@@ -148,6 +172,7 @@ class LearnOptions:
     weather: Mapping[str, Series] | None = None
     full_plant: bool = True
     interval_h: float | None = None
+    explicit: frozenset[str] = frozenset()
 
 
 DEFAULT_LEARN: Final = LearnOptions()
@@ -258,8 +283,15 @@ def curve_settings(
     return number("control_comfort_c", 21.0), curve, limits
 
 
+SETTINGS_CHANGED: Final = "promoted because the house settings changed"
+
+
 def decide_promotion(
-    challenger_k: float, champion_k: float | None, tolerance_k: float = 0.0
+    challenger_k: float,
+    champion_k: float | None,
+    tolerance_k: float = 0.0,
+    *,
+    settings_changed: bool = False,
 ) -> tuple[bool, str]:
     """Apply the promotion rule to the held-out room errors.
 
@@ -271,6 +303,9 @@ def decide_promotion(
         The champion's on the same days; ``None`` without a champion.
     tolerance_k
         Allowed excess of the challenger.
+    settings_changed
+        The owner's house facts or bounds differ from the champion's: the challenger
+        is promoted whenever its error is finite.
 
     Returns
     -------
@@ -279,6 +314,14 @@ def decide_promotion(
     """
     if not math.isfinite(challenger_k):
         return False, "the challenger has no held-out error (no scored origins)"
+    if settings_changed:
+        champion = (
+            "none" if champion_k is None or not math.isfinite(champion_k) else f"{champion_k:.3f} K"
+        )
+        return True, (
+            f"{SETTINGS_CHANGED} (challenger {challenger_k:.3f} K, champion {champion} "
+            "on the same held-out days, room, 24 h)"
+        )
     if champion_k is None or not math.isfinite(champion_k):
         return True, "no champion yet"
     promote = challenger_k <= champion_k + tolerance_k
@@ -331,13 +374,17 @@ def _intervals(boot_samples: tuple[BuildingParams, ...]) -> dict[str, tuple[floa
 
 
 def fit_building_only(ds: Dataset, options: IdentifyOptions) -> FitOutcome:
-    """Fit the building with the pipeline's folds and bootstrap, without the heat-pump layer."""
+    """Fit the building with the pipeline's folds and bootstrap, without the heat-pump layer.
+
+    Every fit (folds, final, bootstrap replicates) uses ``options.priors``.
+    """
     coarse = ds.coarsen(5)
     config = FitConfig()
+    priors = options.priors
     folds: list[dict[str, Any]] = []
     first: tuple[float, float, BuildingParams] | None = None
     for split, end in fold_splits(ds, options):
-        train = fit_building(make_windows(coarse, config, end=split), config)
+        train = fit_building(make_windows(coarse, config, end=split), config, priors=priors)
         held = horizon_errors(coarse, train.params, split, end)
         folds.append(
             {
@@ -353,9 +400,9 @@ def fit_building_only(ds: Dataset, options: IdentifyOptions) -> FitOutcome:
     if first is None:
         raise ValueError("no validation fold")
     windows = make_windows(coarse, config)
-    final = fit_building(windows, config, start=first[2])
+    final = fit_building(windows, config, start=first[2], priors=priors)
     boot = (
-        bootstrap_building(windows, final, options.bootstrap, config, options.seed)
+        bootstrap_building(windows, final, options.bootstrap, config, options.seed, priors)
         if options.bootstrap > 0
         else None
     )
@@ -498,8 +545,9 @@ def _signature(
     weather: Mapping[str, Series] | None,
     ua: float,
     options: LearnOptions,
+    owner_days: tuple[ev.Event, ...] = (),
 ) -> tuple[Signature | None, int, list[str], dict[str, Any]]:
-    data = history_dataset(history, roles, step=QUARTER, weather=weather)
+    data = history_dataset(history, roles, step=QUARTER, weather=weather, excluded=owner_days)
     ds = data.dataset
     event = ds.event_mask()
     columns = dict(ds.columns)
@@ -620,7 +668,8 @@ def learn(
     -------
     dict
         The status written to ``status.json`` (outcome ``promoted``,
-        ``kept_champion``, ``learning`` or ``failed``).
+        ``kept_champion``, ``learning`` or ``failed``; ``failed`` with the setting
+        named when a ``house_*`` setting is invalid).
     """
     began = time.perf_counter()
     timer = Timer()
@@ -633,7 +682,16 @@ def learn(
         "interval_h": options.interval_h,
     }
     try:
-        outcome = _learn(history, config, models, options, roles, timer, status)
+        settings = house_settings(config)
+        options = apply_learning(options, settings.learning)
+        outcome = _learn(history, config, models, options, roles, timer, status, settings)
+    except SettingError as exc:
+        LOGGER.error("invalid house settings: %s", exc)
+        outcome = {
+            "outcome": "failed",
+            "error": f"invalid house settings: {exc}",
+            "setting": exc.setting,
+        }
     except NotReadyError as exc:
         LOGGER.warning("not ready: %s", exc)
         outcome = {"outcome": "learning", "missing": exc.missing}
@@ -646,6 +704,23 @@ def learn(
     store.write_status(models, status)
     LOGGER.info("learner %s in %.1f s", status["outcome"], status["runtime_s"])
     return status
+
+
+def apply_learning(options: LearnOptions, learning: LearnSettings) -> LearnOptions:
+    """Return ``options`` with the configuration's learning options where they are set.
+
+    Fields named in ``options.explicit`` keep their value.
+    """
+    changes: dict[str, Any] = {
+        name: value
+        for name, value in (
+            ("fit_days", learning.fit_days),
+            ("test_days", learning.test_days),
+            ("tolerance_k", learning.tolerance_k),
+        )
+        if value is not None and name not in options.explicit
+    }
+    return replace(options, **changes) if changes else options
 
 
 @dataclass(frozen=True, slots=True)
@@ -670,6 +745,7 @@ class _Verdict:
     champion_err: float | None
     promote: bool
     rule: str
+    settings_changed: bool = False
 
     @property
     def champion_name(self) -> Any:
@@ -699,24 +775,27 @@ def _learn(
     roles: HistoryRoles,
     timer: Timer,
     status: dict[str, Any],
+    settings: HouseSettings,
 ) -> dict[str, Any]:
-    loaded = _load(history, options, roles, timer)
+    excluded = ev.excluded_days(settings.learning.excluded_days, roles.timezone)
+    loaded = _load(history, options, roles, timer, excluded)
     ds = loaded.ds
     id_options = IdentifyOptions(
         test_days=options.test_days,
         bootstrap=options.bootstrap,
         seed=options.seed,
         folds=loaded.folds,
+        priors=settings.priors,
     )
     fit = timer.run("fit", lambda: _fit(ds, loaded.data, id_options, options.full_plant))
-    verdict = _compare(ds, fit, models, options)
-    house = _house(history, config, options, roles, timer, ds, fit, verdict.promote)
+    verdict = _compare(ds, fit, models, options, settings.constraints)
+    house = _house(history, config, options, roles, timer, ds, fit, verdict.promote, excluded)
     day = iso(ds.grid.end - 1.0)[:10]
     model = store.free_name(
         models, store.model_name(day), verdict.champion_name, promote=verdict.promote
     )
     chash = config_hash(config)
-    provenance = _provenance(history, chash, loaded, fit, options, status["at"])
+    provenance = _provenance(history, chash, loaded, fit, options, status["at"], settings)
     validation = _validation(verdict, fit, options, ds, roles)
     daily_errors = timer.run(
         "daily errors",
@@ -754,6 +833,9 @@ def _learn(
     if verdict.promote:
         store.promote(models, model, status["at"])
     _log_model(model, p, house, verdict)
+    message = house.credibility["message"]
+    if verdict.promote and verdict.settings_changed:
+        message = SETTINGS_CHANGED if message is None else f"{SETTINGS_CHANGED}; {message}"
     return {
         "outcome": "promoted" if verdict.promote else "kept_champion",
         "model": model,
@@ -761,14 +843,26 @@ def _learn(
         "ua_w_per_k": p.h_air_out,
         "ua_interval_90": None if house.ua_interval is None else list(house.ua_interval),
         "credible": house.credibility["credible"],
-        "message": house.credibility["message"],
+        "message": message,
         "validation": {
-            k: validation[k] for k in ("challenger_room_rmse_k", "champion_room_rmse_k", "rule")
+            k: validation[k]
+            for k in (
+                "challenger_room_rmse_k",
+                "champion_room_rmse_k",
+                "rule",
+                "settings_changed",
+            )
         },
     }
 
 
-def _load(history: Path, options: LearnOptions, roles: HistoryRoles, timer: Timer) -> _Loaded:
+def _load(
+    history: Path,
+    options: LearnOptions,
+    roles: HistoryRoles,
+    timer: Timer,
+    excluded: tuple[ev.Event, ...] = (),
+) -> _Loaded:
     """Load the fit span of 1 min history; raise :class:`NotReadyError` when it is too thin."""
     if roles.room is None:
         raise NotReadyError(["a room temperature signal (control_room_signal)"])
@@ -781,7 +875,13 @@ def _load(history: Path, options: LearnOptions, roles: HistoryRoles, timer: Time
     data = timer.run(
         "load",
         lambda: history_dataset(
-            history, roles, step=MINUTE, start=start, end=end, weather=options.weather
+            history,
+            roles,
+            step=MINUTE,
+            start=start,
+            end=end,
+            weather=options.weather,
+            excluded=excluded,
         ),
     )
     ds = data.dataset
@@ -793,11 +893,36 @@ def _load(history: Path, options: LearnOptions, roles: HistoryRoles, timer: Time
     return _Loaded(data, ds, days, folds)
 
 
-def _compare(ds: Dataset, fit: FitOutcome, models: Path, options: LearnOptions) -> _Verdict:
-    """Score the challenger and the champion on the latest test block and decide promotion."""
+def champion_constraints(champ: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Return the house settings the champion was fitted with (``{}`` for older models).
+
+    ``None`` without a champion.
+    """
+    if champ is None:
+        return None
+    payload = champ.get("house_payload")
+    provenance = payload.get("provenance") if isinstance(payload, Mapping) else None
+    recorded = provenance.get("constraints") if isinstance(provenance, Mapping) else None
+    return dict(recorded) if isinstance(recorded, Mapping) else {}
+
+
+def _compare(
+    ds: Dataset,
+    fit: FitOutcome,
+    models: Path,
+    options: LearnOptions,
+    constraints: Mapping[str, Any] | None = None,
+) -> _Verdict:
+    """Score the challenger and the champion on the latest test block and decide promotion.
+
+    The champion is re-scored on the newest held-out days of this run, so both errors
+    cover the same days.
+    """
     coarse = scoring_view(ds.coarsen(5))
     challenger = horizon_errors(coarse, fit.train_building, fit.split, fit.end)
     champ = store.champion(models)
+    recorded = champion_constraints(champ)
+    changed = recorded is not None and recorded != dict(constraints or {})
     champion_errors: HorizonErrors | None = None
     if champ is not None:
         try:
@@ -809,10 +934,20 @@ def _compare(ds: Dataset, fit: FitOutcome, models: Path, options: LearnOptions) 
             )
     challenger_err = _horizon(challenger)
     champion_err = None if champion_errors is None else _horizon(champion_errors)
-    promote, rule = decide_promotion(challenger_err, champion_err, options.tolerance_k)
+    promote, rule = decide_promotion(
+        challenger_err, champion_err, options.tolerance_k, settings_changed=changed
+    )
     LOGGER.info("promotion: %s (%s)", promote, rule)
     return _Verdict(
-        coarse, challenger, champ, champion_errors, challenger_err, champion_err, promote, rule
+        coarse,
+        challenger,
+        champ,
+        champion_errors,
+        challenger_err,
+        champion_err,
+        promote,
+        rule,
+        changed,
     )
 
 
@@ -825,12 +960,13 @@ def _house(
     ds: Dataset,
     fit: FitOutcome,
     promote: bool,
+    excluded: tuple[ev.Event, ...] = (),
 ) -> _House:
     """Return the energy signature, its credibility, the house score and the curve proposal."""
     p = fit.building
     ua = p.h_air_out
     sig, sig_days, excluded_days, sig_extra = timer.run(
-        "signature", lambda: _signature(history, roles, options.weather, ua, options)
+        "signature", lambda: _signature(history, roles, options.weather, ua, options, excluded)
     )
     credibility = _credibility(sig, sig_days)
     floor = options.floor_area_m2
@@ -876,9 +1012,16 @@ def _provenance(
     fit: FitOutcome,
     options: LearnOptions,
     generated: str,
+    settings: HouseSettings | None = None,
 ) -> dict[str, Any]:
-    """Return where the model came from: data span, configuration, code and method."""
+    """Return where the model came from: data span, configuration, code and method.
+
+    ``constraints`` are the owner's fact and bound settings that shaped the fit,
+    ``told`` the rough values the facts imply, ``learning`` the learning options in
+    force with the days the owner left out.
+    """
     ds = loaded.ds
+    learning = None if settings is None else settings.learning
     return {
         "history": str(history),
         "data_from": iso(ds.grid.start),
@@ -893,6 +1036,15 @@ def _provenance(
         "bootstrap": options.bootstrap,
         "folds": loaded.folds,
         "generated": generated,
+        "constraints": {} if settings is None else dict(settings.constraints),
+        "told": None if settings is None else told_json(settings.told),
+        "learning": {
+            "fit_days": options.fit_days,
+            "test_days": options.test_days,
+            "tolerance_k": options.tolerance_k,
+            "excluded_days": [] if learning is None else list(learning.excluded_days),
+            "excluded_days_in_fit": sum(1 for e in ds.events if e.kind == ev.EXCLUDED_DAY),
+        },
         "notes": loaded.data.notes,
     }
 
@@ -915,6 +1067,7 @@ def _validation(
         "champion": verdict.champion_name,
         "promoted": verdict.promote,
         "rule": verdict.rule,
+        "settings_changed": verdict.settings_changed,
         "tolerance_k": options.tolerance_k,
         "challenger": _horizons_json(verdict.challenger),
         "champion_horizons": None if champion_errors is None else _horizons_json(champion_errors),
@@ -997,6 +1150,7 @@ def _insight(
             "fit_days": provenance["fit_days"],
             "signature_days": house.sig_days,
             "excluded_days": house.excluded_days,
+            "owner_excluded_days": provenance["learning"]["excluded_days"],
         },
         "ua": {
             "w_per_k": round(p.h_air_out, 1),
@@ -1029,6 +1183,7 @@ def _insight(
                 "champion",
                 "promoted",
                 "rule",
+                "settings_changed",
             )
         },
         "error_trend": trend,

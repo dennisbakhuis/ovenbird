@@ -45,24 +45,27 @@ env BASE_URL=http://127.0.0.1:5198 npx playwright test
 chosen per browser with the cookie `ovenbird_mock`, `key:value` pairs joined by dots (for
 example `pump:defrost.weather:stale`):
 
-| Key            | Values                                                                                 |
-| -------------- | -------------------------------------------------------------------------------------- |
-| `pump`         | `heating`, `idle`, `defrost`, `dhw`                                                    |
-| `quiet`        | `on`, `off`                                                                            |
-| `weather`      | `off`, `stale`                                                                         |
-| `pumpsettings` | `missing` (GET `pump/settings` answers 404)                                            |
-| `alarms`       | `none`, `critical`                                                                     |
-| `room`         | `stale`                                                                                |
-| `stove`        | `active` (automatic episode), `manual`, `waiting` (detection waits), `disabled`        |
-| `mode`         | `shadow` (Shadow, another controller writes the pump 2 K above ovenbird), `paused`     |
-| `hold`         | `latched`, `timed`                                                                     |
-| `house`        | `learning` (200 with `state`), `notrun`, `noarea` (no floor area), `uncredible`        |
-| `learner`      | `running`, `unavailable` (no built-in learner), `failed`, `disabled`                   |
-| `notify`       | `off` (no ntfy), `failing` (last test failed, watchdog unhealthy)                      |
-| `snapshot`     | `none` (no go-live snapshot yet)                                                       |
-| `envelope`     | `proven` (rule seen acting), `none` (not declared); default: declared                  |
-| `newapi`       | `missing` (every endpoint added in UI wave 3 answers 404, like an older service)       |
-| `tag`          | any `[a-z0-9]{1,12}`: keys the manual stove request, so parallel tests do not share it |
+| Key            | Values                                                                                                                                        |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pump`         | `heating`, `idle`, `defrost`, `dhw`                                                                                                           |
+| `quiet`        | `on`, `off`                                                                                                                                   |
+| `weather`      | `off`, `stale`                                                                                                                                |
+| `pumpsettings` | `missing` (GET `pump/settings` answers 404)                                                                                                   |
+| `alarms`       | `none`, `critical`                                                                                                                            |
+| `room`         | `stale`                                                                                                                                       |
+| `stove`        | `active` (automatic episode), `manual`, `waiting` (detection waits), `disabled`                                                               |
+| `mode`         | `shadow` (Shadow, another controller writes the pump 2 K above ovenbird), `paused`                                                            |
+| `hold`         | `latched`, `timed`                                                                                                                            |
+| `house`        | `learning` (200 with `state`), `notrun`, `noarea` (no floor area), `uncredible`, `facts` (facts, a heat-loss limit and a left-out day stored) |
+| `learner`      | `running`, `unavailable` (no built-in learner), `failed`, `disabled`                                                                          |
+| `notify`       | `off` (no ntfy), `failing` (last test failed, watchdog unhealthy)                                                                             |
+| `snapshot`     | `none` (no go-live snapshot yet)                                                                                                              |
+| `envelope`     | `proven` (rule seen acting), `none` (not declared); default: declared                                                                         |
+| `newapi`       | `missing` (every endpoint added in UI wave 3 answers 404, like an older service)                                                              |
+| `tag`          | any `[a-z0-9]{1,12}`: keys the manual stove request, so parallel tests do not share it                                                        |
+
+The mock keeps the configuration (stored values and versions) per scenario cookie; without a
+cookie it is shared.
 
 `GET /__frame?route=home` shows the app in an ingress-style iframe (Home Assistant sidebar and
 toolbar stand-in). `#/dev-charts` is the chart-kit gallery (mock mode only).

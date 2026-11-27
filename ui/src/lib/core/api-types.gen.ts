@@ -1823,6 +1823,7 @@ export interface components {
       | 'enum'
       | 'curve'
       | 'windows'
+      | 'dates'
       | 'list'
       | 'secret'
       | 'signal'

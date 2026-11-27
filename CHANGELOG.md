@@ -23,6 +23,23 @@ All notable changes to this project are documented here. The format follows
 - House page tabs (Overview, Model, Learning), a run card with the learner's state, next
   scheduled run and Run now, and a learning timeline of the models so far.
 - House in the desktop navigation, with Settings as an icon.
+- House facts as starting points for the model: build period, share of floor heating,
+  occupants, heated volume, window area and orientation (`house_build_period`,
+  `house_floor_heating_share`, `house_occupants`, `house_volume_m3`, `house_window_area_m2`,
+  `house_window_orientation`). The measurements overrule them.
+- Pin or limit what the model learns: a minimum and maximum for the heat loss, the time
+  constant, the solar aperture and the internal gains (`house_ua_*`, `house_time_constant_*`,
+  `house_solar_aperture_*`, `house_internal_gain_*`); equal values pin the quantity. A
+  minimum above its maximum is refused (`house_bounds_order`). The next learner run applies it.
+- Learning settings: days to learn from and to test on, the tolerance for a new model and
+  the days to leave out (`house_learn_fit_days`, `house_learn_test_days`,
+  `house_learn_tolerance_k`, `house_learn_excluded_days`; `house_fit_days_short`,
+  `date_format`, `date_future`, `date_repeated`). Days can also be left out from the
+  room-error chart on the House page.
+- The house settings can be edited on the House page (facts on Overview, limits on Model,
+  learning settings on Learning) through the same review-and-apply bar as Settings, which
+  now also shows on the House page. The settings are in three groups, `house`,
+  `house_bounds` and `house_learning`.
 
 ### Changed
 

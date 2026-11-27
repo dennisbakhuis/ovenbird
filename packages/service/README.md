@@ -331,7 +331,9 @@ about 11 s of CPU and 240 MB), one run at a time, with a 30 minute timeout and a
 memory cap. It runs every `house_learn_interval_h` (168 by default) between 02:00 and
 05:00 in `control_timezone`, and on request through `POST api/v1/insight/house/run` (the
 House page's Run now). `house_learn_enabled` off stops the schedule and keeps Run now. A
-service installed without the extra answers `learner_unavailable`. The child runs as the
+service installed without the extra answers `learner_unavailable`. Every `house_*` setting
+(facts about the house, bounds on the learned values, fit and test days, tolerance, left-out
+days) reaches the learner through `learner-config.json`; a change applies at its next run. The child runs as the
 service's user, so it sees the whole data directory.
 
 The separate learner container (root `Dockerfile` target `learner`) remains for an

@@ -30,6 +30,7 @@ from ovenbird.history import HistoryDatabase, Sample, SampleKind, open_history  
 from ovenbird.history.database import HEAT_SIGNAL  # noqa: E402
 from ovenbird.history.forecast import ForecastRow, write_forecast  # noqa: E402
 from ovenbird.history.journal import AlarmRow, write_journal  # noqa: E402
+from ovenbird.insight.house import checked_insight  # noqa: E402
 
 T0 = datetime(2026, 11, 10, tzinfo=UTC).timestamp()
 ROOM = "ha/sensor.living_temperature"
@@ -363,3 +364,151 @@ def test_champion_challenger_files(
     assert kept["validation"]["promoted"] is True
     trend = json.loads((models / "insight-20261111-2.json").read_text())["error_trend"]
     assert [t["model"] for t in trend] == ["house-20261111", "house-20261111-2"]
+
+
+def test_owner_excluded_days_are_masked_and_listed(history_db: Path) -> None:
+    days = ev.excluded_days(["2026-11-10", "2026-11-10"], TZ)
+    assert len(days) == 1
+    ds = history_dataset(history_db, ROLES, step=60, excluded=days).dataset
+    owner = [e for e in ds.events if e.kind == ev.EXCLUDED_DAY]
+    assert len(owner) == 1
+    assert (owner[0].start, owner[0].end) == (T0 - 3600.0, T0 + 23 * 3600.0)
+    assert owner[0].tail_end == owner[0].end
+    assert [e.kind for e in ds.events] == [ev.EXCLUDED_DAY, ev.STOVE_MODE]
+    mask = ds.event_mask()
+    assert mask[minute(ds, 10 * 3600)]
+    assert not mask[minute(ds, 23 * 3600 + 120)]
+    assert mask[minute(ds, 31 * 3600)]
+    payload = owner[0].to_json(TZ)
+    assert payload["kind"] == "excluded_day"
+    assert payload["start_local"] == "2026-11-10T00:00+01:00"
+    assert payload["end_local"] == payload["tail_end_local"] == "2026-11-11T00:00+01:00"
+    assert payload["hours"] == payload["excluded_hours"] == 24.0
+    assert payload["peak_k"] is None
+    assert "house_learn_excluded_days" in str(payload["reason"])
+    assert set(payload) == set(ds.events[1].to_json(TZ))
+    scored = run.scoring_view(ds.coarsen(5))
+    room = scored.col("room")
+    assert not np.isfinite(room[round(10 * 3600 / 300)])
+    assert np.isfinite(room[round(26 * 3600 / 300)])
+
+
+def test_excluded_day_spans_a_daylight_saving_change() -> None:
+    (spring,) = ev.excluded_days(["2026-03-29"], TZ)
+    assert spring.hours == 23.0
+    with pytest.raises(ValueError, match="month"):
+        ev.excluded_days(["2026-13-01"], TZ)
+
+
+def test_invalid_house_settings_stop_the_run(
+    history_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def never(*args: Any) -> run.FitOutcome:
+        raise AssertionError("no fit with invalid settings")
+
+    monkeypatch.setattr(run, "_fit", never)
+    config = CONFIG | {"house_ua_min_w_per_k": 900.0, "house_ua_max_w_per_k": 300.0}
+    status = run.learn(history_db, config, tmp_path / "models")
+    assert status["outcome"] == "failed"
+    assert status["setting"] == "house_ua_min_w_per_k"
+    assert "house_ua_min_w_per_k" in status["error"]
+    assert "house_ua_max_w_per_k" in status["error"]
+    written = json.loads((tmp_path / "models" / store.STATUS).read_text())
+    assert written["outcome"] == "failed"
+
+
+FACTS = {
+    "house_build_period": "1975_1991",
+    "house_occupants": 2,
+    "house_window_area_m2": 20.0,
+    "house_ua_max_w_per_k": 400.0,
+    "house_learn_excluded_days": ["2026-11-10"],
+}
+
+
+def test_changed_house_settings_promote_a_worse_model(
+    history_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    models = tmp_path / "models"
+    split, end = T0 + 86400.0, T0 + 2 * 86400.0
+    monkeypatch.setattr(run, "_readiness", lambda ds, options: [])
+    seen: list[Any] = []
+
+    def fit(ds: Any, data: Any, options: Any, full: bool) -> run.FitOutcome:
+        seen.append((options.priors, [e.kind for e in ds.events]))
+        return fake_fit(split, end)
+
+    monkeypatch.setattr(run, "_fit", fit)
+    challenger_errors = iter([errors(0.40), errors(0.50), errors(0.50)])
+    champion_errors = iter([errors(0.40), errors(0.40)])
+
+    def horizons(coarse: Any, p: BuildingParams, start: float, stop: float) -> HorizonErrors:
+        if (start, stop) != (split, end):
+            return errors(0.3)
+        return next(challenger_errors) if p is PARAMS else next(champion_errors)
+
+    monkeypatch.setattr(run, "horizon_errors", horizons)
+    first = run.learn(history_db, CONFIG, models)
+    assert first["outcome"] == "promoted"
+    assert first["validation"]["settings_changed"] is False
+    house = json.loads((models / "house-20261111.json").read_text())
+    assert house["provenance"]["constraints"] == {}
+
+    told = CONFIG | FACTS
+    second = run.learn(history_db, told, models)
+    assert second["outcome"] == "promoted", second
+    assert second["message"].startswith(run.SETTINGS_CHANGED)
+    validation = second["validation"]
+    assert validation["settings_changed"] is True
+    assert validation["rule"].startswith(run.SETTINGS_CHANGED)
+    assert (validation["challenger_room_rmse_k"], validation["champion_room_rmse_k"]) == (
+        0.50,
+        0.40,
+    )
+    priors, kinds = seen[-1]
+    assert priors.params["h_air_out"].upper == 400.0
+    assert ev.EXCLUDED_DAY in kinds
+    insight = json.loads((models / "insight-20261111.json").read_text())
+    provenance = insight["provenance"]
+    assert provenance["constraints"] == {
+        "house_floor_area_m2": 130.0,
+        "house_build_period": "1975_1991",
+        "house_window_area_m2": 20.0,
+        "house_occupants": 2,
+        "house_ua_max_w_per_k": 400.0,
+    }
+    assert provenance["told"] == {
+        "ua_w_per_k": pytest.approx(130.0 * 2.0434, abs=0.2),
+        "solar_aperture_m2": 3.9,
+        "internal_gain_w": 280.0,
+    }
+    assert provenance["learning"]["excluded_days"] == ["2026-11-10"]
+    assert provenance["learning"]["excluded_days_in_fit"] == 1
+    assert (provenance["learning"]["fit_days"], provenance["learning"]["test_days"]) == (60.0, 14)
+    assert insight["data"]["owner_excluded_days"] == ["2026-11-10"]
+    assert "2026-11-10" in insight["data"]["excluded_days"]
+    owner = [e for e in insight["events"] if e["kind"] == ev.EXCLUDED_DAY]
+    assert [e["start_local"] for e in owner] == ["2026-11-10T00:00+01:00"]
+    assert insight["validation"]["settings_changed"] is True
+    stored = json.loads((models / "house-20261111.json").read_text())
+    assert stored["provenance"]["constraints"] == provenance["constraints"]
+    served = checked_insight(insight)
+    assert served["provenance"]["constraints"] == provenance["constraints"]
+    assert served["provenance"]["told"] == provenance["told"]
+    assert served["data"]["owner_excluded_days"] == ["2026-11-10"]
+
+    third = run.learn(history_db, told, models)
+    assert third["outcome"] == "kept_champion", third
+    assert third["validation"]["settings_changed"] is False
+
+
+def test_constraint_promotion_rule() -> None:
+    promote, rule = run.decide_promotion(0.9, 0.4, settings_changed=True)
+    assert promote
+    assert "0.900 K" in rule
+    assert "0.400 K" in rule
+    assert run.decide_promotion(math.nan, 0.4, settings_changed=True)[0] is False
+    assert run.decide_promotion(0.9, None, settings_changed=True)[0] is True
+    assert run.decide_promotion(0.9, 0.4)[0] is False
+    assert run.champion_constraints(None) is None
+    assert run.champion_constraints({"house_payload": {"provenance": {}}}) == {}

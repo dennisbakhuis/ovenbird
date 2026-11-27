@@ -1,14 +1,30 @@
 import json
-from dataclasses import replace
+import math
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from ovenbird_core.housefacts import HouseFacts, estimate
 from ovenbird_sim.data.dataset import Dataset
 from ovenbird_sim.data.synthetic import simulated_dataset
 from ovenbird_sim.identify import io
-from ovenbird_sim.identify.building import FitConfig, Windows, fit_building, internal_gains
+from ovenbird_sim.identify.building import (
+    BOUNDS,
+    LIN_FIELDS,
+    LOG_FIELDS,
+    PRIOR_MEAN,
+    PRIOR_SD,
+    BuildingFit,
+    FitConfig,
+    ParamPrior,
+    Priors,
+    Windows,
+    bootstrap_building,
+    fit_building,
+    internal_gains,
+)
 from ovenbird_sim.identify.heatpump import (
     check_warmup,
     fit_capacity,
@@ -22,6 +38,7 @@ from ovenbird_sim.identify.pipeline import IdentifyOptions, identify_dataset
 from ovenbird_sim.identify.switching import BaseSignals, StartPhaseFit, analyse_switching
 from ovenbird_sim.identify.validate import plant_days
 from ovenbird_sim.insight.signature import DailyData, energy_signature
+from ovenbird_sim.learn.priors import HouseBounds, build_priors, house_settings
 from ovenbird_sim.model.building import BuildingParams, simulate_batch
 from ovenbird_sim.model.heatpump import HeatPumpParams
 from ovenbird_sim.model.plant import PlantParams, PlantState
@@ -323,3 +340,122 @@ def test_identify_dataset_pipeline_runs_on_a_synthetic_recording() -> None:
     report = json.loads(json.dumps(payload))
     assert {"data", "derived", "events"} <= report.keys()
     assert report["data"]["days"] == pytest.approx(8, abs=1)
+
+
+HELD = FitConfig(
+    fixed=("q_int_modulation", "q_int_peak_hour", "solar_mass_fraction", "h_water_air")
+)
+START = BuildingParams(h_water_air=60.0, solar_mass_fraction=0.3)
+
+
+@pytest.fixture(scope="module")
+def windows() -> Windows:
+    win, _ = _windows(TRUE_BUILDING, days=12, noise=0.05)
+    return win
+
+
+@pytest.fixture(scope="module")
+def free_fit(windows: Windows) -> BuildingFit:
+    return fit_building(windows, HELD, start=START)
+
+
+def bounds(**ranges: tuple[float | None, float | None]) -> HouseBounds:
+    names = {
+        "ua": "house_ua_min_w_per_k",
+        "tau": "house_time_constant_min_h",
+        "solar": "house_solar_aperture_min_m2",
+        "gains": "house_internal_gain_min_w",
+    }
+    return HouseBounds({names[k]: v for k, v in ranges.items()})
+
+
+def priors_of(facts: HouseFacts | None = None, limits: HouseBounds | None = None) -> Priors:
+    return build_priors(facts or HouseFacts(), limits or HouseBounds())[0]
+
+
+def test_defaults_reproduce_todays_fit_exactly(windows: Windows, free_fit: BuildingFit) -> None:
+    rebuilt = Priors(
+        {
+            n: ParamPrior(PRIOR_MEAN[n], PRIOR_SD[n], BOUNDS[n][0], BOUNDS[n][1])
+            for n in (*LOG_FIELDS, *LIN_FIELDS)
+        }
+    )
+    for priors in (rebuilt, priors_of(), house_settings({}).priors):
+        fit = fit_building(windows, HELD, start=START, priors=priors)
+        assert asdict(fit.params) == asdict(free_fit.params)
+        assert np.array_equal(fit.t_mass0, free_fit.t_mass0)
+        assert fit.cost == free_fit.cost
+
+
+def test_pinned_ua_is_kept_and_the_rest_still_moves(
+    windows: Windows, free_fit: BuildingFit
+) -> None:
+    priors = priors_of(limits=bounds(ua=(200.0, 200.0)))
+    assert priors.pinned == {"h_air_out": 200.0}
+    fit = fit_building(windows, HELD, start=START, priors=priors)
+    assert fit.params.h_air_out == 200.0
+    assert fit.params.q_int_w != pytest.approx(free_fit.params.q_int_w, rel=0.05)
+    assert fit.params.c_air != pytest.approx(START.c_air, rel=0.05)
+    assert fit.rmse_room > free_fit.rmse_room
+
+
+def test_ua_range_is_respected_at_the_bound(windows: Windows, free_fit: BuildingFit) -> None:
+    assert free_fit.params.h_air_out > 250.0
+    priors = priors_of(limits=bounds(ua=(None, 220.0)))
+    assert priors.params["h_air_out"] == ParamPrior(200.0, math.log(5.0), 30.0, 220.0)
+    fit = fit_building(windows, HELD, start=START, priors=priors)
+    assert fit.params.h_air_out <= 220.0 * (1 + 1e-9)
+    assert fit.params.h_air_out == pytest.approx(220.0, rel=0.01)
+
+
+def test_time_constant_range_and_pin(windows: Windows, free_fit: BuildingFit) -> None:
+    tau = free_fit.params.time_constant_h
+    assert tau > 65.0
+    ranged = fit_building(
+        windows, HELD, start=START, priors=priors_of(limits=bounds(tau=(30.0, 55.0)))
+    )
+    assert ranged.params.time_constant_h <= 55.0 * 1.03
+    assert ranged.params.time_constant_h >= 30.0
+    pinned = fit_building(
+        windows, HELD, start=START, priors=priors_of(limits=bounds(tau=(100.0, 100.0)))
+    )
+    assert pinned.params.time_constant_h == pytest.approx(100.0, rel=0.03)
+    loose = fit_building(
+        windows, HELD, start=START, priors=priors_of(limits=bounds(tau=(20.0, 200.0)))
+    )
+    assert loose.params.h_air_out == pytest.approx(free_fit.params.h_air_out, rel=1e-4)
+    assert loose.params.time_constant_h == pytest.approx(tau, rel=1e-4)
+
+
+def test_bootstrap_replicates_apply_the_constraints(windows: Windows) -> None:
+    priors = priors_of(limits=bounds(ua=(250.0, 250.0), tau=(None, 60.0)))
+    point = fit_building(windows, HELD, start=START, priors=priors)
+    boot = bootstrap_building(windows, point, 2, HELD, seed=1, priors=priors)
+    assert [p.h_air_out for p in boot.samples] == [250.0, 250.0]
+    assert all(p.time_constant_h <= 60.0 * 1.03 for p in boot.samples)
+
+
+@pytest.mark.parametrize("factor", [2.0, 0.5])
+def test_wrong_facts_by_a_factor_two_are_overruled(
+    windows: Windows, free_fit: BuildingFit, factor: float
+) -> None:
+    true_ua = TRUE_BUILDING.h_air_out
+    area = true_ua * factor / 2.043
+    facts = HouseFacts(
+        floor_area_m2=area,
+        build_period="1975_1991",
+        window_area_m2=TRUE_BUILDING.solar_aperture_m2 * factor / (1.1 * 0.3),
+        window_orientation="south",
+        occupants=round((TRUE_BUILDING.q_int_w * factor - 120.0) / 80.0),
+    )
+    told = estimate(facts)
+    assert told.ua_w_per_k == pytest.approx(true_ua * factor, rel=0.01)
+    fit = fit_building(windows, HELD, start=START, priors=priors_of(facts))
+    p = fit.params
+    assert p.h_air_out == pytest.approx(true_ua, rel=0.1)
+    assert p.c_water == pytest.approx(TRUE_BUILDING.c_water, rel=0.15)
+    assert p.h_water_mass == pytest.approx(TRUE_BUILDING.h_water_mass, rel=0.15)
+    assert p.time_constant_h == pytest.approx(TRUE_BUILDING.time_constant_h, rel=0.25)
+    assert p.solar_aperture_m2 == pytest.approx(TRUE_BUILDING.solar_aperture_m2, rel=0.1)
+    assert p.q_int_w == pytest.approx(free_fit.params.q_int_w, rel=0.25)
+    assert fit.rmse_room < 0.05

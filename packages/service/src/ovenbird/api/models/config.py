@@ -21,6 +21,7 @@ type FieldTypeName = Literal[
     "enum",
     "curve",
     "windows",
+    "dates",
     "list",
     "secret",
     "signal",

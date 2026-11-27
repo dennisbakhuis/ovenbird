@@ -17,13 +17,19 @@ Using the measured heat as input sidesteps the pump's switching logic, but the d
 are closed loop: the recorded controller raises the water setpoint when the room cools, so the heat
 input is correlated with unmodelled room disturbances, which can bias the envelope
 conductance. Uncertainty is quantified by refitting on day-block bootstrap samples.
+
+The priors and bounds are the module constants (:data:`DEFAULT_PRIORS`) unless a
+:class:`Priors` is passed; it can shift a prior mean or tighten its spread (facts the
+owner states), narrow a parameter's bounds within the hard ones, pin a parameter
+(held at the value, through the same mechanism as :attr:`FitConfig.fixed`) or bound
+the slowest time constant, a derived quantity (see :func:`fit_building`).
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
-from dataclasses import dataclass, fields
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field, fields, replace
 
 import numpy as np
 from numpy.typing import NDArray
@@ -87,6 +93,135 @@ PRIOR_SD: dict[str, float] = {
     "q_int_peak_hour": 6.0,
 }
 NUISANCE_BOUNDS = (5.0, 45.0)
+TAU_PENALTY_SCALE = 0.02
+TAU_TOLERANCE = 0.02
+TAU_TIGHTENING = 10.0
+TAU_ROUNDS = 3
+START_MARGIN = 0.02
+PIN_RELATIVE = 1e-6
+
+
+class ConstraintError(ValueError):
+    """A bound or pin that cannot hold within the model's hard bounds."""
+
+
+@dataclass(frozen=True, slots=True)
+class ParamPrior:
+    """Prior and bounds of one fitted parameter.
+
+    Parameters
+    ----------
+    mean
+        Prior mean in the parameter's own unit.
+    sd
+        Prior spread in the fit's space: of the natural log for :data:`LOG_FIELDS`
+        (``log(5)``: a factor of five), in the unit for :data:`LIN_FIELDS`.
+    lower, upper
+        Bounds in the parameter's own unit.
+    """
+
+    mean: float
+    sd: float
+    lower: float
+    upper: float
+
+
+@dataclass(frozen=True, slots=True)
+class Priors:
+    """What the fit believes before the data, and what it must respect.
+
+    Parameters
+    ----------
+    params
+        Prior and bounds of every capacity, conductance, solar and gains parameter.
+    pinned
+        Parameters held at a value (not fitted; no prior term).
+    time_constant_h
+        Range of the slowest time constant in hours (``lower == upper``: pinned), or
+        ``None``. It is a property of several parameters together, so it is enforced
+        by a penalty (see :func:`fit_building`), not by bounds.
+    """
+
+    params: Mapping[str, ParamPrior]
+    pinned: Mapping[str, float] = field(default_factory=dict)
+    time_constant_h: tuple[float, float] | None = None
+
+    def with_prior(self, name: str, mean: float, sd: float) -> Priors:
+        """Return a copy with the prior mean and spread of ``name`` replaced.
+
+        The mean is moved inside the parameter's bounds.
+        """
+        old = self.params[name]
+        inside = min(max(mean, old.lower), old.upper)
+        return replace(self, params={**self.params, name: replace(old, mean=inside, sd=sd)})
+
+    def restricted(self, name: str, lower: float | None, upper: float | None) -> Priors:
+        """Return a copy with ``name`` bounded to ``[lower, upper]`` within its current bounds.
+
+        A side given as ``None`` keeps the current bound; equal sides (within a
+        relative ``1e-6``) pin the parameter.
+
+        Raises
+        ------
+        ConstraintError
+            When the range does not overlap the current bounds or ``lower > upper``.
+        """
+        old = self.params[name]
+        lo = old.lower if lower is None else max(old.lower, lower)
+        hi = old.upper if upper is None else min(old.upper, upper)
+        if lower is not None and upper is not None and lower > upper:
+            raise ConstraintError(f"{name}: lower bound {lower:g} above upper bound {upper:g}")
+        if lo > hi:
+            raise ConstraintError(
+                f"{name}: the range [{_side(lower)}, {_side(upper)}] lies outside the "
+                f"model's bounds [{old.lower:g}, {old.upper:g}]"
+            )
+        if hi - lo <= PIN_RELATIVE * max(abs(lo), abs(hi), 1.0):
+            return self.pin(name, 0.5 * (lo + hi))
+        return replace(self, params={**self.params, name: replace(old, lower=lo, upper=hi)})
+
+    def pin(self, name: str, value: float) -> Priors:
+        """Return a copy with ``name`` held at ``value``.
+
+        Raises
+        ------
+        ConstraintError
+            When ``value`` lies outside the parameter's bounds.
+        """
+        old = self.params[name]
+        if not old.lower <= value <= old.upper:
+            raise ConstraintError(
+                f"{name}: {value:g} lies outside the model's bounds [{old.lower:g}, {old.upper:g}]"
+            )
+        return replace(self, pinned={**self.pinned, name: value})
+
+    def with_time_constant(self, lower: float | None, upper: float | None) -> Priors:
+        """Return a copy with the slowest time constant kept within ``[lower, upper]`` hours.
+
+        Raises
+        ------
+        ConstraintError
+            When a side is not positive or ``lower > upper``.
+        """
+        lo = 0.0 if lower is None else lower
+        hi = math.inf if upper is None else upper
+        if (lower is not None and not lower > 0) or (upper is not None and not upper > 0):
+            raise ConstraintError("time constant: bounds must be positive")
+        if lo > hi:
+            raise ConstraintError(f"time constant: lower bound {lo:g} h above upper bound {hi:g} h")
+        return replace(self, time_constant_h=(lo, hi))
+
+
+def _side(value: float | None) -> str:
+    return "-" if value is None else f"{value:g}"
+
+
+DEFAULT_PRIORS = Priors(
+    {
+        name: ParamPrior(PRIOR_MEAN[name], PRIOR_SD[name], *BOUNDS[name])
+        for name in (*LOG_FIELDS, *LIN_FIELDS)
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,10 +446,15 @@ def _first_finite(rows: NDArray[np.float64]) -> FloatArray:
     return out
 
 
+def _fit_space(name: str, value: float) -> float:
+    return math.log(value) if name in LOG_FIELDS else value
+
+
 @dataclass(frozen=True, slots=True)
 class _Layout:
     free: tuple[str, ...]
     base: BuildingParams
+    priors: Priors = DEFAULT_PRIORS
 
     def unpack(self, theta: FloatArray) -> BuildingParams:
         values = {f.name: getattr(self.base, f.name) for f in fields(self.base)}
@@ -329,16 +469,38 @@ class _Layout:
         )
 
     def bounds(self) -> tuple[FloatArray, FloatArray]:
-        lo = [math.log(BOUNDS[n][0]) if n in LOG_FIELDS else BOUNDS[n][0] for n in self.free]
-        hi = [math.log(BOUNDS[n][1]) if n in LOG_FIELDS else BOUNDS[n][1] for n in self.free]
+        lo = [_fit_space(n, self.priors.params[n].lower) for n in self.free]
+        hi = [_fit_space(n, self.priors.params[n].upper) for n in self.free]
         return np.array(lo), np.array(hi)
+
+    def narrowed(self) -> NDArray[np.bool_]:
+        return np.array(
+            [
+                (self.priors.params[n].lower, self.priors.params[n].upper) != BOUNDS[n]
+                for n in self.free
+            ],
+            dtype=np.bool_,
+        )
 
     def prior(self, theta: FloatArray) -> FloatArray:
         out = np.empty(len(self.free))
         for i, name in enumerate(self.free):
-            mean = math.log(PRIOR_MEAN[name]) if name in LOG_FIELDS else PRIOR_MEAN[name]
-            out[i] = (theta[i] - mean) / PRIOR_SD[name]
+            prior = self.priors.params[name]
+            out[i] = (theta[i] - _fit_space(name, prior.mean)) / prior.sd
         return out
+
+
+def tau_excess(p: BuildingParams, limits: tuple[float, float]) -> float:
+    """Log distance of the slowest time constant outside ``limits`` (signed, 0 inside).
+
+    Positive above the upper limit, negative below the lower one.
+    """
+    tau = p.time_constant_h
+    log_tau = math.log(tau) if 0.0 < tau < math.inf else math.log(1e9)
+    lo, hi = limits
+    above = log_tau - math.log(hi) if hi < math.inf else 0.0
+    below = math.log(lo) - log_tau if lo > 0.0 else 0.0
+    return max(0.0, above) - max(0.0, below)
 
 
 def internal_gains(p: BuildingParams, hour: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -393,8 +555,30 @@ def fit_building(
     win: Windows,
     config: FitConfig = DEFAULT_FIT,
     start: BuildingParams | None = None,
+    priors: Priors | None = None,
 ) -> BuildingFit:
     """Fit the network to free-run windows.
+
+    Constraints of ``priors`` (the module constants when ``None``):
+
+    * a prior shifts the mean and spread of a parameter's Gaussian prior term; it
+      biases the fit only as much as the data leave the parameter undetermined;
+    * narrowed bounds replace the hard bounds of a parameter (the optimiser stays
+      inside them; a fitted value on a bound means the data wanted to go further);
+      the start value is moved just inside them;
+    * a pinned parameter is held at its value like :attr:`FitConfig.fixed` (no prior
+      term); the others are fitted around it, so a wrong pin moves its error into them;
+    * a time-constant range adds one residual, ``e / s`` with ``e`` the signed log
+      distance of the slowest time constant outside the range (:func:`tau_excess`, 0
+      inside) and ``s`` = :data:`TAU_PENALTY_SCALE`, computed from the candidate
+      parameters at every evaluation. Inside the range the fit is unchanged; outside,
+      the penalty grows quadratically in the cost. When the result still lies more
+      than :data:`TAU_TOLERANCE` (in log) outside, the fit is repeated from it with
+      ``s`` divided by :data:`TAU_TIGHTENING`, at most :data:`TAU_ROUNDS` fits in all.
+      The residual depends on the capacities and conductances only (global columns
+      of the sparse Jacobian, no nuisance column). The time constant is set by
+      several parameters together, so the fit chooses how to meet the range: the
+      data decide which capacities and conductances move.
 
     Parameters
     ----------
@@ -403,7 +587,10 @@ def fit_building(
     config
         Noise levels, budget and fixed fields.
     start
-        Start values (defaults to the prior means).
+        Start values (defaults to the module's prior means, also when ``priors``
+        moves them: a start at a wrong fact can end the fit in another local minimum).
+    priors
+        Priors, bounds, pins and the time-constant range.
 
     Returns
     -------
@@ -417,14 +604,24 @@ def fit_building(
     """
     if win.n == 0:
         raise ValueError("no usable windows to fit")
+    priors = DEFAULT_PRIORS if priors is None else priors
     base = start or BuildingParams()
-    free = tuple(n for n in (*LOG_FIELDS, *LIN_FIELDS) if n not in config.fixed)
-    layout = _Layout(free, base)
+    fixed = config.fixed
+    if priors.pinned:
+        base = base.replace(**priors.pinned)
+        fixed = (*fixed, *(n for n in priors.pinned if n not in fixed))
+    free = tuple(n for n in (*LOG_FIELDS, *LIN_FIELDS) if n not in fixed)
+    layout = _Layout(free, base, priors)
     n_g = len(free)
     room0 = _first_finite(win.y_room)
     water0 = _first_finite(win.y_water)
     theta0 = np.concatenate([layout.pack(base), np.clip(0.5 * (room0 + water0), *NUISANCE_BOUNDS)])
     lo_g, hi_g = layout.bounds()
+    narrowed = layout.narrowed()
+    if narrowed.any():
+        margin = START_MARGIN * (hi_g - lo_g)
+        inside = np.clip(theta0[:n_g], lo_g + margin, hi_g - margin)
+        theta0[:n_g] = np.where(narrowed, inside, theta0[:n_g])
     lo = np.concatenate([lo_g, np.full(win.n, NUISANCE_BOUNDS[0])])
     hi = np.concatenate([hi_g, np.full(win.n, NUISANCE_BOUNDS[1])])
     theta0 = np.clip(theta0, lo + 1e-9, hi - 1e-9)
@@ -432,16 +629,21 @@ def fit_building(
     mask_a = np.isfinite(win.y_room)
     y_w = np.nan_to_num(win.y_water)
     y_a = np.nan_to_num(win.y_room)
+    tau_limits = priors.time_constant_h
+    n_tau = 0 if tau_limits is None else 1
 
-    def residuals(theta: FloatArray) -> FloatArray:
+    def residuals(theta: FloatArray, tau_scale: float) -> FloatArray:
         p = layout.unpack(theta[:n_g])
         x = simulate_windows(p, win, theta[n_g:])
         rw = np.where(mask_w, (x[:, :, 0] - y_w) / config.sigma_water_k, 0.0)
         ra = np.where(mask_a, (x[:, :, 2] - y_a) / config.sigma_room_k, 0.0)
-        return np.concatenate([rw.ravel(), ra.ravel(), layout.prior(theta[:n_g])])
+        parts = [rw.ravel(), ra.ravel(), layout.prior(theta[:n_g])]
+        if tau_limits is not None:
+            parts.append(np.array([tau_excess(p, tau_limits) / tau_scale]))
+        return np.concatenate(parts)
 
     steps1 = win.y_water.shape[1]
-    n_res = 2 * win.n * steps1 + n_g
+    n_res = 2 * win.n * steps1 + n_g + n_tau
     sparsity = lil_matrix((n_res, n_g + win.n), dtype=np.int8)
     sparsity[:, :n_g] = 1
     for i in range(win.n):
@@ -450,15 +652,25 @@ def fit_building(
         sparsity[rows_w, n_g + i] = 1
         sparsity[rows_a, n_g + i] = 1
     sparsity[2 * win.n * steps1 :, n_g:] = 0
-    result = least_squares(
-        residuals,
-        theta0,
-        bounds=(lo, hi),
-        jac_sparsity=sparsity,
-        x_scale="jac",
-        method="trf",
-        max_nfev=config.max_nfev,
-    )
+    tau_scale = TAU_PENALTY_SCALE
+    rounds = 1 if tau_limits is None else TAU_ROUNDS
+    for _ in range(rounds):
+        result = least_squares(
+            residuals,
+            theta0,
+            bounds=(lo, hi),
+            jac_sparsity=sparsity,
+            x_scale="jac",
+            method="trf",
+            max_nfev=config.max_nfev,
+            args=(tau_scale,),
+        )
+        if tau_limits is None:
+            break
+        if abs(tau_excess(layout.unpack(result.x[:n_g]), tau_limits)) <= TAU_TOLERANCE:
+            break
+        theta0 = np.clip(result.x, lo + 1e-9, hi - 1e-9)
+        tau_scale /= TAU_TIGHTENING
     params = layout.unpack(result.x[:n_g])
     x = simulate_windows(params, win, result.x[n_g:])
     rmse_w = float(np.sqrt(np.mean((x[:, :, 0] - win.y_water)[mask_w] ** 2)))
@@ -500,8 +712,13 @@ def bootstrap_building(
     replicates: int,
     config: FitConfig = DEFAULT_FIT,
     seed: int = 0,
+    priors: Priors | None = None,
 ) -> Bootstrap:
     """Refit on windows resampled with replacement (whole days as blocks).
+
+    Every replicate is fitted with the same ``priors`` (bounds, pins and the
+    time-constant range) as the point fit, so the intervals describe the
+    constrained model.
 
     Parameters
     ----------
@@ -515,6 +732,8 @@ def bootstrap_building(
         Fit settings (a smaller evaluation budget is fine with the warm start).
     seed
         Random seed (explicit for reproducibility).
+    priors
+        Priors and constraints of the point fit.
 
     Returns
     -------
@@ -525,6 +744,6 @@ def bootstrap_building(
     samples = []
     for _ in range(replicates):
         idx = rng.integers(0, win.n, win.n)
-        fit = fit_building(win.take(idx), config, start=point.params)
+        fit = fit_building(win.take(idx), config, start=point.params, priors=priors)
         samples.append(fit.params)
     return Bootstrap(tuple(samples))

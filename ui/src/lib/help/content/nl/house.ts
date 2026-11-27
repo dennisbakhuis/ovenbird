@@ -65,6 +65,48 @@ export const topic: HelpTopic = {
       body: 'De balken zijn de kamerfout per dag: hoe ver het model ernaast zat bij het voorspellen van de kamertemperatuur 24 u vooruit, op dagen waarop het niet is geleerd. Lager is beter. **Toon als tabel** geeft elke dag. Daaronder staan de periodes die zijn weggelaten, zoals houtkachelvuur, en op welke gegevens en met welke methode het model in gebruik is geleerd.',
       target: 'house.timeline',
     },
+    {
+      id: 'inputs',
+      kind: 'do',
+      title: 'Vertel wat je van het huis weet',
+      body: 'Bouwperiode, aandeel vloerverwarming, aantal bewoners, volume en ramen zijn **beginpunten** voor het model, geen feiten die het moet vasthouden. Het leerprogramma begint ermee, en als de metingen anders zeggen gaan de metingen voor. Vul in wat je weet en laat weg wat je niet weet. Zolang het model nog leert, is dit de kaart om in te vullen.\n\nWijzigingen gaan via de balk onderaan, zoals elke instelling, en gelden vanaf de volgende leerronde.',
+      steps: [
+        'Open **Wat je van het huis weet** op het tabblad Overzicht.',
+        'Vul een paar velden in.',
+        'Kies **Bekijken en toepassen** in de balk onderaan.',
+      ],
+      target: 'house.inputs',
+    },
+    {
+      id: 'bounds',
+      kind: 'do',
+      title: 'Geleerde waarden vastzetten of begrenzen',
+      body: 'Voor het warmteverlies, de tijdconstante, de zonopening en de interne warmtewinst kun je een minimum en een maximum instellen. De kaart toont ernaast wat er geleerd is, met het bereik van 90 %.\n\n**Vastzetten** is beide op hetzelfde getal zetten: het model gebruikt dan precies die waarde en jij **gaat boven de metingen**. Doe dat als je het beter weet, bijvoorbeeld met een warmteverlies uit een energieadvies. Eén kant alleen begrenst. De volgende leerronde past het toe.',
+      steps: [
+        'Open **Geleerde waarden vastzetten of begrenzen** op het tabblad Model.',
+        'Vul een minimum, een maximum of allebei in. Gelijke waarden zetten vast.',
+        'Kies **Bekijken en toepassen** en start een ronde op het tabblad Leren of wacht op de volgende.',
+      ],
+      target: 'house.bounds',
+    },
+    {
+      id: 'learning-settings',
+      kind: 'know',
+      title: 'Instellingen voor het leren',
+      body: 'Het tabblad Leren heeft een ingeklapte kaart met hoe het leerprogramma werkt: van hoeveel dagen het leert (21 tot 90, standaard 60), hoeveel recente dagen het apart houdt om een nieuw model te testen (7 tot 21, standaard 14), hoeveel slechter dan het model in gebruik een nieuw model mag zijn om toch gekozen te worden, en de dagen die het overslaat. De leerdagen moeten minstens 8 meer zijn dan de testdagen.',
+      target: 'house.learning',
+    },
+    {
+      id: 'leave-out',
+      kind: 'do',
+      title: 'Een dag overslaan',
+      body: "Sla een dag over als het huis niet zoals gewoonlijk werd bewoond: een vakantie, de hele dag open ramen, bezoek. Zo'n dag zou het model alleen op een dwaalspoor brengen. Kies in de grafiek met de kamerafwijking per dag een staaf om die dag over te slaan; kies hem opnieuw om hem weer mee te nemen. **Toon als tabel** heeft dezelfde knoppen, en de instellingen voor het leren bevatten de hele lijst.",
+      steps: [
+        'Open het tabblad **Leren** en zoek de kamerafwijking per dag.',
+        'Kies de staaf van de dag, of de knop in de tabel.',
+        'Kies **Bekijken en toepassen**. De volgende leerronde slaat de dag over.',
+      ],
+    },
   ],
   questions: [
     {

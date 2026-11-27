@@ -85,6 +85,9 @@ CUSTOM_CODES: Final = frozenset(
         "window_empty",
         "retention_min",
         "input_bounds",
+        "date_format",
+        "date_future",
+        "date_repeated",
     }
 )
 VALIDATION_ERRORS: Final = (
@@ -116,6 +119,8 @@ VALIDATION_ERRORS: Final = (
     "stove_reference_is_room",
     "signal_not_temperature",
     "min_above_max",
+    "house_bounds_order",
+    "house_fit_days_short",
     "curve_range",
     "outside_envelope",
     "integral_above_output",

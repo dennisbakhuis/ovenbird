@@ -25,6 +25,7 @@ from ovenbird_sim.identify.building import (
     Bootstrap,
     BuildingFit,
     FitConfig,
+    Priors,
     Windows,
     bootstrap_building,
     fit_building,
@@ -99,6 +100,11 @@ class IdentifyOptions:
     folds
         Rolling-origin validation folds: test blocks of ``test_days`` tiling the end
         of the data, each fitted on the days before it only.
+    priors
+        Priors and constraints of every building fit (the module constants when
+        ``None``). The emitter matching and the cycling calibration that follow a
+        free-run fit change the mass capacity and the water-to-mass conductance, so a
+        time-constant range holds for the free-run fits, not exactly for the result.
     """
 
     capture_name: str = "live"
@@ -108,6 +114,7 @@ class IdentifyOptions:
     seed: int = 0
     end: float | None = None
     folds: int = 1
+    priors: Priors | None = None
 
 
 DEFAULT_OPTIONS = IdentifyOptions()
@@ -433,6 +440,7 @@ def fit_matched_building(
     fit: HeatPumpFit,
     span: tuple[float, float],
     start: BuildingParams | None = None,
+    priors: Priors | None = None,
 ) -> tuple[BuildingFit, EmitterMatch | None]:
     """Free-run building fit with the emitter capacity tied to the off-period cooling.
 
@@ -460,13 +468,15 @@ def fit_matched_building(
         Span of the recording used, in unix seconds.
     start
         Warm start of the first free-run fit.
+    priors
+        Priors and constraints of the free-run fits.
 
     Returns
     -------
     BuildingFit, EmitterMatch or None
         The fit and the last emitter match.
     """
-    building = fit_building(windows, config, start=start)
+    building = fit_building(windows, config, start=start, priors=priors)
     hp = with_controller(fit.params, (fit.controller_candidates or (fit.controller,))[0])
     held = replace(config, fixed=(*config.fixed, *EMITTER_FIELDS))
     match: EmitterMatch | None = None
@@ -477,7 +487,7 @@ def fit_matched_building(
         )
         if abs(matched.c_mass / params.c_mass - 1.0) <= EMITTER_CONVERGED:
             break
-        building = fit_building(windows, held, start=matched)
+        building = fit_building(windows, held, start=matched, priors=priors)
     return building, match
 
 
@@ -545,6 +555,7 @@ def train_fold(
     split: float,
     end: float,
     config: FitConfig,
+    priors: Priors | None = None,
 ) -> Fold:
     """Fit on the data before ``split`` and score on ``[split, end)``."""
     burn_in = ds.grid.start + 86400.0
@@ -553,7 +564,13 @@ def train_fold(
     train_ds = ds.slice(0, n_train)
     train_hp = fit_heat_pump(train_ds, train_switch.start_fit, train_switch.start_phase)
     train_building, emitter = fit_matched_building(
-        make_windows(coarse, config, end=split), config, ds, coarse, train_hp, (burn_in, split)
+        make_windows(coarse, config, end=split),
+        config,
+        ds,
+        coarse,
+        train_hp,
+        (burn_in, split),
+        priors=priors,
     )
     horizons = horizon_errors(coarse, train_building.params, split, end)
     train_hp, train_b, train_cal = calibrate_cycling(
@@ -629,7 +646,8 @@ def identify_dataset(
     config = FitConfig()
     burn_in = ds.grid.start + 86400.0
     folds = tuple(
-        train_fold(ds, coarse, base, split, end, config) for split, end in fold_splits(ds, options)
+        train_fold(ds, coarse, base, split, end, config, options.priors)
+        for split, end in fold_splits(ds, options)
     )
     latest = folds[0]
 
@@ -637,13 +655,22 @@ def identify_dataset(
     hp_fit = fit_heat_pump(ds, switching.start_fit, switching.start_phase)
     windows = make_windows(coarse, config)
     building, emitter = fit_matched_building(
-        windows, config, ds, coarse, hp_fit, (burn_in, ds.grid.end), latest.building.params
+        windows,
+        config,
+        ds,
+        coarse,
+        hp_fit,
+        (burn_in, ds.grid.end),
+        latest.building.params,
+        options.priors,
     )
     hp_fit, final_b, final_cal = calibrate_cycling(
         hp_fit, building.params, ds, coarse, burn_in, ds.grid.end, emitter
     )
     boot = (
-        bootstrap_building(windows, building, options.bootstrap, EMITTER_HELD, options.seed)
+        bootstrap_building(
+            windows, building, options.bootstrap, EMITTER_HELD, options.seed, options.priors
+        )
         if options.bootstrap > 0
         else Bootstrap(())
     )
