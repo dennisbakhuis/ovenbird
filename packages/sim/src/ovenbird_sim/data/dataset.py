@@ -580,6 +580,7 @@ def finish(
     rooms: RoomRoles = EXAMPLE_ROOMS,
     extra_events: tuple[ev.Event, ...] = (),
     notes: Mapping[str, str] | None = None,
+    kept_events: tuple[ev.Event, ...] = (),
 ) -> Dataset:
     """Add the room composites, weather, fused outside, local hour and known events.
 
@@ -605,6 +606,9 @@ def finish(
         with the detected ones.
     notes
         Provenance notes to add.
+    kept_events
+        Known events kept as given, never merged with others (days the owner left
+        out, :func:`ovenbird_sim.data.events.excluded_days`).
 
     Returns
     -------
@@ -631,6 +635,8 @@ def finish(
     )
     columns["local_hour"] = local_hours(grid.edges, tz)
     known = ev.merge((*ev.detect(columns, grid.mids, rooms.references), *extra_events))
+    if kept_events:
+        known = tuple(sorted((*known, *kept_events), key=lambda e: e.start))
     flags["event"] = ev.mask(grid.mids, known)
     out_notes = {
         "built": datetime.now(UTC).isoformat(timespec="seconds"),

@@ -5,6 +5,7 @@ export type Lookup = (key: string, params: Record<string, string | number>) => s
 
 const BOUND_CODES = new Set(['below_min', 'above_max', 'below_soft_min', 'above_soft_max']);
 const BOUNDS = ['min', 'max', 'soft_min', 'soft_max'] as const;
+const FIELD_PARAMS = ['min_field', 'max_field'] as const;
 
 function plain(value: unknown): string | number | null {
   if (typeof value === 'number') return Math.round(value * 100) / 100;
@@ -38,17 +39,19 @@ export function issueParams(
 }
 
 /**
- * Human text for a validation issue from its code and params, falling back to the server's
- * English message and finally the code.
+ * Human text for a validation issue from its code and params (a field named in `min_field` or
+ * `max_field` shows as its label), falling back to the server's English message and finally the
+ * code.
  */
 export function issueText(
   issue: Pick<ValidationIssue, 'code' | 'message'> & Partial<Pick<ValidationIssue, 'params'>>,
   def: FieldDef | undefined,
   lookup: Lookup,
 ): string {
-  return (
-    lookup(`check_${issue.code}`, issueParams(issue.code, issue.params, def)) ||
-    issue.message ||
-    issue.code
-  );
+  const params = issueParams(issue.code, issue.params, def);
+  for (const key of FIELD_PARAMS) {
+    const id = params[key];
+    if (typeof id === 'string') params[key] = lookup(`cfg.${id}.label`, {}) ?? id;
+  }
+  return lookup(`check_${issue.code}`, params) || issue.message || issue.code;
 }

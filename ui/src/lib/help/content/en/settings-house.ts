@@ -29,6 +29,31 @@ export const topic: HelpTopic = {
       title: 'Indicative only',
       body: 'The band is worked out at 20 °C inside and −10 °C outside from your own measurements. It is **not the official energielabel**, which is assessed differently.',
     },
+    {
+      id: 'facts',
+      kind: 'know',
+      title: 'Facts about the house',
+      body: 'Build period, share of floor heating, occupants, volume, window area and orientation are **starting points**. The learner begins from them; the measurements overrule them when they disagree. They are all optional, and leaving one empty is better than guessing. They are also on the [House](#/house) page, where you can fill them in while the model is still learning.',
+      target: 'settings/house.facts',
+    },
+    {
+      id: 'bounds',
+      kind: 'do',
+      title: 'Pin or limit what is learned',
+      body: 'Under **Pin or limit what is learned** you can give the heat loss, the time constant, the solar aperture and the internal gains a minimum, a maximum or both. **Equal minimum and maximum pin the value**: you overrule the measurements, which is right when you know better, for example a heat loss from an energy audit. A minimum above its maximum is refused. The next learner run applies it.',
+      steps: [
+        'Open **Pin or limit what is learned** and fill in the minimum and maximum.',
+        'Press **Review and apply** in the bar at the bottom.',
+      ],
+      target: 'settings/house.bounds',
+    },
+    {
+      id: 'learning',
+      kind: 'know',
+      title: 'Learning settings',
+      body: 'Days to learn from (21 to 90, 60 by default) must be at least 8 more than the days kept for testing (7 to 21, 14 by default). The tolerance says how much worse than the model in use a new model may predict the room and still be taken: 0 means at least as good. **Days left out** are skipped by the learner: a holiday, windows open all day, visitors. You can also pick them on the House page, in the chart of the room error per day.',
+      target: 'settings/house.learning',
+    },
   ],
   questions: [
     {

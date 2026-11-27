@@ -25,6 +25,12 @@ Detection (on a regular grid; :func:`detect_stove`):
    the living room's mass and furniture keeps lowering the heat demand after the air
    excess has gone, so the plant is not comparable yet.
 
+The owner can also leave whole local days out (``house_learn_excluded_days``:
+a party, a window left open, a sensor moved): :func:`excluded_days` turns them into
+events of kind :data:`EXCLUDED_DAY` from local midnight to local midnight, without a
+recovery tail (the owner can leave the next day out too); they are masked like a
+fire, never merged with one, and listed with the same JSON shape.
+
 Thresholds were set on a recording of several weeks with one fire (60 s grid,
 living-room composite, hall and bedroom): outside the fire the anomaly stayed below
 the onset (rarely above two thirds of it), and the rare fast relative rises (up to
@@ -38,7 +44,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Final
 from zoneinfo import ZoneInfo
 
@@ -49,6 +55,7 @@ from ovenbird_sim.data.series import BoolArray, FloatArray
 
 STOVE: Final = "stove"
 STOVE_MODE: Final = "stove_mode"
+EXCLUDED_DAY: Final = "excluded_day"
 LIVING_COLUMN: Final = "room_living"
 REFERENCE_ROOMS: Final = ("room_hall", "room_bedroom")
 BASELINE_DAYS: Final = 7.0
@@ -67,6 +74,7 @@ REASON: Final = (
     "rising {rise:.1f} K/h; the model has no stove heat"
 )
 JOURNAL_REASON: Final = "wood-stove mode in the controller's journal; the model has no stove heat"
+EXCLUDED_REASON: Final = "left out by the owner (house_learn_excluded_days)"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,8 +84,9 @@ class Event:
     Parameters
     ----------
     kind
-        Event kind: :data:`STOVE` (detected) or :data:`STOVE_MODE` (the service's
-        wood-stove mode journal, without peak or rise).
+        Event kind: :data:`STOVE` (detected), :data:`STOVE_MODE` (the service's
+        wood-stove mode journal) or :data:`EXCLUDED_DAY` (a day the owner left out);
+        the latter two without peak or rise.
     start, end
         The period the living room is anomalous (unix s).
     tail_end
@@ -110,6 +119,8 @@ class Event:
         """Human-readable reason of the flag."""
         if self.kind == STOVE_MODE:
             return JOURNAL_REASON
+        if self.kind == EXCLUDED_DAY:
+            return EXCLUDED_REASON
         return REASON.format(peak=self.peak_k, rise=self.rise_k_per_h)
 
     def to_json(self, tz: str = LOCAL_TZ) -> JsonDict:
@@ -289,6 +300,37 @@ def merge(events: Sequence[Event]) -> tuple[Event, ...]:
                 float(np.fmax(last.rise_k_per_h, event.rise_k_per_h)),
             )
         out.append(event)
+    return tuple(out)
+
+
+def excluded_days(days: Sequence[str], tz: str = LOCAL_TZ) -> tuple[Event, ...]:
+    """Events covering local calendar days the owner left out.
+
+    Parameters
+    ----------
+    days
+        Local days as ``YYYY-MM-DD`` (repeats are ignored).
+    tz
+        IANA time zone of the days.
+
+    Returns
+    -------
+    tuple of Event
+        One :data:`EXCLUDED_DAY` event per day, local midnight to local midnight (23
+        or 25 hours on a daylight-saving change), in time order.
+
+    Raises
+    ------
+    ValueError
+        When a day is not a valid ``YYYY-MM-DD`` date.
+    """
+    zone = ZoneInfo(tz)
+    out = []
+    for text in sorted(set(days)):
+        day = date.fromisoformat(text)
+        start = datetime.combine(day, time(), zone).timestamp()
+        end = datetime.combine(day + timedelta(days=1), time(), zone).timestamp()
+        out.append(Event(EXCLUDED_DAY, start, end, end, math.nan, math.nan))
     return tuple(out)
 
 

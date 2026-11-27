@@ -34,6 +34,7 @@ from ovenbird.config import (
     Settings,
 )
 from ovenbird.config.fromcore import core_source
+from ovenbird.config.validation.house import MAX_EXCLUDED_DAYS
 from ovenbird_core.control import EmitterType, HeatingCurve, OvenbirdConfig, RoomSensorProfile
 from ovenbird_core.control.safety import DEFAULT_MAX_SUPPLY_C
 
@@ -72,7 +73,8 @@ class FieldMeta:
         The default (``None``) means "the emitter preset's value".
     kind
         Value type when it is not a plain scalar (``curve``, ``signal``,
-        ``signal_list``, ``windows``, ``retention``: days where ``0`` keeps data forever).
+        ``signal_list``, ``windows``, ``dates``: ISO days, ``retention``: days where ``0`` keeps
+        data forever).
     """
 
     group: str
@@ -162,8 +164,28 @@ FIELDS: Final[dict[str, FieldMeta]] = {
     "weather_longitude": FieldMeta("weather", B, "°", step=0.01),
     "weather_location_source": FieldMeta("weather", B),
     "house_floor_area_m2": FieldMeta("house", B, "m²", step=1.0, soft_min=30.0, soft_max=1000.0),
-    "house_learn_enabled": FieldMeta("house", B),
-    "house_learn_interval_h": FieldMeta("house", A, "h", step=24.0, soft_min=24.0, soft_max=336.0),
+    "house_volume_m3": FieldMeta("house", A, "m³", step=10.0),
+    "house_build_period": FieldMeta("house", B),
+    "house_floor_heating_share": FieldMeta("house", B, "ratio", "%", step=0.05),
+    "house_window_area_m2": FieldMeta("house", A, "m²", step=1.0),
+    "house_window_orientation": FieldMeta("house", A),
+    "house_occupants": FieldMeta("house", B, step=1.0),
+    "house_ua_min_w_per_k": FieldMeta("house_bounds", A, "W/K", step=5.0),
+    "house_ua_max_w_per_k": FieldMeta("house_bounds", A, "W/K", step=5.0),
+    "house_time_constant_min_h": FieldMeta("house_bounds", A, "h", step=1.0),
+    "house_time_constant_max_h": FieldMeta("house_bounds", A, "h", step=1.0),
+    "house_solar_aperture_min_m2": FieldMeta("house_bounds", A, "m²", step=0.5),
+    "house_solar_aperture_max_m2": FieldMeta("house_bounds", A, "m²", step=0.5),
+    "house_internal_gain_min_w": FieldMeta("house_bounds", A, "W", step=10.0),
+    "house_internal_gain_max_w": FieldMeta("house_bounds", A, "W", step=10.0),
+    "house_learn_enabled": FieldMeta("house_learning", B),
+    "house_learn_interval_h": FieldMeta(
+        "house_learning", A, "h", step=24.0, soft_min=24.0, soft_max=336.0
+    ),
+    "house_learn_fit_days": FieldMeta("house_learning", A, "d", step=1.0),
+    "house_learn_test_days": FieldMeta("house_learning", A, "d", step=1.0),
+    "house_learn_tolerance_k": FieldMeta("house_learning", A, "K", step=0.01),
+    "house_learn_excluded_days": FieldMeta("house_learning", A, kind="dates"),
     "history_raw_days": FieldMeta(
         "history", A, "d", step=1.0, soft_min=1.0, soft_max=90.0, kind="retention"
     ),
@@ -295,6 +317,8 @@ GROUP_ORDER: Final = (
     "monitors",
     "weather",
     "house",
+    "house_bounds",
+    "house_learning",
     "ha",
     "mqtt",
     "controller",
@@ -489,6 +513,8 @@ def _dynamic(settings: Settings, name: str, entry: dict[str, Any]) -> None:
             }
         case "control_quiet_windows":
             entry |= {"max_items": MAX_QUIET_WINDOWS, "level_min": 1, "level_max": 3}
+        case "house_learn_excluded_days":
+            entry["max_items"] = MAX_EXCLUDED_DAYS
         case "mqtt_inputs":
             entry["max_items"] = MAX_MQTT_INPUTS
 

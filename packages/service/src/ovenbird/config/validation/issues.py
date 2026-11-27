@@ -14,6 +14,7 @@ from pydantic_core import PydanticCustomError
 
 import ovenbird.stove.validation as stove_validation
 from ovenbird.config.validation.duty import duty_issues
+from ovenbird.config.validation.house import house_issues
 from ovenbird.config.validation.inputs import input_issues
 from ovenbird.config.validation.limits import limit_issues
 from ovenbird.config.validation.room import outside_issues, room_issues
@@ -32,8 +33,9 @@ def control_issues(settings: Settings) -> list[Issue]:
     order and clamp, the wood-stove thresholds, timers and reference room, minimum setpoint
     below the maximum supply, an explicit curve inside ``[minimum setpoint, maximum
     supply]`` and the safety envelope, the integrator limit within the output
-    limit, the start ramp inside the envelope, a complete weather location, and
-    finally the controller's own checks on the merged configuration.
+    limit, the start ramp inside the envelope, a complete weather location, the house bounds
+    in order with enough training days, and finally the controller's own checks on the
+    merged configuration.
 
     Parameters
     ----------
@@ -53,6 +55,7 @@ def control_issues(settings: Settings) -> list[Issue]:
         *stove_validation.stove_issues(settings),
         *limit_issues(settings),
         *weather_issues(settings),
+        *house_issues(settings),
     ]
     if issues:
         return issues

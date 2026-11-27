@@ -9,6 +9,7 @@
 -->
 <script lang="ts">
   import FactsCard from '$components/house/FactsCard.svelte';
+  import HouseInputCard from '$components/house/HouseInputCard.svelte';
   import LearningCard from '$components/house/LearningCard.svelte';
   import ProposalCard from '$components/house/ProposalCard.svelte';
   import QualityCard from '$components/house/QualityCard.svelte';
@@ -18,6 +19,8 @@
   import StatusLine from '$components/house/StatusLine.svelte';
   import TimelineCard from '$components/house/TimelineCard.svelte';
   import Tabs from '$ui/Tabs.svelte';
+  import { fetchVersions } from '$lib/core/api';
+  import { cfg } from '$lib/core/cfg.svelte';
   import type { ControlStore } from '$lib/core/control.svelte';
   import {
     fetchHouse,
@@ -27,7 +30,10 @@
   } from '$lib/house/house';
   import type { LiveStore } from '$lib/core/live.svelte';
   import { buildHash, router } from '$lib/core/router.svelte';
+  import { draft } from '$lib/core/draft.svelte';
   import { t } from '$lib/core/settings.svelte';
+  import { SUBSET_GROUP, changedSinceRun, modelMadeAt, type Subset } from '$lib/house/settings';
+  import type { ConfigVersion } from '$lib/core/types';
 
   let { live, ctl }: { live: LiveStore; ctl: ControlStore } = $props();
 
@@ -48,6 +54,33 @@
   let history = $state<HouseHistory | null>(null);
   let failed = $state(false);
   let reload = $state(0);
+  let versions = $state<ConfigVersion[]>([]);
+
+  $effect(() => {
+    void cfg.loadSchema();
+  });
+
+  $effect(() => {
+    void live.configVersion;
+    void ctl.config?.version;
+    const controller = new AbortController();
+    fetchVersions(10, controller.signal)
+      .then((body) => (versions = body.versions))
+      .catch(() => {
+        if (!controller.signal.aborted) versions = [];
+      });
+    return () => controller.abort();
+  });
+
+  const schema = $derived(cfg.schema);
+  const config = $derived(ctl.config);
+  const available = (subset: Subset) =>
+    schema !== null &&
+    config !== null &&
+    Object.values(schema.fields).some((def) => def.group === SUBSET_GROUP[subset]);
+  const changedSince = $derived(
+    changedSinceRun(versions, modelMadeAt(result?.kind === 'ready' ? result.data : null)),
+  );
 
   $effect(() => {
     void live.configVersion;
@@ -92,6 +125,9 @@
       kind={result.data.state === 'not_run' ? 'not_run' : 'learning'}
       data={result.data}
     />
+    {#if available('facts') && schema && config}
+      <HouseInputCard subset="facts" {schema} {config} showRun={false} />
+    {/if}
     <RunCard waiting onsettled={() => (reload += 1)} />
   </div>
 {:else}
@@ -100,11 +136,31 @@
     <div class="grid" data-testid="house-page" data-tab="model">
       <SignatureChart house={result.data} />
       <QualityCard house={result.data} {history} />
+      {#if available('bounds') && schema && config}
+        <HouseInputCard
+          subset="bounds"
+          {schema}
+          {config}
+          house={result.data}
+          {changedSince}
+          onstarted={() => (reload += 1)}
+        />
+      {/if}
     </div>
   {:else if active === 'learning'}
     <div class="grid" data-testid="house-page" data-tab="learning">
       <RunCard credibility={result.data.credibility} onsettled={() => (reload += 1)} />
-      <TimelineCard house={result.data} />
+      {#if available('learning') && schema && config}
+        <HouseInputCard
+          subset="learning"
+          {schema}
+          {config}
+          house={result.data}
+          {changedSince}
+          showRun={false}
+        />
+      {/if}
+      <TimelineCard house={result.data} {schema} {config} />
       <ProposalCard house={result.data} {ctl} />
     </div>
   {:else}
@@ -112,11 +168,26 @@
     <div class="grid" data-testid="house-page" data-tab="overview">
       <ScoreCard house={result.data} />
       <FactsCard house={result.data} />
+      {#if available('facts') && schema && config}
+        <HouseInputCard
+          subset="facts"
+          {schema}
+          {config}
+          house={result.data}
+          {changedSince}
+          onstarted={() => (reload += 1)}
+        />
+      {/if}
     </div>
   {/if}
 {/if}
 
+{#if draft.count > 0}<div class="spacer" aria-hidden="true"></div>{/if}
+
 <style>
+  .spacer {
+    height: 4.5rem;
+  }
   .lead {
     margin: calc(-1 * var(--space-2)) 0 var(--space-4);
     max-width: 48rem;

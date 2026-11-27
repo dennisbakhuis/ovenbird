@@ -8,6 +8,12 @@ configuration: the curve proposal becomes a draft only when the owner asks for i
 in the UI. Exit code 0 for ``promoted``, ``kept_champion`` and ``learning``, 1 for
 a failed run.
 
+The configuration's ``house_*`` settings add the owner's facts, bounds, learning
+options and left-out days (:mod:`ovenbird_sim.learn.priors`); ``--fit-days``,
+``--test-days`` and ``--tolerance-k`` win over ``house_learn_fit_days``,
+``house_learn_test_days`` and ``house_learn_tolerance_k`` when given, and the
+defaults (60, 14, 0) apply when neither is set.
+
 ``--every-h`` keeps the process running and repeats the run (the optional
 ``learner`` container); the first run starts after ``--delay-s``.
 """
@@ -22,7 +28,7 @@ from pathlib import Path
 
 from ovenbird_sim.data.historydb import load_config
 from ovenbird_sim.data.weather import load_weather
-from ovenbird_sim.learn.run import LearnOptions, learn
+from ovenbird_sim.learn.run import DEFAULT_LEARN, LearnOptions, learn
 
 LOGGER = logging.getLogger("ovenbird_sim.learn")
 
@@ -35,13 +41,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--models", type=Path, required=True, help="models directory")
     parser.add_argument("--floor-area", type=float, help="heated floor area in m2")
     parser.add_argument("--weather-dir", type=Path, help="Open-Meteo cache instead of forecasts")
-    parser.add_argument("--fit-days", type=float, default=60.0)
-    parser.add_argument("--test-days", type=int, default=14)
+    parser.add_argument(
+        "--fit-days", type=float, help="days of history to fit (default: configuration, else 60)"
+    )
+    parser.add_argument(
+        "--test-days", type=int, help="held-out days (default: configuration, else 14)"
+    )
     parser.add_argument("--folds", type=int, default=2)
     parser.add_argument("--bootstrap", type=int, default=20)
     parser.add_argument("--signature-bootstrap", type=int, default=200)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--tolerance-k", type=float, default=0.0)
+    parser.add_argument(
+        "--tolerance-k",
+        type=float,
+        help="promotion tolerance in K (default: configuration, else 0)",
+    )
     parser.add_argument(
         "--building-only", action="store_true", help="skip the heat-pump identification"
     )
@@ -51,21 +65,32 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run_once(args: argparse.Namespace) -> dict[str, object]:
-    """Load the configuration and run the learner once."""
-    options = LearnOptions(
+def options_from_args(args: argparse.Namespace) -> LearnOptions:
+    """Learner options from the command line; flags given explicitly win over the configuration."""
+    given = {
+        name: getattr(args, name)
+        for name in ("fit_days", "test_days", "tolerance_k")
+        if getattr(args, name) is not None
+    }
+    return LearnOptions(
         floor_area_m2=args.floor_area,
-        fit_days=args.fit_days,
-        test_days=args.test_days,
+        fit_days=given.get("fit_days", DEFAULT_LEARN.fit_days),
+        test_days=given.get("test_days", DEFAULT_LEARN.test_days),
         folds=args.folds,
         bootstrap=args.bootstrap,
         signature_replicates=args.signature_bootstrap,
         seed=args.seed,
-        tolerance_k=args.tolerance_k,
+        tolerance_k=given.get("tolerance_k", DEFAULT_LEARN.tolerance_k),
         weather=load_weather(args.weather_dir) if args.weather_dir else None,
         full_plant=not args.building_only,
         interval_h=args.every_h,
+        explicit=frozenset(given),
     )
+
+
+def run_once(args: argparse.Namespace) -> dict[str, object]:
+    """Load the configuration and run the learner once."""
+    options = options_from_args(args)
     try:
         config = load_config(args.config)
     except (OSError, ValueError) as exc:

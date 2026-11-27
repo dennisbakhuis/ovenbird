@@ -20,6 +20,7 @@ import { OUTSIDE_SIGNAL, OUTSIDE_STALE_S } from './integrations.ts';
 export const schema = schemaJson as unknown as ConfigSchema;
 
 const HOUR = 3_600_000;
+const DAY_MS = 24 * HOUR;
 const MOCK_VERSION = 12;
 const ROOM_KP = 1.2;
 
@@ -133,7 +134,21 @@ function history(stored: Values, now: number): ConfigVersion[] {
   ];
 }
 
-export function initialConfigState(now = Date.now()): ConfigState {
+/**
+ * Stored house settings of the `house:facts` scenario: facts, a heat-loss limit and a left-out day.
+ */
+export function houseFactsStored(now = Date.now()): Values {
+  return {
+    house_build_period: '1975_1991',
+    house_occupants: 3,
+    house_floor_heating_share: 0.6,
+    house_ua_min_w_per_k: 200,
+    house_ua_max_w_per_k: 300,
+    house_learn_excluded_days: [new Date(now - 9 * DAY_MS).toISOString().slice(0, 10)],
+  };
+}
+
+export function initialConfigState(now = Date.now(), extra: Values = {}): ConfigState {
   const stored = {
     ...storedOf(base),
     weather_enabled: true,
@@ -141,6 +156,7 @@ export function initialConfigState(now = Date.now()): ConfigState {
     control_quiet_windows: [{ start: '22:00', end: '07:00', level: 2 }],
     house_floor_area_m2: 150,
     mqtt_inputs: raw.fields['mqtt_inputs']?.value ?? [],
+    ...extra,
   };
   return {
     version: MOCK_VERSION,
@@ -240,6 +256,36 @@ function merge(state: ConfigState, changes: Values): Record<string, ConfigField>
     else next[id] = value;
   }
   return effective({ ...state, stored: next });
+}
+
+const sorted = (days: unknown[]): unknown[] => [...days].sort();
+
+const BOUND_PAIRS = [
+  ['house_ua_min_w_per_k', 'house_ua_max_w_per_k'],
+  ['house_time_constant_min_h', 'house_time_constant_max_h'],
+  ['house_solar_aperture_min_m2', 'house_solar_aperture_max_m2'],
+  ['house_internal_gain_min_w', 'house_internal_gain_max_w'],
+] as const;
+
+/**
+ * The service's date rules of the left-out days: a real `YYYY-MM-DD`, at most a day ahead, once.
+ */
+function dayProblem(days: unknown[], nowMs: number): string | null {
+  const latest = new Date(nowMs + DAY_MS).toISOString().slice(0, 10);
+  const seen = new Set<unknown>();
+  for (const day of days) {
+    if (
+      typeof day !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(day) ||
+      Number.isNaN(Date.parse(`${day}T00:00:00Z`)) ||
+      new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) !== day
+    )
+      return 'date_format';
+    if (day > latest) return 'date_future';
+    if (seen.has(day)) return 'date_repeated';
+    seen.add(day);
+  }
+  return null;
 }
 
 const CLIENT_TO_SERVER: Record<string, string> = {
@@ -387,6 +433,35 @@ export function validate(state: ConfigState, changes: Values): ValidateResult {
         'the room signal as the wood-stove reference room',
       ),
     );
+  for (const [low, high] of BOUND_PAIRS) {
+    const lowValue = numberOf(low);
+    const highValue = numberOf(high);
+    if (lowValue !== null && highValue !== null && lowValue > highValue)
+      errors.push(
+        issue(high, 'house_bounds_order', `${low} must not exceed ${high}`, {
+          min_field: low,
+          max_field: high,
+          min: lowValue,
+          max: highValue,
+        }),
+      );
+  }
+  const fitDays = numberOf('house_learn_fit_days');
+  const testDays = numberOf('house_learn_test_days');
+  if (fitDays !== null && testDays !== null && fitDays < testDays + 8)
+    errors.push(
+      issue(
+        'house_learn_fit_days',
+        'house_fit_days_short',
+        'house_learn_fit_days must be at least house_learn_test_days + 8',
+        { fit_days: fitDays, test_days: testDays, min: testDays + 8 },
+      ),
+    );
+  const left = changes['house_learn_excluded_days'];
+  if (Array.isArray(left) && !errors.some((e) => e.field === 'house_learn_excluded_days')) {
+    const problem = dayProblem(left, Date.now());
+    if (problem) errors.push(issue('house_learn_excluded_days', problem, problem, {}));
+  }
   const room = after['control_room_signal']?.value;
   const liveness = after['control_room_liveness_signals']?.value;
   if ((room === null || room === undefined) && Array.isArray(liveness) && liveness.length > 0)
@@ -591,7 +666,9 @@ function commit(
   const stored = { ...state.stored };
   for (const [id, value] of Object.entries(changes)) {
     if (value === null) delete stored[id];
-    else stored[id] = value;
+    else
+      stored[id] =
+        Array.isArray(value) && schema.fields[id]?.type === 'dates' ? sorted(value) : value;
   }
   const changed: VersionChange[] = Object.keys(changes).map((field) => ({
     field,

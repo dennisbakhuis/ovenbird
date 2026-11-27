@@ -24,6 +24,7 @@ import {
   configDoc,
   hotWaterState,
   exportDoc,
+  houseFactsStored,
   initialConfigState,
   preview,
   rollback,
@@ -689,7 +690,17 @@ function withScenario(control: MockControl, scenario: Scenario, now: number): Mo
  */
 export function mockApi(): Plugin {
   const state = initialState();
-  const configState = initialConfigState();
+  const sharedConfig = initialConfigState();
+  const configStates = new Map<string, ConfigState>();
+  const configFor = (scenarioCookie: string, scenario: Scenario): ConfigState => {
+    if (scenarioCookie === '') return sharedConfig;
+    let found = configStates.get(scenarioCookie);
+    if (!found) {
+      found = initialConfigState(Date.now(), scenario.house === 'facts' ? houseFactsStored() : {});
+      configStates.set(scenarioCookie, found);
+    }
+    return found;
+  };
   const pump = initialPumpState();
   const pausedKeys = new Set<string>();
   const learnerRuns = new Map<string, RunMockState>();
@@ -712,6 +723,7 @@ export function mockApi(): Plugin {
         const from = param('from') ? Date.parse(param('from') as string) : now - 24 * HOUR;
         const to = param('to') ? Date.parse(param('to') as string) : now;
         const key = scenarioKey(req.headers.cookie);
+        const configState = configFor(key, scenario);
         const release = () => releaseHold(key, now);
         const paused = () => pausedKeys.has(key) || release() === 'paused';
         const mode = () =>

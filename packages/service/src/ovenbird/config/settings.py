@@ -267,6 +267,30 @@ class Settings(
     house_floor_area_m2
         Heated floor area for the house model's indicative insulation score (W/m²
         at design conditions); unset leaves the score without W/m² and band.
+    house_volume_m3, house_build_period, house_floor_heating_share, house_window_area_m2
+        Facts about the house the learner starts from (weak priors the measurements may
+        overrule); unset leaves them out. ``house_build_period`` is one of ``before_1945``,
+        ``1945_1974``, ``1975_1991``, ``1992_2005``, ``2006_2014``, ``2015_later``;
+        ``house_floor_heating_share`` is a fraction from 0 to 1.
+    house_window_orientation, house_occupants
+        Main window orientation (``north``, ``east``, ``south``, ``west``, ``mixed``) and
+        the number of occupants (0 to 12).
+    house_ua_min_w_per_k, house_ua_max_w_per_k
+    house_time_constant_min_h, house_time_constant_max_h
+        Bounds on the learned heat loss and time constant; either side may be unset and
+        equal values pin the quantity. The minimum must not exceed the maximum.
+    house_solar_aperture_min_m2, house_solar_aperture_max_m2
+    house_internal_gain_min_w, house_internal_gain_max_w
+        The same for the learned solar aperture and internal gains.
+    house_learn_fit_days, house_learn_test_days
+        Days the learner fits on (21 to 90, 60 by default) and holds out to test (7 to 21,
+        14 by default); the fit window must exceed the test window by at least 8 days.
+    house_learn_tolerance_k
+        How much worse than the current model (in K, -0.1 to 0.2) a new model may test and
+        still be promoted; 0 by default.
+    house_learn_excluded_days
+        Days (``YYYY-MM-DD``, at most 60, sorted, none more than a day ahead) the learner
+        leaves out, such as a holiday or open windows.
     house_learn_enabled
         Whether the service refits the house model itself on a schedule (a
         low-priority child process in the night window); off leaves only "run now".

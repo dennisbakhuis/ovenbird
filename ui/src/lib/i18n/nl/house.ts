@@ -204,6 +204,52 @@ export const house: Record<keyof typeof en, string> = {
   houseFittedMade: 'Gemaakt',
   houseFittedVersion: 'versie van het leerprogramma {v}',
 
+  houseFactsInputTitle: 'Wat je van het huis weet',
+  houseFactsInputSubtitle:
+    'Beginpunten voor het model. De metingen gaan voor als ze anders zeggen.',
+  houseFactsInputIntro:
+    'Vul in wat je weet terwijl het model nog leert: het leerprogramma begint daarmee en de metingen gaan voor. Alles is optioneel.',
+  houseBoundsTitle: 'Geleerde waarden vastzetten of begrenzen',
+  houseBoundsSubtitle: 'Jij gaat boven de metingen. Gebruik het als je het beter weet.',
+  houseBoundsExplain:
+    'Gelijk minimum en maximum zetten de waarde vast: het model gebruikt dan precies dat getal in plaats van wat het mat. De volgende leerronde past het toe.',
+  houseBoundsNoModel: 'Er is nog geen geleerde waarde. Grenzen gelden vanaf het eerste model.',
+  houseBoundsLearned: 'Geleerd: {value} {unit} · bereik van 90 % {lo}–{hi}',
+  houseBoundsLearnedPlain: 'Geleerd: {value} {unit}',
+  houseBoundsPinned: 'Vastgezet: het model gebruikt deze waarde.',
+  houseBound_ua: 'Warmteverlies',
+  houseBound_tau: 'Tijdconstante',
+  houseBound_aperture: 'Zonopening',
+  houseBound_gain: 'Interne warmtewinst',
+  houseBoundMin: 'Minimaal',
+  houseBoundMax: 'Maximaal',
+  houseLearningSettingsTitle: 'Instellingen voor het leren',
+  houseLearningSettingsSummary: 'Instellingen voor het leren',
+  houseLearningSettingsHint:
+    'Hoeveel geschiedenis het leerprogramma gebruikt, hoe het een nieuw model beoordeelt en welke dagen het overslaat.',
+  houseFieldsToggle: 'Toon de instellingen',
+  houseNextRunNote: 'Geldt vanaf de volgende leerronde.',
+  houseNextRunChanged: 'Veranderd sinds dit model is gemaakt: geldt vanaf de volgende leerronde.',
+  houseNextRunDraft:
+    'In je concept: geldt vanaf de volgende leerronde, zodra je het hebt toegepast.',
+  houseNextRunNow: 'Nu uitvoeren',
+  houseNextRunToRun: 'Naar het leerprogramma',
+  houseDaysDate: 'Dag om over te slaan',
+  houseDaysAdd: 'Dag toevoegen',
+  houseDaysRemove: '{day} weer meenemen',
+  houseDaysNone: 'Geen dagen overgeslagen.',
+  houseDaysCount: '{n} van {max} dagen overgeslagen',
+  houseDaysFull: 'De lijst is vol: neem eerst een dag weer mee.',
+  houseDaysFuture: 'Een dag kan niet in de toekomst liggen.',
+  houseDaysWhy:
+    'Sla een dag over als het huis niet zoals gewoonlijk werd bewoond: een vakantie, de hele dag open ramen, bezoek. Het leerprogramma slaat hem dan over bij de volgende ronde.',
+  houseDayLeaveOut: '{day} overslaan',
+  houseDayKeepIn: '{day} weer meenemen',
+  houseDayLeftOut: 'overgeslagen',
+  houseColLeaveOut: 'Overslaan',
+  houseDayPickHint:
+    'Kies een dag om hem bij de volgende ronde over te slaan; kies hem opnieuw om hem weer mee te nemen.',
+
   houseSectionText:
     'Met het vloeroppervlak wordt het geleerde warmteverlies een indicatieve isolatiescore.',
   houseSectionLink: 'Open de pagina Huis',

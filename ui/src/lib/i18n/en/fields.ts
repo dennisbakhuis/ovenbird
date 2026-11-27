@@ -286,6 +286,71 @@ export const fields = {
   'cfg.house_learn_interval_h.label': 'Learning interval',
   'cfg.house_learn_interval_h.help':
     'Hours between two learning runs, from 24 (daily) to 720 (monthly). The default is 168, once a week.',
+  'cfg.house_volume_m3.label': 'Heated volume',
+  'cfg.house_volume_m3.help':
+    'The heated volume of the house in m³, roughly the floor area times the room height. A starting point for the model: the measurements overrule it when they disagree.',
+  'cfg.house_build_period.label': 'Build period',
+  'cfg.house_build_period.help':
+    'When the house was built. Older houses usually lose more heat; the model uses this as a starting point and the measurements overrule it. Leave it unset if you are not sure.',
+  'cfg.house_build_period.opt.before_1945': 'Before 1945',
+  'cfg.house_build_period.opt.1945_1974': '1945–1974',
+  'cfg.house_build_period.opt.1975_1991': '1975–1991',
+  'cfg.house_build_period.opt.1992_2005': '1992–2005',
+  'cfg.house_build_period.opt.2006_2014': '2006–2014',
+  'cfg.house_build_period.opt.2015_later': '2015 or later',
+  'cfg.house_floor_heating_share.label': 'Share of floor heating',
+  'cfg.house_floor_heating_share.help':
+    'The share of the heated area that has floor heating, from 0 % (radiators only) to 100 %. Floor heating reacts slowly, which the model takes as a starting point.',
+  'cfg.house_window_area_m2.label': 'Window area',
+  'cfg.house_window_area_m2.help':
+    'The total glass area in m². It tells the model how much sun can come in; the measurements overrule it.',
+  'cfg.house_window_orientation.label': 'Main window orientation',
+  'cfg.house_window_orientation.help':
+    'The side most of the glass faces. Choose Mixed when it is spread over several sides.',
+  'cfg.house_window_orientation.opt.north': 'North',
+  'cfg.house_window_orientation.opt.east': 'East',
+  'cfg.house_window_orientation.opt.south': 'South',
+  'cfg.house_window_orientation.opt.west': 'West',
+  'cfg.house_window_orientation.opt.mixed': 'Mixed',
+  'cfg.house_occupants.label': 'Occupants',
+  'cfg.house_occupants.help':
+    'How many people live in the house. People give off heat, which the model counts as a starting point for the internal gains.',
+  'cfg.house_ua_min_w_per_k.label': 'Heat loss, at least',
+  'cfg.house_ua_min_w_per_k.help':
+    'The learned heat loss will not go below this value (30 to 1500 W/K). Set minimum and maximum equal to pin it. Applies at the next learner run.',
+  'cfg.house_ua_max_w_per_k.label': 'Heat loss, at most',
+  'cfg.house_ua_max_w_per_k.help':
+    'The learned heat loss will not go above this value (30 to 1500 W/K). Applies at the next learner run.',
+  'cfg.house_time_constant_min_h.label': 'Time constant, at least',
+  'cfg.house_time_constant_min_h.help':
+    'The learned time constant, how slowly the house cools, will not go below this value (5 to 500 h). Equal minimum and maximum pin it. Applies at the next learner run.',
+  'cfg.house_time_constant_max_h.label': 'Time constant, at most',
+  'cfg.house_time_constant_max_h.help':
+    'The learned time constant will not go above this value (5 to 500 h). Applies at the next learner run.',
+  'cfg.house_solar_aperture_min_m2.label': 'Solar aperture, at least',
+  'cfg.house_solar_aperture_min_m2.help':
+    'The learned solar aperture, the glass area the sun effectively heats through, will not go below this value (0 to 40 m²). Applies at the next learner run.',
+  'cfg.house_solar_aperture_max_m2.label': 'Solar aperture, at most',
+  'cfg.house_solar_aperture_max_m2.help':
+    'The learned solar aperture will not go above this value (0 to 40 m²). Equal minimum and maximum pin it. Applies at the next learner run.',
+  'cfg.house_internal_gain_min_w.label': 'Internal gains, at least',
+  'cfg.house_internal_gain_min_w.help':
+    'The learned heat from people and appliances will not go below this value (0 to 2000 W). Applies at the next learner run.',
+  'cfg.house_internal_gain_max_w.label': 'Internal gains, at most',
+  'cfg.house_internal_gain_max_w.help':
+    'The learned heat from people and appliances will not go above this value (0 to 2000 W). Equal minimum and maximum pin it. Applies at the next learner run.',
+  'cfg.house_learn_fit_days.label': 'Days to learn from',
+  'cfg.house_learn_fit_days.help':
+    'How many days of history the learner fits on, from 21 to 90. The default is 60. It must be at least 8 days more than the days kept for testing.',
+  'cfg.house_learn_test_days.label': 'Days kept for testing',
+  'cfg.house_learn_test_days.help':
+    'The most recent days the learner does not fit on but uses to test a new model, from 7 to 21. The default is 14.',
+  'cfg.house_learn_tolerance_k.label': 'Tolerance for a new model',
+  'cfg.house_learn_tolerance_k.help':
+    'How much worse than the model in use a new model may predict the room, in K, and still be taken. 0 means at least as good; a negative value asks for a clearly better one. From −0.1 to 0.2.',
+  'cfg.house_learn_excluded_days.label': 'Days left out',
+  'cfg.house_learn_excluded_days.help':
+    'Days the learner skips: a holiday, windows open all day, visitors. At most 60. Applies at the next learner run.',
   'cfg.mqtt_host.help':
     'Host name or IP address of the MQTT broker HeishaMon publishes to, such as 192.0.2.20 or mosquitto.',
   'cfg.mqtt_port.help': "The broker's port: usually 1883, or 8883 with TLS.",

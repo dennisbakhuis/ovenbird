@@ -589,7 +589,8 @@ dynamic bounds follow the current emitter and limits).
   `max_items` 6, `outside_min`/`outside_max` −30/30 and `min`/`max` = the water range,
   minimum setpoint / maximum supply), `signal`, `signal_list`, `windows` (the quiet
   windows: list of `{"start": "HH:MM", "end": "HH:MM", "level": 1-3}`, `max_items` 4,
-  `level_min`/`level_max`, `end` before `start` wraps midnight), `retention` (days of
+  `level_min`/`level_max`, `end` before `start` wraps midnight), `dates` (a list of ISO days
+  `YYYY-MM-DD`, `max_items` 60; the service stores it sorted), `retention` (days of
   history to keep, unit `d`; `0` keeps it forever, `null` returns to the default),
   `mqtt_inputs` (extra MQTT topics read as signals: a list of `{"topic", "signal",
   "unit", "minimum", "maximum"}`, at most 32 inputs (`max_items` 32), topic, signal and unit at most 256
@@ -602,10 +603,27 @@ dynamic bounds follow the current emitter and limits).
 - `tier`: `basic`, `advanced` (both `editable`) or `expert` (displayed only, "fixed by
   installation"). `groups` are ordered: `curve`, `room`, `feedback`, `limits`,
   `behaviour`, `ramp`, `cycling`, `pump_duty`, `pump` (`hot_water`), `quiet`, `emitter`,
-  `monitors`, `weather`, `house` (`house_floor_area_m2`, the heated floor area in m² for
-  the indicative insulation score of `insight/house`; `house_learn_enabled`, whether the
-  service refits the house model itself on a schedule, default on; `house_learn_interval_h`,
-  hours between those refits, 24 to 720, default 168), `ha`, `mqtt` (the broker
+  `monitors`, `weather`, `house` (the facts about the house, starting points the learner may
+  overrule: `house_floor_area_m2`, the heated floor area in m² for the indicative
+  insulation score of `insight/house`; `house_volume_m3` 50 to 5000; `house_build_period`,
+  one of `before_1945`, `1945_1974`, `1975_1991`, `1992_2005`, `2006_2014`, `2015_later`;
+  `house_floor_heating_share`, a fraction 0 to 1 with unit `ratio` and display unit `%`;
+  `house_window_area_m2` 0 to 200; `house_window_orientation`, one of `north`, `east`,
+  `south`, `west`, `mixed`; `house_occupants` 0 to 12; all unset by default),
+  `house_bounds` (advanced limits on the learned values, each pair optional on either
+  side, equal values pin the quantity: `house_ua_min_w_per_k`/`_max_w_per_k` 30 to 1500
+  W/K, `house_time_constant_min_h`/`_max_h` 5 to 500 h, `house_solar_aperture_min_m2`/
+  `_max_m2` 0 to 40 m², `house_internal_gain_min_w`/`_max_w` 0 to 2000 W; a minimum above
+  its maximum is `house_bounds_order`) and `house_learning` (`house_learn_enabled`,
+  whether the service refits the house model itself on a schedule, default on;
+  `house_learn_interval_h`, hours between those refits, 24 to 720, default 168;
+  `house_learn_fit_days` 21 to 90, default 60, and `house_learn_test_days` 7 to 21,
+  default 14, with the fit window at least the test window plus 8 days
+  (`house_fit_days_short`); `house_learn_tolerance_k` -0.1 to 0.2, default 0;
+  `house_learn_excluded_days`, up to 60 days `YYYY-MM-DD`, none more than a day ahead, each
+  once, stored sorted: `date_format`, `date_future`, `date_repeated`). Every `house_*`
+  field reaches the learner through its configuration file; the next run applies it,
+`ha`, `mqtt` (the broker
   connection of `config/mqtt` and `mqtt_inputs`), `controller`, `commands`, `safety`,
   `history` (the advanced retention fields `history_raw_days`, `history_1m_days`,
   `history_15m_days`, `history_1h_days`, `history_decision_days`; the rest of the group
@@ -692,6 +710,9 @@ value, e.g. `[0, "start"]` in the quiet windows; "-" means none):
 | `integral_time` | error | `min` | neither 0 nor at least 1800 s |
 | `timezone` | error | - | not an IANA zone |
 | `window_empty` | error | `path` | a quiet window that starts where it ends |
+| `date_format` | error | - | a left-out day that is not a real `YYYY-MM-DD` date |
+| `date_future` | error | - | a left-out day more than a day ahead |
+| `date_repeated` | error | - | a left-out day listed twice |
 | `retention_min` | error | `min` | a `history_*_days` retention between 0 and 1 day (0 keeps the data forever; any other value is at least 1 day) |
 | `input_bounds` | error | `path` | an MQTT input's plausibility bound that is not a finite number, or a minimum above the maximum |
 | `input_topic_reserved` | error | `path`, `topic` | an MQTT input on a topic of the HeishaMon board itself: `<base>/main`, `<base>/commands` and everything below them, `<base>/stats`, `<base>/LWT` (other subtrees of the base, such as `1wire`, stay allowed) |
@@ -709,6 +730,8 @@ value, e.g. `[0, "start"]` in the quiet windows; "-" means none):
 | `stove_reference_is_room` | error | - | the room signal as the wood-stove reference room |
 | `signal_not_temperature` | error | `signal` | the wood-stove reference room is not a temperature in °C (an HA entity outside `sensor`, `input_number`, `number`, or an MQTT input with another unit) |
 | `min_above_max` | error | `min`, `max` | minimum setpoint not below the maximum supply (both effective) |
+| `house_bounds_order` | error | `min_field`, `max_field`, `min`, `max` | a `house_*_min_*` bound above its `house_*_max_*` bound (reported on the maximum field) |
+| `house_fit_days_short` | error | `fit_days`, `test_days`, `min` | `house_learn_fit_days` below `house_learn_test_days` + 8 |
 | `curve_range` | error | `min`, `max` | water outside [minimum setpoint, maximum supply] |
 | `outside_envelope` | error | `at`, `by_k` | the curve leaves the safety envelope |
 | `integral_above_output` | error | - | integrator limit above the output limit |

@@ -12,6 +12,22 @@ const doc = config as unknown as ConfigDoc;
 const english: Lookup = (key, params) => translateOptional('en', key, params);
 
 describe('issueText', () => {
+  it('names both fields of a house bound by their labels', () => {
+    const params = {
+      min_field: 'house_ua_min_w_per_k',
+      max_field: 'house_ua_max_w_per_k',
+      min: 300,
+      max: 200,
+    };
+    expect(
+      issueText(
+        { code: 'house_bounds_order', message: 'x', params },
+        sch.fields['house_ua_max_w_per_k'],
+        english,
+      ),
+    ).toBe('Heat loss, at least (300 W/K) must not exceed Heat loss, at most (200 W/K).');
+  });
+
   it('uses the display unit for hard bounds', () => {
     const text = issueText(
       { code: 'below_min', message: 'x', params: { min: 300 } },

@@ -815,12 +815,40 @@
       "stored": null,
       "value": "auto"
     },
+    "house_build_period": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
     "house_floor_area_m2": {
       "default": null,
       "locked": false,
       "source": "store",
       "stored": 130,
       "value": 130.0
+    },
+    "house_floor_heating_share": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "house_internal_gain_max_w": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "house_internal_gain_min_w": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
     },
     "house_learn_enabled": {
       "default": true,
@@ -829,12 +857,110 @@
       "stored": null,
       "value": true
     },
+    "house_learn_excluded_days": {
+      "default": [],
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": []
+    },
+    "house_learn_fit_days": {
+      "default": 60,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 60
+    },
     "house_learn_interval_h": {
       "default": 168.0,
       "locked": false,
       "source": "default",
       "stored": null,
       "value": 168.0
+    },
+    "house_learn_test_days": {
+      "default": 14,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 14
+    },
+    "house_learn_tolerance_k": {
+      "default": 0.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 0.0
+    },
+    "house_occupants": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "house_solar_aperture_max_m2": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "house_solar_aperture_min_m2": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "house_time_constant_max_h": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "house_time_constant_min_h": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "house_ua_max_w_per_k": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "house_ua_min_w_per_k": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "house_volume_m3": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "house_window_area_m2": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
+    },
+    "house_window_orientation": {
+      "default": null,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": null
     },
     "http_allowed_origins": {
       "default": [],

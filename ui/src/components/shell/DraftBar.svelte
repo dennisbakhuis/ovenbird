@@ -1,5 +1,5 @@
 <!--
-  DraftBar: the unsaved-changes bar of the Settings pages, fixed at the bottom of the window
+  DraftBar: the unsaved-changes bar of the Settings and House pages, fixed at the bottom of the window
   (above the phone navigation). Shows "1 change", the last validation result without flicker
   (the previous result stays while a new check runs), Discard and Review. Opens the review
   dialog and applies; "Version N saved / is now active" goes to the page banner.
@@ -41,7 +41,7 @@
   let noticeId: number | null = null;
   let status = $state<'pending' | 'ok' | 'bad'>('pending');
 
-  const onSettings = $derived(router.route === 'settings');
+  const onSettings = $derived(router.route === 'settings' || router.route === 'house');
   const stale = $derived(draft.isStale(ctl.config));
   const errorCount = $derived(cfg.validation?.errors.length ?? 0);
   const entries = $derived(draft.diff(ctl.config));

@@ -289,7 +289,11 @@
           onfocus={() => (focused = true)}
           onblur={() => (focused = false)}
           oninput={onNumber}
-          placeholder={def.nullable && value === null ? t('fieldPreset') : undefined}
+          placeholder={def.nullable && value === null
+            ? def.preset_default
+              ? t('fieldPreset')
+              : t('fieldNotSet')
+            : undefined}
         />
       {:else if def.type === 'enum'}
         <Select
@@ -297,8 +301,10 @@
           value={String(value ?? '')}
           disabled={locked}
           invalid={allErrors.length > 0}
-          onchange={(e) => set(e.currentTarget.value)}
+          onchange={(e) =>
+            e.currentTarget.value === '' ? draft.reset(id, config) : set(e.currentTarget.value)}
         >
+          {#if def.nullable}<option value="">{t('fieldNotSet')}</option>{/if}
           {#each def.options ?? [] as option (option)}
             <option value={option}>{tOpt(`cfg.${id}.opt.${option}`) ?? option}</option>
           {/each}
