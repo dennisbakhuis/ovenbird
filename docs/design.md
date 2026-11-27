@@ -178,6 +178,20 @@ ramp**, then clamps, rounding with hysteresis, deadband ≥ 1 K and dwell.
 
 - **Rule planner** (permanent fallback): price rank + forecast PV surplus + comfort band →
   room offsets; anticipates solar gain.
+- **Model plan** (planned; owner decision 2026-11-27,
+  [record](decisions/2026-11-27-learned-model-in-controller.md)): the champion house
+  model's predicted effect of forecast sun and forecast outside temperature over the
+  next hours → a room-target offset through the same plan hook. Bounds are settings
+  (defaults: set back at most 0.5 K, pre-heat at most 0.3 K, horizon 6 h), so the comfort
+  effect is at most the bound whatever the model error. Start ramp, cycling floor,
+  wood-stove pause and safety clamp still apply after it. No water term, no automatic
+  curve or gain change. Switch `control_model_use`: `off` (default), `shadow` (computed
+  and logged, decisions byte-identical to `off`), `on` (only after an offline evaluation
+  with deliberately wrong models and missing-sun forecasts shows no meaningful worsening
+  of undershoot or starts, and two weeks of live shadow reviewed by the owner). Guards,
+  each failing to "no plan" with the reason shown: model promoted, credible and recently
+  re-validated (held-out 24 h room error below a set limit); forecast fresh; room value
+  trusted; no wood-stove episode or its recovery tail.
 - **LP optimiser** (experimental, shadow until it wins): HiGHS via scipy; 15-min steps to
   end of published prices; uses the fitted model (below); COP per step incl. defrost
   penalty; separate import/export; terminal constraint; start penalty.
@@ -286,8 +300,11 @@ signature and RC estimates differ > 20 %.
 
 ### Learning loop (self-learning house model)
 
-The model **proposes, the owner approves**: nothing the learner produces changes control
-by itself.
+The model **proposes, the owner approves**: a curve, PI gains or any other configuration
+change from the learner is a draft the owner reviews and applies. The one exception is
+the bounded model plan (see Planner; owner decision 2026-11-27,
+[record](decisions/2026-11-27-learned-model-in-controller.md)): a room-target offset of
+at most −0.5 K / +0.3 K by default, off unless `control_model_use` is `on`.
 
 - **Data.** The service stores the loop heat it computes live
   (`derived/heat_delivered_w`: core's `heat_delivered_w`, 0 with the compressor stopped,
@@ -313,7 +330,12 @@ by itself.
   the heat-pump layer cannot be fitted on the history (missing signals) it falls back to
   the building alone with the same folds and bootstrap. Fixed seeds: the result depends
   only on the database, the configuration and the code version. About 5 min for 40-50
-  days on one core.
+  days on one core; the building-only fit on a 41-day simulated history took 11 s of one
+  thread and 237 MB peak memory (measured 2026-11-27).
+- **Owner input (planned, 2026-11-27).** The owner can state facts about the house as
+  weak priors, and pin or bound four learned quantities only: heat loss (UA), time
+  constant, solar aperture and internal gains. Internal conductances are not pinnable;
+  they are not separately identifiable.
 - **Promotion (champion/challenger).** The challenger is the latest fold's train-only
   building (fitted before the latest 14 days). Its free-run room error at 24 h on those
   14 days is compared with the current champion's on the same days (events masked);
@@ -335,9 +357,12 @@ by itself.
   to 4 MB, strict JSON, an allow-list of keys with bounded sizes and checked types;
   anything else is served as `state: learning` with the reason. A model whose learner
   has not run for twice its interval is reported as stale (`learner.stale`).
-- **Running it.** The learner is its own image (`Dockerfile` target `learner`, with
-  numpy/scipy); the production image stays without the scientific stack and only reads
-  JSON. It runs as its own uid in the service's group and mounts only `learner/`
+- **Running it.** Planned default (2026-11-27): the fit runs inside the ovenbird image
+  as a supervised low-priority child process of the service (one container), weekly at
+  night and on request, limited to 30 min wall time and 768 MB. Core stays pure Python;
+  the service still reads the model files through the trust checks above. Until that is
+  built, and as an option afterwards, the learner is its own image (`Dockerfile` target
+  `learner`, with numpy/scipy). It runs as its own uid in the service's group and mounts only `learner/`
   (read-only) and `models/` of the data volume, never `options.json`, `config.db` or the
   live history; no network, read-only root, no capabilities. In the dev stack it is the
   optional compose service `learner` (`COMPOSE_PROFILES=learner`, weekly loop); the
