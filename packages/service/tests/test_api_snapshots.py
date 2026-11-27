@@ -56,6 +56,20 @@ WINDOW = {"from": "2026-11-02T00:00:00Z", "to": "2026-11-02T03:20:00Z"}
 TICKET = re.compile(rb'"ticket":"[A-Za-z0-9_-]+"')
 PARAM = re.compile(r"\{[^}]+\}")
 UNORDERED = frozenset({"insight_house_ready"})
+BUILDING = {
+    "c_water": 2.5e6,
+    "c_mass": 4.0e7,
+    "c_air": 1.0e7,
+    "h_water_mass": 400.0,
+    "h_water_air": 150.0,
+    "h_mass_air": 800.0,
+    "h_air_out": 145.0,
+    "solar_aperture_m2": 3.0,
+    "solar_mass_fraction": 0.5,
+    "q_int_w": 300.0,
+    "q_int_modulation": 0.0,
+    "q_int_peak_hour": 19.0,
+}
 INSIGHT = {
     "schema": "ovenbird.house-insight/1",
     "model": "house-20261101",
@@ -161,8 +175,21 @@ CASES = (
     Case("weather", "GET", "/weather", {"back_h": 4, "ahead_h": 6}),
     Case("insight_daily", "GET", "/insight/daily", {"days": 2}),
     Case("insight_house_not_run", "GET", "/insight/house"),
+    Case("insight_house_series_missing", "GET", "/insight/house/series"),
+    Case("insight_house_whatif_missing", "GET", "/insight/house/whatif"),
+    Case("insight_house_balance_missing", "GET", "/insight/house/balance"),
     Case("insight_house_ready", "GET", "/insight/house"),
     Case("insight_house_history", "GET", "/insight/house/history"),
+    Case("insight_house_series", "GET", "/insight/house/series"),
+    Case("insight_house_whatif", "GET", "/insight/house/whatif"),
+    Case(
+        "insight_house_whatif_scenario",
+        "GET",
+        "/insight/house/whatif",
+        {"outside_c": -8, "comfort_c": 21, "sun_wm2": 120, "stove_w": 2000},
+    ),
+    Case("insight_house_whatif_range", "GET", "/insight/house/whatif", {"outside_c": 99}),
+    Case("insight_house_balance", "GET", "/insight/house/balance"),
     Case("proposal_draft", "POST", "/insight/house/proposal/draft", body={}),
     Case("insight_house_run", "GET", "/insight/house/run"),
     Case("insight_house_run_unavailable", "POST", "/insight/house/run", body={}),
@@ -231,7 +258,24 @@ def write_history(path: Path, rows: list[DecisionRow]) -> None:
 def write_models(root: Path) -> None:
     models = root / "models"
     models.mkdir(parents=True, exist_ok=True)
-    (models / "house-20261101.json").write_text("{}", encoding="utf-8")
+    house_file = {"schema": "ovenbird.plant-params/1", "params": {"building": BUILDING}}
+    (models / "house-20261101.json").write_text(json.dumps(house_file), encoding="utf-8")
+    rows = [
+        [
+            datetime.fromtimestamp(T0 + 900 * k, UTC).isoformat(timespec="seconds"),
+            20.5 + k / 100.0,
+            None if k < 4 else 20.4 + k / 100.0,
+        ]
+        for k in range(12)
+    ]
+    series = {
+        "schema": "ovenbird.house-series/1",
+        "model": "house-20261101",
+        "step_s": 900,
+        "columns": ["ts", "room_measured", "room_predicted_24h"],
+        "rows": rows,
+    }
+    (models / "series-20261101.json").write_text(json.dumps(series), encoding="utf-8")
     (models / "insight-20261101.json").write_text(json.dumps(INSIGHT), encoding="utf-8")
     current = {
         "model": "house-20261101",

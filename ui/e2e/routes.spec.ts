@@ -94,17 +94,22 @@ const ROUTES: RouteSpec[] = [
   {
     name: 'house',
     hash: '#/house',
-    landmarks: ['house-page', 'house-status', 'house-score', 'house-facts'],
+    landmarks: ['house-page', 'house-status', 'house-schematic', 'house-score', 'house-facts'],
   },
   {
     name: 'house-model',
     hash: '#/house/model',
-    landmarks: ['house-page', 'house-signature', 'house-quality'],
+    landmarks: ['house-page', 'house-signature', 'house-prediction', 'house-quality'],
   },
   {
     name: 'house-learning',
     hash: '#/house/learning',
     landmarks: ['house-page', 'house-run', 'house-timeline', 'house-proposal'],
+  },
+  {
+    name: 'house-what-if',
+    hash: '#/house/what-if',
+    landmarks: ['house-page', 'house-whatif', 'whatif-inputs', 'whatif-results'],
   },
   { name: 'settings-house', hash: '#/settings/house', landmarks: ['house-section'] },
   { name: 'settings-ha', hash: '#/settings/ha', landmarks: ['ha-card', 'ha-sensors'] },

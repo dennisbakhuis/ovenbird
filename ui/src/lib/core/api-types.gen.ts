@@ -786,6 +786,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/insight/house/balance': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** House Balance */
+    get: operations['house_balance_api_v1_insight_house_balance_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/insight/house/history': {
     parameters: {
       query?: never;
@@ -832,6 +849,40 @@ export interface paths {
     put?: never;
     /** Start House Run */
     post: operations['start_house_run_api_v1_insight_house_run_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/insight/house/series': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** House Series */
+    get: operations['house_series_api_v1_insight_house_series_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/insight/house/whatif': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** House Whatif */
+    get: operations['house_whatif_api_v1_insight_house_whatif_get'];
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -1303,6 +1354,26 @@ export interface components {
     };
     /** @enum {string} */
     AutoVacuumName: 'none' | 'full' | 'incremental';
+    /** @description The heat flows of the house in W; ``null`` where an input is unknown. */
+    BalanceFlows: {
+      heat_pump_w: number | null;
+      internal_w: number;
+      loss_w: number | null;
+      storage_w: number | null;
+      stove_active: boolean;
+      sun_w: number | null;
+    };
+    /** @enum {string} */
+    BalanceNote:
+      | 'estimate'
+      | 'not_credible'
+      | 'room_unknown'
+      | 'outside_unknown'
+      | 'sun_unknown'
+      | 'dhw_active'
+      | 'heat_unknown'
+      | 'defrost'
+      | 'stove_active';
     /** @description Today's write budget. */
     Budget: {
       day: string | null;
@@ -1969,6 +2040,18 @@ export interface components {
       setting: 'auto' | 'on' | 'off';
       shown: boolean;
     };
+    /** @description ``GET insight/house/balance``: the heat balance of the house right now. */
+    HouseBalance: {
+      at: string;
+      credible: boolean;
+      flows: components['schemas']['BalanceFlows'];
+      notes: components['schemas']['BalanceNote'][];
+      outside_c: number | null;
+      room_c: number | null;
+      source: components['schemas']['HouseSource'];
+      sun_wm2: number | null;
+      ua_w_per_k: number;
+    };
     /** @description ``GET insight/house/history``: every promoted model. */
     HouseHistory: {
       floor_area_m2: number | null;
@@ -2065,6 +2148,22 @@ export interface components {
       state: components['schemas']['ScoreState'];
       w_per_m2?: number;
     };
+    /**
+     * @description ``GET insight/house/series``: the room, measured and as predicted 24 h earlier.
+     *
+     *     ``points`` are ``[time, measured, predicted]`` rows, oldest first; either value is
+     *     ``null`` where it is unknown (the prediction exists only inside the learner's
+     *     held-out block).
+     */
+    HouseSeries: {
+      from: string;
+      model: string;
+      points: [string, number | null, number | null][];
+      step_s: number;
+      to: string;
+    };
+    /** @enum {string} */
+    HouseSource: 'model' | 'estimate';
     /** @description ``GET insight/house`` before a model is promoted: what is missing. */
     HouseWaiting: {
       last_run: components['schemas']['LastRun'] | null;
@@ -2072,6 +2171,24 @@ export interface components {
       missing: string[];
       /** @enum {string} */
       state: 'learning' | 'not_run';
+    };
+    /** @description ``GET insight/house/whatif``: what the house needs to hold comfort in a scenario. */
+    HouseWhatIf: {
+      balance_outside_c: number;
+      credible: boolean;
+      curve_c: number;
+      drift: components['schemas']['WhatIfDrift'];
+      free_heat_w: number;
+      heat_demand_w: number;
+      inputs: components['schemas']['WhatIfInputs'];
+      limited_by: components['schemas']['WhatIfLimit'][];
+      loop_mean_c: number;
+      loss_w: number;
+      max_supply_c: number;
+      model: string | null;
+      source: components['schemas']['HouseSource'];
+      supply_c: number;
+      time_constant_h: number | null;
     };
     HTTPValidationError: {
       detail?: components['schemas']['ValidationError'][];
@@ -3119,6 +3236,21 @@ export interface components {
     };
     WeatherPoint: [string, number | null];
     WeatherReport: components['schemas']['WeatherOff'] | components['schemas']['WeatherOn'];
+    /** @description The room temperature with the heating off, from the comfort steady state. */
+    WhatIfDrift: {
+      hours: number;
+      room_c: number[];
+      step_s: number;
+    };
+    /** @description The scenario of a what-if, with the defaults filled in. */
+    WhatIfInputs: {
+      comfort_c: number;
+      outside_c: number;
+      stove_w: number;
+      sun_wm2: number;
+    };
+    /** @enum {string} */
+    WhatIfLimit: 'max_supply' | 'no_heat_needed';
   };
   responses: never;
   parameters: never;
@@ -4250,6 +4382,26 @@ export interface operations {
       };
     };
   };
+  house_balance_api_v1_insight_house_balance_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HouseBalance'];
+        };
+      };
+    };
+  };
   house_history_api_v1_insight_house_history_get: {
     parameters: {
       query?: never;
@@ -4326,6 +4478,60 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['HouseRun'];
+        };
+      };
+    };
+  };
+  house_series_api_v1_insight_house_series_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HouseSeries'];
+        };
+      };
+    };
+  };
+  house_whatif_api_v1_insight_house_whatif_get: {
+    parameters: {
+      query?: {
+        comfort_c?: number | null;
+        outside_c?: number | null;
+        stove_w?: number;
+        sun_wm2?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HouseWhatIf'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
         };
       };
     };

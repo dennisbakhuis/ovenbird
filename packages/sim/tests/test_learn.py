@@ -307,6 +307,10 @@ def fake_fit(split: float, end: float) -> run.FitOutcome:
     )
 
 
+def iso_of(ts: float) -> str:
+    return run.iso(ts)
+
+
 def errors(room_24h: float) -> HorizonErrors:
     room = tuple(room_24h if h == 24.0 else 0.1 for h in HORIZONS_H)
     return HorizonErrors(HORIZONS_H, room, room, room, 5)
@@ -346,6 +350,18 @@ def test_champion_challenger_files(
     house = json.loads((models / "house-20261111.json").read_text())
     assert house["schema"] == "ovenbird.plant-params/1"
     assert house["params"]["building"]["h_air_out"] == 145.0
+    series = json.loads((models / "series-20261111.json").read_text())
+    assert series["schema"] == "ovenbird.house-series/1"
+    assert series["model"] == "house-20261111"
+    assert series["step_s"] == 900
+    assert series["columns"] == ["ts", "room_measured", "room_predicted_24h"]
+    assert series["to"] == series["rows"][-1][0]
+    assert all(len(row) == 3 for row in series["rows"])
+    assert series["predicted_from"] is None or series["predicted_from"] >= iso_of(split)
+    measured = [row[1] for row in series["rows"] if row[1] is not None]
+    assert measured
+    assert all(20.0 < value < 22.0 for value in measured)
+    assert store.index_runs(models)[0]["series"] == "series-20261111.json"
 
     monkeypatch.setattr(run, "horizon_errors", horizons)
     champion_errors = iter([errors(0.40)])
@@ -360,6 +376,8 @@ def test_champion_challenger_files(
         ("house-20261111-2", False),
     ]
     assert json.loads((models / store.CURRENT).read_text())["model"] == "house-20261111"
+    assert (models / "series-20261111-2.json").exists()
+    assert store.series_name("house-20261111-2") == "series-20261111-2.json"
     kept = json.loads((models / "insight-20261111.json").read_text())
     assert kept["validation"]["promoted"] is True
     trend = json.loads((models / "insight-20261111-2.json").read_text())["error_trend"]

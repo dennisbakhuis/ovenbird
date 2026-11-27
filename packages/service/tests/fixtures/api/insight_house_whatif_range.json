@@ -1,0 +1,1 @@
+{"detail":[{"type":"less_than_equal","loc":["query","outside_c"],"msg":"Input should be less than or equal to 30","input":"99","ctx":{"le":30.0}}]}

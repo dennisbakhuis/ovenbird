@@ -24,13 +24,22 @@ async function size(page: Page): Promise<{ height: number; scroll: number; inner
 }
 
 const TABS: [string, string, string[]][] = [
-  ['overview', '#/house', ['house-status', 'house-score', 'house-facts', 'house-facts-input']],
-  ['model', '#/house/model', ['house-signature', 'house-quality', 'house-bounds-card']],
+  [
+    'overview',
+    '#/house',
+    ['house-status', 'house-schematic', 'house-score', 'house-facts', 'house-facts-input'],
+  ],
+  [
+    'model',
+    '#/house/model',
+    ['house-signature', 'house-prediction', 'house-quality', 'house-bounds-card'],
+  ],
   [
     'learning',
     '#/house/learning',
     ['house-run', 'house-learning-settings', 'house-timeline', 'house-proposal'],
   ],
+  ['what-if', '#/house/what-if', ['house-whatif', 'whatif-results']],
 ];
 
 for (const width of [1400, 400]) {
@@ -566,4 +575,282 @@ test('the Dutch House cards use natural Dutch', async ({ page, context, baseURL 
   await expect(page.getByTestId('bound-learned-ua')).toContainText('bereik van 90 %');
   await page.goto('./#/house');
   await expect(page.getByTestId('house-facts-input')).toContainText('Wat je van het huis weet');
+});
+
+const shotPath = (tab: string, width: number, scheme = '') =>
+  `e2e/shots/house-s3-${tab}-${width}${scheme}.png`;
+
+for (const width of [1400, 400]) {
+  test(`session 3 screenshots at ${width} px`, async ({ page, context, baseURL }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await scenario(context, tag(), baseURL);
+    await language(page, 'en');
+    for (const [name, hash, cards] of TABS) {
+      await page.goto(`./${hash}`);
+      for (const id of cards) await expect(page.getByTestId(id)).toBeVisible();
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: shotPath(name, width), fullPage: true });
+    }
+    if (width === 1400) {
+      await page.emulateMedia({ colorScheme: 'dark' });
+      await page.goto('./#/house');
+      await expect(page.getByTestId('house-schematic-svg')).toBeVisible();
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: shotPath('overview', width, '-dark'), fullPage: true });
+    }
+  });
+}
+
+test('the schematic shows the flows of the moment and says them in one sentence', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await scenario(context, tag(), baseURL);
+  await language(page, 'en');
+  await page.goto('./#/house');
+  const svg = page.getByTestId('house-schematic-svg');
+  await expect(svg).toHaveAttribute('data-layout', 'wide');
+  await expect(svg).toHaveAttribute('role', 'img');
+  const sentence = page.getByTestId('house-balance-sentence');
+  await expect(sentence).toContainText(
+    /^Right now the house loses about [\d.,]+\s(kW|W) to outside; the heat pump delivers /,
+  );
+  await expect(svg).toHaveAttribute('aria-label', (await sentence.textContent()) ?? '');
+  await expect(page.getByTestId('house-balance-source')).toHaveText('Measured model');
+  await expect(svg).toContainText('Heat pump');
+  await expect(svg).toContainText('Building mass');
+  await page.setViewportSize({ width: 400, height: 900 });
+  await expect(svg).toHaveAttribute('data-layout', 'narrow');
+  await expect(sentence).toBeVisible();
+});
+
+test('the schematic is an estimate while the model is still learning', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await scenario(context, `${tag()}.house:learning`, baseURL);
+  await language(page, 'en');
+  await page.goto('./#/house');
+  await expect(page.getByTestId('house-schematic')).toBeVisible();
+  await expect(page.getByTestId('house-balance-source')).toHaveText(
+    'Estimate from your answers, not measured',
+  );
+  await expect(page.getByTestId('house-balance-sentence')).toContainText('Right now the house');
+});
+
+test('without a model or facts the schematic asks for the facts', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await scenario(context, `${tag()}.house:learning.balance:missing`, baseURL);
+  await language(page, 'en');
+  await page.goto('./#/house');
+  await expect(page.getByTestId('house-schematic-hint')).toContainText('Fill in a few facts');
+  await page.getByTestId('house-schematic-facts').click();
+  await expect(page.getByTestId('house-facts-input')).toBeInViewport();
+});
+
+test('a burning wood stove makes the storage unknown, never zero', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await scenario(context, `${tag()}.stove:active`, baseURL);
+  await language(page, 'en');
+  await page.goto('./#/house');
+  const svg = page.getByTestId('house-schematic-svg');
+  await expect(svg).toHaveAttribute('data-storage', 'unknown');
+  await expect(svg).toContainText('Wood stove');
+  await expect(page.getByTestId('house-balance-sentence')).toContainText(
+    'the wood stove is burning too, so how much heat the building stores is not known',
+  );
+});
+
+test('an unknown sun is drawn as unknown and not as zero', async ({ page, context, baseURL }) => {
+  await scenario(context, `${tag()}.balance:nosun`, baseURL);
+  await language(page, 'en');
+  await page.goto('./#/house');
+  await expect(page.getByTestId('house-schematic-svg')).toHaveAttribute('data-storage', 'unknown');
+  await expect(page.getByTestId('house-schematic-svg')).toContainText('unknown');
+  await expect(page.getByTestId('house-balance-sentence')).toContainText(
+    "the sun's share is not known",
+  );
+});
+
+test('an older service hides the new parts calmly', async ({ page, context, baseURL }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await scenario(context, `${tag()}.balance:absent`, baseURL);
+  await language(page, 'en');
+  await page.goto('./#/house');
+  await expect(page.getByTestId('house-score')).toBeVisible();
+  await expect(page.getByTestId('house-schematic')).toHaveCount(0);
+  const tabs = page.getByRole('navigation', { name: 'House sections' });
+  await expect(tabs.getByRole('link', { name: 'What if' })).toHaveCount(0);
+  await page.goto('./#/house/model');
+  await expect(page.getByTestId('house-quality')).toBeVisible();
+  await expect(page.getByTestId('house-prediction')).toHaveCount(0);
+  await page.goto('./#/house/what-if');
+  await expect(page.getByTestId('whatif-absent')).toBeVisible();
+});
+
+test('the prediction chart compares measured and predicted and switches its range', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await scenario(context, tag(), baseURL);
+  await language(page, 'en');
+  await page.goto('./#/house/model');
+  const card = page.getByTestId('house-prediction');
+  await expect(card).toBeVisible();
+  await expect(page.getByTestId('house-pred-summary')).toContainText(
+    /last 7 days the prediction was typically [\d.,]+ K off and at most [\d.,]+ K/,
+  );
+  await expect(card.getByTestId('chart-legend')).toContainText('Measured');
+  await expect(card.getByTestId('chart-legend')).toContainText('Predicted 24 h ahead');
+  await page.getByTestId('house-pred-range-3').click();
+  await expect(page.getByTestId('house-pred-summary')).toContainText('last 3 days');
+  await page.getByTestId('house-pred-range-14').click();
+  await expect(page.getByTestId('house-pred-summary')).toContainText('last 14 days');
+  await expect(card.getByTestId('chart-table')).toHaveCount(0);
+  await card.getByTestId('chart-table-toggle').click();
+  await expect(card.getByTestId('chart-table')).toBeVisible();
+});
+
+test('the heat loss and the time constant of the models are two small charts', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await scenario(context, tag(), baseURL);
+  await language(page, 'en');
+  await page.goto('./#/house/model');
+  await expect(page.getByTestId('house-trend')).toHaveAttribute('aria-label', /3 model runs/);
+  await expect(page.getByTestId('house-trend-tau')).toHaveAttribute(
+    'aria-label',
+    /time constant of 3 models went from 121 to 53 hours/,
+  );
+});
+
+test('what you told is shown next to what was measured, with a remark when they differ', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await scenario(context, `${tag()}.house:facts`, baseURL);
+  await language(page, 'en');
+  await page.goto('./#/house');
+  await expect(page.getByTestId('house-told-ua')).toContainText(
+    'You told us ≈ 340 W/K · measured 240 W/K (90 % range 230–251)',
+  );
+  await expect(page.getByTestId('house-told-solar')).toHaveAttribute('data-differs', 'true');
+  await expect(page.getByTestId('house-told-ua')).toHaveAttribute('data-differs', 'false');
+  await expect(page.getByTestId('house-told-differs')).toContainText(
+    'the model follows the measurements',
+  );
+});
+
+test('a model promoted because the settings changed says so in plain words', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await scenario(context, `${tag()}.house:changed`, baseURL);
+  await language(page, 'en');
+  await page.goto('./#/house/model');
+  await expect(page.getByTestId('house-settings-changed')).toContainText(
+    'You changed the house settings, so this model took over even though it predicted slightly worse: 0.11 K against 0.1 K',
+  );
+});
+
+test.describe('what if', () => {
+  test('the inputs change the answer and the URL, and survive a reload', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await scenario(context, tag(), baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/what-if');
+    const demand = page.getByTestId('whatif-demand');
+    await expect(demand).toContainText('The heat pump has to deliver about');
+    const before = (await demand.textContent()) ?? '';
+    await page.getByTestId('whatif-outside-dec').click();
+    await page.getByTestId('whatif-outside-dec').click();
+    await expect(page).toHaveURL(/#\/house\/what-if\?.*outside=-2/);
+    await expect(demand).not.toHaveText(before);
+    await page.getByTestId('whatif-stove-2000').click();
+    await expect(page).toHaveURL(/stove=2000/);
+    await page.getByTestId('whatif-sun-150').click();
+    await expect(page).toHaveURL(/sun=150/);
+    await expect(page.getByTestId('whatif-sun-exact').locator('input')).toHaveValue('150');
+    await expect(demand).toContainText(/2\.[34]\skW/);
+    const after = (await demand.textContent()) ?? '';
+    await page.reload();
+    await expect(page.getByTestId('whatif-outside').locator('input')).toHaveValue('−2');
+    await expect(page.getByTestId('whatif-stove-2000')).toHaveAttribute('aria-pressed', 'true');
+    await expect(demand).toHaveText(after);
+    await expect(page.getByTestId('whatif-water')).toContainText('Your heating curve gives');
+    await expect(page.getByTestId('whatif-drift')).toHaveAttribute(
+      'aria-label',
+      /Room temperature over 8 hours with the heating off/,
+    );
+    await expect(page.getByTestId('whatif-drift-text')).toContainText(
+      /With the heating off, the room cools to/,
+    );
+    await expect(page.getByTestId('house-whatif')).toContainText(
+      'Nothing here changes any setting',
+    );
+  });
+
+  test('a very cold day shows that the maximum supply limits it; a mild sunny one needs no heating', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, tag(), baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/what-if?outside=-20');
+    await expect(page.getByTestId('whatif-capped')).toContainText('Your maximum supply of 40 °C');
+    await page.goto('./#/house/what-if?outside=20&sun=500');
+    await expect(page.getByTestId('whatif-none')).toContainText('No heating is needed at 20');
+    await expect(page.getByTestId('whatif-capped')).toHaveCount(0);
+  });
+
+  test('an estimate is marked as one', async ({ page, context, baseURL }) => {
+    await scenario(context, `${tag()}.balance:estimate`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/what-if');
+    await expect(page.getByTestId('whatif-source')).toHaveText(
+      'Estimate from your answers, not measured.',
+    );
+  });
+
+  test('without facts it points to the Overview tab', async ({ page, context, baseURL }) => {
+    await scenario(context, `${tag()}.balance:missing`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/what-if');
+    await expect(page.getByTestId('whatif-no-model')).toBeVisible();
+    await page.getByTestId('whatif-facts').click();
+    await expect(page).toHaveURL(/#\/house$/);
+  });
+
+  test('the Dutch tab and schematic speak Dutch', async ({ page, context, baseURL }) => {
+    await scenario(context, tag(), baseURL);
+    await language(page, 'nl');
+    await page.goto('./#/house');
+    await expect(page.getByRole('link', { name: 'Wat als' })).toBeVisible();
+    await expect(page.getByTestId('house-balance-sentence')).toContainText(
+      /^Op dit moment verliest het huis ongeveer/,
+    );
+    await expect(page.getByTestId('house-balance-source')).toHaveText('Gemeten model');
+    await page.goto('./#/house/what-if');
+    await expect(page.getByTestId('whatif-water')).toContainText('Je stooklijn geeft');
+  });
 });

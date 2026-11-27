@@ -8,6 +8,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- What-if on the House page: what the house needs to hold a comfort temperature at an
+  outside temperature, with sun and a wood stove, from the learned model or, without one,
+  from the house facts: the heat, the loop and supply temperatures against your curve and
+  the supply limit, the outside temperature where heating stops, and how the room cools with
+  the heating off (`GET api/v1/insight/house/whatif`; `house_model_missing` says which facts
+  an estimate needs).
+- The room as measured against what the model predicted 24 hours earlier, for the last 14
+  days (`GET api/v1/insight/house/series`; the learner writes `series-<model>.json`; the
+  prediction is out-of-sample, so it starts after the first day of the held-out block).
+- Live heat balance of the house: heat pump, loss, sun, internal gains and what the building
+  stores right now (`GET api/v1/insight/house/balance`).
 - The app names the deice mode of a running defrost when the heat pump model is known:
   "Defrosting · mode 2" on Home and on the Pump page, with what it means for the water
   pump (mode 1: reverse cycle, water pump running; mode 2: hot gas, water pump off by

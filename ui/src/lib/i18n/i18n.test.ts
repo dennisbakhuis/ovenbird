@@ -43,6 +43,7 @@ const PREFIXES: Record<string, string[]> = {
   learner_failure: ['houseRunFailure_'],
   learner_refusal: ['houseRunRefused_'],
   learner_state: ['houseRunPill_'],
+  insight_error: ['houseError_'],
 };
 
 describe('i18n completeness', () => {

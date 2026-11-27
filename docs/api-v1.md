@@ -1269,7 +1269,7 @@ as `state` `learning` with the reason in `missing`. Always `200`; with the champ
  "validation": {"test_from": "2026-01-31T00:00:00+00:00", "test_to": "2026-02-14T00:00:00+00:00",
                 "score_horizon_h": 24.0, "challenger_room_rmse_k": 0.093,
                 "champion_room_rmse_k": null, "champion": null, "promoted": true,
-                "rule": "no champion yet"},
+                "rule": "no champion yet", "settings_changed": false},
  "error_trend": [{"model": "house-20260214", "data_to": "...", "promoted": true,
                   "ua_w_per_k": 147.3, "room_rmse_24h_k": 0.093}],
  "daily_error": [{"date": "2026-01-31", "room_rmse_24h_k": 0.078, "origins": 9}],
@@ -1285,7 +1285,12 @@ as `state` `learning` with the reason in `missing`. Always `200`; with the champ
  "provenance": {"data_from": "...", "data_to": "...", "fit_days": 40.75, "step_s": 60,
                 "config_hash": "35767f480b5ce141", "code_version": "0.4.1",
                 "method": "full_plant", "fallback_reason": null, "seed": 0,
-                "bootstrap": 20, "folds": 2, "generated": "..."}}
+                "bootstrap": 20, "folds": 2, "generated": "...",
+                "constraints": {"h_air_out": [150.0, 250.0]},
+                "told": {"ua_w_per_k": 310.0, "solar_aperture_m2": 4.5,
+                         "internal_gain_w": 440.0},
+                "learning": {"fit_days": 60, "test_days": 14, "tolerance_k": 0.0,
+                             "excluded_days": ["2026-02-03"], "excluded_days_in_fit": 1}}}
 ```
 
 - `ua`: the RC model's envelope conductance (`h_air_out`, W/K) with its 90 % day-block
@@ -1318,6 +1323,14 @@ as `state` `learning` with the reason in `missing`. Always `200`; with the champ
   and `reason` (a sentence). The service passes the list on as the learner wrote it (only
   the generic size and type checks of the file apply), so a client must tolerate other
   fields.
+- `provenance`: where the model came from. `constraints` are the owner's fact and bound
+  settings that shaped the fit (`{}` when none), `told` the rough values the facts imply
+  (`ua_w_per_k`, `solar_aperture_m2`, `internal_gain_w`; `null` where the facts do not
+  give one), `learning` the learning options in force (`fit_days`, `test_days`,
+  `tolerance_k`, the owner's `excluded_days` and `excluded_days_in_fit`, how many of them
+  fell inside the data). `validation.settings_changed` is true when the owner's facts or
+  bounds differed from the champion's and that alone promoted the new model. All of these
+  pass through the service's generic checks unchanged (older models lack them).
 - `learner`: when the learner last ran (`status.json`, real time) and whether that is
   too long ago: `stale` when `age_h` exceeds `stale_after_h`, twice the learner's
   interval (`interval_h` from its `--every-h`, else 168 h). A stale model is still
@@ -1387,6 +1400,116 @@ of `GET api/v1/insight/house/run` (`state` `running`); the result appears in
 `insight/house` when the run ends. `409` with
 `{"detail": {"code", "message", "params": {}}}` and `code` `learner_running` (a run is in
 progress) or `learner_unavailable` (the learner is not installed in this service).
+
+## `GET api/v1/insight/house/series` (read)
+
+The champion's room temperature over the last 14 days at 15 min resolution, measured
+and as the model predicted it 24 h earlier:
+
+```json
+{"model": "house-20260214", "step_s": 900, "from": "2026-02-01T00:15:00Z",
+ "to": "2026-02-15T00:00:00Z",
+ "points": [["2026-02-01T00:15:00Z", 20.84, null],
+            ["2026-02-02T00:15:00Z", 20.91, 20.77]]}
+```
+
+`points` are `[time, measured, predicted]`, oldest first (1344 rows for 14 days); either
+value is `null` where unknown. The prediction exists only from 24 h after the start of the
+learner's held-out block (the latest `house_learn_test_days`): it is the Kalman-filtered
+state at `t - 24 h` of the model fitted *before* that block, run free for 24 h with the
+measured heat, outside temperature and irradiance, so it is out-of-sample. `measured` is the raw
+sensor, also inside wood-stove periods (the room then runs above its prediction).
+
+The learner writes the data as `models/series-<YYYYMMDD>.json` next to the model, listed
+as `series` in the model's entry of `index.json`:
+
+```json
+{"schema": "ovenbird.house-series/1", "model": "house-20260214", "step_s": 900,
+ "horizon_h": 24.0, "from": "...", "to": "...", "predicted_from": "...",
+ "columns": ["ts", "room_measured", "room_predicted_24h"],
+ "rows": [["2026-02-01T00:15:00+00:00", 20.84, null]]}
+```
+
+The service reads it as untrusted (no links, regular file of at most 1 MiB, strict JSON,
+the champion's own model name, at most 2000 rows, increasing zoned times, temperatures
+within -40 to 60 degC or `null`); a file that fails any check is treated as missing.
+`404` `{"detail": {"code": "house_series_missing", "message", "params": {}}}` without a
+champion, without its series file or when the file is refused.
+
+## `GET api/v1/insight/house/whatif` (read)
+
+What the house needs to hold a comfort temperature in a scenario, from the champion's
+building parameters (the learner's `house-<date>.json`, `params.building`, read as
+untrusted and checked field by field), or without a champion from a rough model built
+from the owner's house facts (`house_build_period` with `house_floor_area_m2` or
+`house_volume_m3`; the other parameters are the learner's prior means). Query, all
+optional: `outside_c` (-30 to 30; default the measured outside temperature, 0 when
+unknown), `comfort_c` (5 to 30; default `control_comfort_c`), `sun_wm2` (0 to 1000;
+default 0), `stove_w` (0 to 15000; default 0, heat a wood stove puts into the room).
+A value outside its range is `422`.
+
+```json
+{"source": "model", "model": "house-20260214", "credible": false,
+ "inputs": {"outside_c": 3.0, "comfort_c": 21.0, "sun_wm2": 0.0, "stove_w": 0.0},
+ "heat_demand_w": 2368, "free_heat_w": 300, "loss_w": 2668,
+ "loop_mean_c": 27.1, "supply_c": 28.2, "curve_c": 32.2, "max_supply_c": 40.0,
+ "limited_by": [], "balance_outside_c": 19.3,
+ "drift": {"hours": 8, "step_s": 900, "room_c": [21.0, 20.99, "... 33 values"]},
+ "time_constant_h": 52.6}
+```
+
+- `source`: `model` (the champion, also when it is not `credible`) or `estimate` (the owner's
+  facts; `model` is `null` and `credible` false).
+- `heat_demand_w`: the heat the loop must deliver at steady state, `max(0, loss_w -
+  free_heat_w)`. `free_heat_w`: sun (`solar aperture x sun_wm2`), mean internal gains and
+  `stove_w`. `loss_w`: `UA x (comfort - outside)`.
+- `loop_mean_c`: the loop's mean water temperature for that heat; `supply_c`: the supply
+  temperature at the nominal flow of 15 l/min (the curve proposal's assumption).
+  `curve_c`: what the owner's heating curve gives at `outside_c`; `max_supply_c`: the
+  installation's limit.
+- `limited_by`: `no_heat_needed` (the demand is 0: the gains cover the loss) and
+  `max_supply` (`supply_c` exceeds `max_supply_c`: the house cannot be held at that
+  comfort in that weather).
+- `balance_outside_c`: the outside temperature above which no heating is needed for the
+  inputs (sun and stove included).
+- `drift`: the room temperature with the loop off: starting at the steady state that holds
+  `comfort_c` (no stove), the loop heat is zero and the outside temperature, sun and mean
+  internal gains stay as given; `hours` x 3600 / `step_s` + 1 values.
+- `time_constant_h`: the slowest time constant of the model (`null` when a node is
+  isolated).
+
+`404` `{"detail": {"code": "house_model_missing", "message", "params": {}}}` with neither a
+champion nor a facts estimate; `message` names the facts that would allow one.
+
+## `GET api/v1/insight/house/balance` (read)
+
+The heat balance of the house right now, for a schematic, from the same model as
+`whatif`:
+
+```json
+{"at": "2026-02-19T12:20:00Z", "source": "model", "credible": true,
+ "room_c": 20.5, "outside_c": 4.0, "sun_wm2": 150.0,
+ "flows": {"heat_pump_w": 4163, "loss_w": 3300, "sun_w": 450, "internal_w": 300,
+           "stove_active": false, "storage_w": 1613},
+ "ua_w_per_k": 200.0, "notes": []}
+```
+
+- `room_c`, `outside_c`: the fresh room signal (`control_room_signal`) and outside
+  temperature (`control_outside_signal`, else the pump's); `null` when unknown.
+- `sun_wm2`: the irradiance of the current hour from the latest stored weather forecast
+  (only with the weather opted in), else `null`.
+- `flows` (W): `heat_pump_w` is `derived/heat_delivered_w` (0 while the compressor is
+  off, negative during a defrost, `null` during hot water or when an input is unknown);
+  `loss_w` is `ua_w_per_k x (room - outside)`; `sun_w` is the solar aperture x `sun_wm2`;
+  `internal_w` the model's internal gains at the local hour; `stove_active` is wood-stove
+  mode. `storage_w` = `heat_pump_w + sun_w + internal_w - loss_w`: positive while the
+  building warms up, negative while it cools; `null` when one of the first three is `null`
+  or a stove episode is active (its heat is not measured).
+- `notes`: codes for what limits the reading: `estimate` (the model is the facts estimate),
+  `not_credible`, `room_unknown`, `outside_unknown`, `sun_unknown`, `dhw_active`,
+  `heat_unknown`, `defrost`, `stove_active`.
+
+`404` `house_model_missing` as for `whatif`.
 
 ## `POST api/v1/insight/house/proposal/draft` (operate)
 

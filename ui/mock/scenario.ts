@@ -41,7 +41,14 @@ export type PumpPhase = 'idle' | 'heating' | 'defrost' | 'dhw';
  * - `house`: learning (no model promoted yet: 200 with `state: learning`) | notrun (the learner
  *   never ran) | noarea (no floor area: no band) | uncredible (a model, but too few cold days for a
  *   score and a credible proposal) | facts (a ready model, with house facts, a heat-loss limit
- *   and a left-out day already stored in the configuration); default: a ready, credible model
+ *   and a left-out day already stored in the configuration) | changed (the model was promoted
+ *   because the house settings changed, although its error is higher); default: a ready, credible
+ *   model
+ * - `balance`: estimate (the heat balance and the what-if come from the owner's facts, not a model)
+ *   | nosun (the sun is unknown: no sun flow, no storage) | missing (404 `house_model_missing` on
+ *   the balance and the what-if, `house_series_missing` on the series) | absent (only those three
+ *   endpoints answer 404, as an older service does); a wood-stove episode
+ *   (`stove:active`) makes the storage unknown
  * - `learner`: running (a learner run is going and never finishes) | unavailable (no built-in
  *   learner: state `unavailable`, `POST insight/house/run` answers 409 `learner_unavailable`) |
  *   failed (the last run failed with a timeout; a manual run clears it) | disabled (automatic
@@ -89,7 +96,8 @@ export interface Scenario {
   hold?: 'latched' | 'timed' | 'none';
   simulation?: 'on';
   stove?: 'active' | 'manual' | 'waiting' | 'disabled';
-  house?: 'learning' | 'notrun' | 'noarea' | 'uncredible' | 'facts';
+  house?: 'learning' | 'notrun' | 'noarea' | 'uncredible' | 'facts' | 'changed';
+  balance?: 'estimate' | 'nosun' | 'missing' | 'absent';
   learner?: 'running' | 'unavailable' | 'failed' | 'disabled';
   notify?: 'off' | 'failing';
   snapshot?: 'none';
@@ -119,7 +127,8 @@ export const SCENARIO_OPTIONS: {
   hold: ['latched', 'timed', 'none'],
   simulation: ['on'],
   stove: ['active', 'manual', 'waiting', 'disabled'],
-  house: ['learning', 'notrun', 'noarea', 'uncredible', 'facts'],
+  house: ['learning', 'notrun', 'noarea', 'uncredible', 'facts', 'changed'],
+  balance: ['estimate', 'nosun', 'missing', 'absent'],
   learner: ['running', 'unavailable', 'failed', 'disabled'],
   notify: ['off', 'failing'],
   snapshot: ['none'],

@@ -1,0 +1,128 @@
+export const houseModel = {
+  'houseTab_what-if': 'Wat als',
+  houseAnd: 'en',
+
+  houseSchemTitle: 'Het huis op dit moment',
+  houseSrcModel: 'Gemeten model',
+  houseSrcEstimate: 'Schatting uit je antwoorden, niet gemeten',
+  houseSrcLearning: 'Nog aan het leren',
+  houseSchemAsOf: 'Stand van {time}',
+  houseError_house_model_missing:
+    'Vul een paar gegevens over het huis in en dit plaatje laat zien waar de warmte heen gaat.',
+  houseError_house_series_missing:
+    'Nog geen voorspelling van de kamer: het model heeft de kamer tot nu toe niet voorspeld.',
+  houseNote_dhw_active:
+    'De warmtepomp maakt nu warm water, dus zijn vermogen verwarmt het huis niet.',
+  busy_houseNote_dhw_active:
+    'De warmtepomp is nu met iets anders bezig, dus zijn vermogen verwarmt het huis niet.',
+  houseNote_defrost:
+    'De warmtepomp is nu aan het ontdooien, dus zijn vermogen verwarmt het huis niet.',
+  houseNote_room_unknown: 'De kamertemperatuur is nu niet bekend.',
+  houseNote_outside_unknown: 'De buitentemperatuur is nu niet bekend.',
+  houseNote_heat_unknown: 'Het vermogen van de warmtepomp is nu niet bekend.',
+  houseSchemFactsLink: 'Gegevens invullen',
+  houseSchemFailed: 'De warmtebalans kon niet worden geladen.',
+
+  houseNodeOutside: 'Buiten',
+  houseNodeEnvelope: 'Muren, dak, ramen',
+  houseNodeRoom: 'Kamer',
+  houseNodeMass: 'Gebouwmassa',
+  houseNodeMassSub: 'Vloer en muren',
+  houseNodePump: 'Warmtepomp',
+  houseNodePumpSub: 'Verwarmingskring',
+  houseNodeSun: 'Zon',
+  houseNodePeople: 'Mensen en apparaten',
+  houseNodeStove: 'Houtkachel',
+  houseFlowLoss: 'Warmteverlies',
+  houseFlowUnknown: 'onbekend',
+  houseFlowNotMeasured: 'warmte niet gemeten',
+  houseStorage_storing: 'slaat {value} op',
+  houseStorage_giving: 'geeft {value} terug',
+  houseStorage_steady: 'stabiel',
+  houseStorage_unknown: 'onbekend',
+  houseSun: '{value} W/m²',
+
+  houseBalSentence: '{head}; {list}, {tail}.',
+  houseBalLoss: 'Op dit moment verliest het huis ongeveer {loss} naar buiten',
+  houseBalLossUnknown: 'Op dit moment is het warmteverlies naar buiten niet bekend',
+  houseBalPump: 'de warmtepomp levert {value}',
+  houseBalPumpNegative: 'de warmtepomp onttrekt ongeveer {value} aan het huis (ontdooien)',
+  houseBalPumpUnknown: 'het vermogen van de warmtepomp is niet bekend',
+  houseBalSun: 'de zon levert ongeveer {value}',
+  houseBalSunUnknown: 'de bijdrage van de zon is niet bekend',
+  houseBalInternal: 'mensen en apparaten leveren ongeveer {value}',
+  houseBalTailStoring: 'dus het gebouw slaat ongeveer {value} op',
+  houseBalTailGiving: 'dus het gebouw geeft ongeveer {value} terug',
+  houseBalTailSteady: 'dus het gebouw slaat vrijwel niets op en geeft vrijwel niets terug',
+  houseBalTailUnknown: 'dus hoeveel warmte het gebouw opslaat is niet bekend',
+  houseBalTailStove:
+    'maar de houtkachel brandt ook, dus hoeveel warmte het gebouw opslaat is niet bekend',
+
+  houseToldTitle: 'Wat je ons vertelde en wat is gemeten',
+  houseToldRow: 'Jij gaf ≈ {told} · gemeten {measured} (90 %-bereik {lo}–{hi})',
+  houseToldRowPlain: 'Jij gaf ≈ {told} · gemeten {measured}',
+  houseToldDiffers: 'De metingen wijken af van je antwoorden; het model volgt de metingen.',
+  houseTold_ua: 'Warmteverlies',
+  houseTold_solar: 'Zonvenster',
+  houseTold_gains: 'Interne warmte',
+  houseSettingsChanged:
+    'Je hebt de huisinstellingen gewijzigd, daarom nam dit model het over, ook al voorspelde het iets slechter: {challenger} K tegen {champion} K voor het vorige model.',
+  houseSettingsChangedPlain:
+    'Je hebt de huisinstellingen gewijzigd, daarom nam dit model het over van het vorige.',
+
+  housePredTitle: 'Gemeten en voorspelde kamertemperatuur',
+  housePredMeasured: 'Gemeten',
+  housePredPredicted: 'Voorspeld, 24 uur vooruit',
+  housePredRange: 'Getoonde periode',
+  housePredDays: '{n} d',
+  housePredSummary:
+    'Over de laatste {days} dagen zat de voorspelling meestal {typical} K ernaast, hooguit {largest} K (rond {when}).',
+  housePredNone: 'Er zijn nog geen gemeten en voorspelde waarden om te vergelijken.',
+  housePredLoading: 'De kamertemperaturen worden geladen.',
+
+  houseTrendTime: 'Tijdconstante',
+  houseTrendHeat: 'Warmteverlies',
+  houseTrendTimeSummary: 'De tijdconstante van {n} modellen ging van {first} naar {last} uur.',
+  houseTrendUnitH: 'u',
+
+  houseWiTitle: 'Wat als',
+  houseWiLead:
+    'Probeer ander weer en zie wat de warmtepomp dan moet doen. Niets hier verandert een instelling.',
+  houseWiInputs: 'Omstandigheden',
+  houseWiOutside: 'Buitentemperatuur',
+  houseWiComfort: 'Comforttemperatuur',
+  houseWiSun: 'Zonneschijn',
+  houseWiSunExact: 'Zonneschijn (W/m²)',
+  houseWiSun_0: 'Geen',
+  houseWiSun_150: 'Heiig',
+  houseWiSun_500: 'Fel',
+  houseWiStove: 'Houtkachel',
+  houseWiStove_0: 'Uit',
+  houseWiStove_2000: 'Laag · 2 kW',
+  houseWiStove_5000: 'Hoog · 5 kW',
+  houseWiResults: 'Wat het huis nodig heeft',
+  houseWiUpdating: 'Bijwerken…',
+  houseWiDemand: 'De warmtepomp moet ongeveer {value} leveren.',
+  houseWiFree: 'Het huis verliest {loss}; zon, mensen en apparaten leveren al {free}.',
+  houseWiWater:
+    'Daarvoor is ongeveer {supply} °C aanvoerwater nodig ({mean} °C gemiddeld in de kring). Je stooklijn geeft {curve} °C bij deze buitentemperatuur, het model heeft {supply} °C nodig.',
+  houseWiLimitMax:
+    'Je maximale aanvoer van {max} °C begrenst dit: de warmtepomp kan geen warmer water sturen, dus de kamer kan onder {comfort} °C blijven.',
+  houseWiLimitNone:
+    'Bij {outside} °C buiten is met deze zon geen verwarming nodig: de gratis warmte dekt het verlies.',
+  houseWiBalance: 'Met deze zon is boven {value} °C buiten geen verwarming nodig.',
+  houseWiDriftTitle: 'Met de verwarming uit',
+  houseWiDriftCools: 'Met de verwarming uit koelt de kamer in {hours} uur af tot {end} °C.',
+  houseWiDriftHolds: 'Met de verwarming uit blijft de kamer {hours} uur lang rond {end} °C.',
+  houseWiDriftTau: 'Het huis koelt af met een tijdconstante van ongeveer {tau} uur.',
+  houseWiDriftAria:
+    'Kamertemperatuur over {hours} uur met de verwarming uit, van {start} °C naar {end} °C.',
+  houseWiSourceModel: 'Uit het gemeten model.',
+  houseWiSourceEstimate: 'Schatting uit je antwoorden, niet gemeten.',
+  houseWiNotCredible: 'Het model is nog aan het leren, dus neem deze getallen als ruwe schatting.',
+  houseWiNoModel:
+    'Het huismodel heeft nog geen gegevens om mee te rekenen. Vul eerst een paar gegevens in op het tabblad Overzicht.',
+  houseWiAbsent: 'Deze service biedt Wat als nog niet aan.',
+  houseWiFailed: 'De berekening is niet gelukt. Controleer de waarden en probeer het opnieuw.',
+  houseWiFactsLink: 'Open het tabblad Overzicht',
+};

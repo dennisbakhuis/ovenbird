@@ -8,10 +8,10 @@
   A11y: the trend chart is role="img" with a sentence and each model is also in the list below.
 -->
 <script lang="ts">
-  import { linearScale } from '$lib/core/chart';
   import { formatDateTime, formatNumber, timeLocale } from '$lib/core/format';
   import type { HouseHistory, HouseHistoryModel, HouseInsight } from '$lib/house/house';
   import { settings, t } from '$lib/core/settings.svelte';
+  import EvolutionChart from './EvolutionChart.svelte';
   import Card from '$ui/Card.svelte';
   import Details from '$ui/Details.svelte';
   import Icon from '$ui/Icon.svelte';
@@ -29,29 +29,6 @@
         typeof model.ua_w_per_k === 'number',
     ),
   );
-  let measured = $state(0);
-  const width = $derived(measured > 0 ? measured : 320);
-  const height = 120;
-  const pad = { left: 40, right: 12, top: 10, bottom: 22 };
-  const values = $derived(
-    models.flatMap((m) => [m.ua_w_per_k, ...(m.ua_interval_90 ?? [])]).filter(Number.isFinite),
-  );
-  const yLow = $derived(Math.floor((Math.min(...values) - 5) / 10) * 10);
-  const yHigh = $derived(Math.ceil((Math.max(...values) + 5) / 10) * 10);
-  const sx = $derived(
-    linearScale(0, Math.max(models.length - 1, 1), pad.left + 12, width - pad.right - 12),
-  );
-  const sy = $derived(linearScale(yLow, yHigh, height - pad.bottom, pad.top));
-  const trendText = $derived(
-    models.length === 0
-      ? ''
-      : t('houseTrendSummary', {
-          n: models.length,
-          first: num(models[0]?.ua_w_per_k ?? 0, 0),
-          last: num(models[models.length - 1]?.ua_w_per_k ?? 0, 0),
-        }),
-  );
-
   const validation = $derived(house.validation);
   const rmseText = $derived.by(() => {
     if (!validation || validation.challenger_room_rmse_k === null) return null;
@@ -63,6 +40,14 @@
           champion: num(validation.champion_room_rmse_k, 2),
         });
   });
+  const settingsChangedText = $derived(
+    validation?.challenger_room_rmse_k != null && validation.champion_room_rmse_k != null
+      ? t('houseSettingsChanged', {
+          challenger: num(validation.challenger_room_rmse_k, 2),
+          champion: num(validation.champion_room_rmse_k, 2),
+        })
+      : t('houseSettingsChangedPlain'),
+  );
   const run = $derived(house.last_run);
 </script>
 
@@ -71,48 +56,7 @@
     <div class="trend">
       <h3>{t('houseTrendTitle')}</h3>
       {#if models.length >= 2}
-        <div class="plot" bind:clientWidth={measured}>
-          <svg
-            {width}
-            {height}
-            viewBox="0 0 {width} {height}"
-            role="img"
-            aria-label={trendText}
-            data-testid="house-trend"
-          >
-            {#each [yLow, (yLow + yHigh) / 2, yHigh] as tick (tick)}
-              <line class="grid" x1={pad.left} x2={width - pad.right} y1={sy(tick)} y2={sy(tick)} />
-              <text class="tick" x={pad.left - 6} y={sy(tick) + 4} text-anchor="end"
-                >{num(tick, 0)}</text
-              >
-            {/each}
-            <polyline
-              class="line"
-              points={models.map((m, i) => `${sx(i)},${sy(m.ua_w_per_k)}`).join(' ')}
-            />
-            {#each models as model, i (model.model)}
-              {#if model.ua_interval_90}
-                <line
-                  class="whisker"
-                  x1={sx(i)}
-                  x2={sx(i)}
-                  y1={sy(model.ua_interval_90[0])}
-                  y2={sy(model.ua_interval_90[1])}
-                />
-              {/if}
-              <circle
-                class="dot"
-                class:champion={model.champion}
-                cx={sx(i)}
-                cy={sy(model.ua_w_per_k)}
-                r="4"
-              />
-              <text class="tick" x={sx(i)} y={height - 6} text-anchor="middle"
-                >{date(model.data_to)}</text
-              >
-            {/each}
-          </svg>
-        </div>
+        <EvolutionChart {models} />
       {/if}
       {#snippet list()}
         <ul class="models" data-testid="house-models">
@@ -156,7 +100,13 @@
       {#if validation}
         <div>
           <dt>{t('houseValidationLabel')}</dt>
-          <dd>{validation.promoted ? t('housePromoted') : t('houseKept')}</dd>
+          <dd>
+            {#if validation.settings_changed}
+              <span data-testid="house-settings-changed">{settingsChangedText}</span>
+            {:else}
+              {validation.promoted ? t('housePromoted') : t('houseKept')}
+            {/if}
+          </dd>
         </div>
       {/if}
     </dl>
@@ -223,40 +173,6 @@
   h3 {
     margin: 0 0 var(--space-2);
     font-size: var(--fs-body);
-  }
-  .plot {
-    min-width: 0;
-  }
-  svg {
-    display: block;
-    max-width: 100%;
-  }
-  .grid {
-    stroke: var(--chart-grid, var(--border));
-  }
-  .tick {
-    fill: var(--chart-axis, var(--muted));
-    font-size: var(--fs-caption);
-    font-variant-numeric: tabular-nums;
-  }
-  .line {
-    fill: none;
-    stroke: var(--muted);
-    stroke-width: 1.5;
-  }
-  .whisker {
-    stroke: var(--text);
-    stroke-width: 2;
-    opacity: 0.5;
-  }
-  .dot {
-    fill: var(--surface);
-    stroke: var(--text);
-    stroke-width: 2;
-  }
-  .dot.champion {
-    fill: var(--accent);
-    stroke: var(--accent);
   }
   .models {
     list-style: none;

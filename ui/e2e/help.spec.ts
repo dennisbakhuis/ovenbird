@@ -24,6 +24,8 @@ const GUIDES = new Set(['start', 'switching']);
 
 /** Targets that sit on a tab of their page rather than on its first one. */
 const TARGET_TAB: Record<string, string> = {
+  'house.prediction': 'model',
+  'house.whatif': 'what-if',
   'house.signature': 'model',
   'house.bounds': 'model',
   'house.learning': 'learning',

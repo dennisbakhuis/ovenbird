@@ -66,7 +66,10 @@ import {
   seriesExport,
 } from './data.ts';
 import {
+  makeBalance,
   makeHouse,
+  makeHouseSeries,
+  makeWhatIf,
   makeHouseHistory,
   makeProposalDraft,
   makeRun,
@@ -129,6 +132,9 @@ const WAVE3_PATHS = [
   '/diagnostics',
   '/insight/house',
   '/insight/house/history',
+  '/insight/house/balance',
+  '/insight/house/series',
+  '/insight/house/whatif',
   '/insight/house/proposal/draft',
   '/insight/house/run',
   '/history/signals',
@@ -140,6 +146,11 @@ const WAVE3_PATHS = [
   '/replay',
   '/archive',
   '/archive/delete',
+];
+const NEW_HOUSE_PATHS = [
+  '/insight/house/balance',
+  '/insight/house/series',
+  '/insight/house/whatif',
 ];
 const WAVE3_PREFIXES = ['/archive/'];
 const FOREIGN_TARGET = 31;
@@ -813,6 +824,11 @@ export function mockApi(): Plugin {
             WAVE3_PREFIXES.some((p) => path.includes(`/api/v1${p}`)))
         )
           return send({ detail: 'Not Found' }, 404);
+        if (
+          scenario.balance === 'absent' &&
+          NEW_HOUSE_PATHS.some((p) => path.endsWith(`/api/v1${p}`))
+        )
+          return send({ detail: 'Not Found' }, 404);
         const replayContext = (): ReplayContext => ({
           now,
           key,
@@ -1282,6 +1298,18 @@ export function mockApi(): Plugin {
         }
         if (path.endsWith('/api/v1/insight/house/run')) {
           const result = makeRun(now, scenario, learnerRuns.get(key));
+          return send(result.body, result.status);
+        }
+        if (path.endsWith('/api/v1/insight/house/balance')) {
+          const result = makeBalance(now, scenario, stoveOn());
+          return send(result.body, result.status);
+        }
+        if (path.endsWith('/api/v1/insight/house/series')) {
+          const result = makeHouseSeries(now, scenario);
+          return send(result.body, result.status);
+        }
+        if (path.endsWith('/api/v1/insight/house/whatif')) {
+          const result = makeWhatIf(now, scenario, doc(), url.searchParams);
           return send(result.body, result.status);
         }
         if (path.endsWith('/api/v1/insight/house/history')) {

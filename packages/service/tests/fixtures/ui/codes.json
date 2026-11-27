@@ -156,6 +156,10 @@
     "timeout",
     "websocket"
   ],
+  "insight_error": [
+    "house_series_missing",
+    "house_model_missing"
+  ],
   "ladder": [
     "optimiser_plan",
     "rule_plan",
