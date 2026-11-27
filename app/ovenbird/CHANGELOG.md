@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 - 2026-11-28
+## 0.5.0 - 2026-11-27
 
 - New House page with the learned house model: facts, limits, learning settings, three trust
   checks, what-if and heat balance. The model is refitted weekly at night inside the app
