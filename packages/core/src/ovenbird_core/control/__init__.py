@@ -56,6 +56,7 @@ from ovenbird_core.control.record import (
 )
 from ovenbird_core.control.replay import (
     clock_offset,
+    recorded_model_plan,
     replay_inputs,
     shift_state,
     state_from_flat,
@@ -142,6 +143,7 @@ __all__ = [
     "intent_from_json_dict",
     "intent_to_json_dict",
     "pump_actual",
+    "recorded_model_plan",
     "replay_inputs",
     "room_input",
     "room_offset_to_water",

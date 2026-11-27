@@ -33,12 +33,13 @@ from ovenbird_core.control import (
     OvenbirdController,
     OvenbirdState,
     PlanSlice,
-    PlanSource,
-    ReasonCode,
     clock_offset,
     replay_inputs,
     shift_state,
     state_from_flat,
+)
+from ovenbird_core.control import (
+    recorded_model_plan as core_recorded_model_plan,
 )
 from ovenbird_core.control.ovenbird import carry_state
 from ovenbird_core.control.safety import Bound
@@ -121,22 +122,10 @@ def seed_state(seed: Tick | None, target: OvenbirdConfig, config_of: ConfigOf) -
 def recorded_model_plan(record: DecisionRecord) -> PlanSlice | None:
     """Return the model plan slice a decision was made with, rebuilt from its record.
 
-    The controller records the offset the planner asked for
-    (``model_plan_requested_k``) only on ticks that were given a model slice; the slice
-    is rebuilt valid for that tick alone, and the controller decides again what became
-    of it (bounds, stove, untrusted room). ``None`` for every other record.
+    Delegates to the controller core, which rebuilds a room-offset or a water-offset
+    slice valid for that tick alone; ``None`` for a record made without a model slice.
     """
-    asked = record.controller_state.get("model_plan_requested_k")
-    if isinstance(asked, bool) or not isinstance(asked, int | float):
-        return None
-    reason = ReasonCode.PLAN_SETBACK if asked < 0.0 else ReasonCode.PLAN_PREHEAT
-    return PlanSlice(
-        room_offset_k=float(asked),
-        reason=reason,
-        valid_from=record.at,
-        valid_until=record.at.shifted(MODEL_SLICE_S),
-        source=PlanSource.MODEL,
-    )
+    return core_recorded_model_plan(record)
 
 
 def step_tick(

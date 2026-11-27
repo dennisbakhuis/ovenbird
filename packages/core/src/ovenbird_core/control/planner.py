@@ -81,6 +81,51 @@ Call once per slice (every ``slice_s``, best on the quarter hour) with the offse
 the slice issued by the previous call (0 when none was issued or it expired). The slice
 is valid for ``slice_s + grace_s``, so a missed call lets it expire by itself; the rate
 limit is per call.
+
+Water plan (:func:`plan_water`)
+-------------------------------
+The second planner lowers the *water* setpoint ahead of the forecast sun instead of
+shifting the room target. A target shift moves the whole daily room trajectory (benefit
+and cost are the same effect), and the room PI turns it into water only through ``kp``
+and the 1 K deadband; a water offset acts on the heat directly, and the room PI stays
+untouched: a correct plan creates no room error, so the integrator moves only when the
+plan is wrong, which is the correction wanted.
+
+The forecast sun is read as an equivalent rise of the outside temperature,
+``ΔT_eq = aperture · GHI / UA`` (the outside temperature that would cut the heat loss
+by what the sun brings), and the water moves down the owner's heating curve by its
+slope ``s`` at the controller's filtered outside temperature::
+
+    w = -gain · s(outside_filtered) · mean(ΔT_eq over [now + lead, now + lead + window])
+
+This uses only the two quantities the house-model fit identifies (solar aperture and
+UA) and no emitter or heat-pump model: the curve already prices one kelvin of outside
+temperature in water, and a curve matched to the house gives ``s = UA / K`` (``K`` the
+water-to-room conductance per K of supply), so ``w = -aperture · GHI / K``, the water
+change that removes the sun's heat from the emitters. ``gain`` 1 is that full
+compensation; a curve steeper than the house needs scales the offset up with it, which
+is what the room PI's integrator is there to correct. The forecast GHI is the hourly
+mean over the hour before each row; the window mean integrates those hours exactly.
+
+``lead`` (1.5 h) covers the emitter's lag: water lowered now reaches the room over
+the next hours through the floor, while the sun reaches the air at once. Steps: the
+offset is quantised to ``quantum_k`` (0.5 K; kept at the previous value while within
+``0.75 quantum_k`` of it, so a value on a step edge does not flip), moved at most
+``rate_k_per_slice`` (0.5 K) per slice, and clamped to
+``[-max_lower_water_k, +max_raise_water_k]`` (3 K and 0 K, from the controller's
+:class:`~ovenbird_core.control.config.ModelPlanConfig`). Sun only: the outside
+temperature is the curve's job and has no term here.
+
+Recovery is off unless ``max_raise_water_k > 0``: then the drive is the window's
+``ΔT_eq`` minus its mean over the 24 h before the window, so the offset is zero-mean
+over a day and turns positive after the sun (the heat the day's lowering withheld).
+
+The controller, not the planner, bounds the effect: it clamps the slice again and
+scales it by the room authority, so whatever the model says the room cannot be driven
+more than ``authority_zero_k`` below comfort by this term.
+
+With weather-dependent control off (a fixed water temperature) there is no curve to
+read a slope from; the planner returns ``no_curve`` and issues nothing.
 """
 
 from __future__ import annotations
@@ -92,11 +137,14 @@ from enum import StrEnum
 from typing import Any, Final
 
 from ovenbird_core.control.config import (
+    MODEL_PLAN_MAX_LOWER_WATER_K,
     MODEL_PLAN_MAX_PREHEAT_K,
+    MODEL_PLAN_MAX_RAISE_WATER_K,
     MODEL_PLAN_MAX_SETBACK_K,
     MODEL_PLAN_MAX_SLICE_S,
     OvenbirdConfig,
 )
+from ovenbird_core.control.curve import HeatingCurve
 from ovenbird_core.control.types import PlanSlice, PlanSource, ReasonCode
 from ovenbird_core.housemodel import DiscreteHouse, HouseModel
 from ovenbird_core.instant import Instant
@@ -110,7 +158,11 @@ __all__ = [
     "PlannerConfig",
     "PlannerResult",
     "PlannerStatus",
+    "WaterPlanResult",
+    "WaterPlanStatus",
+    "WaterPlannerConfig",
     "plan_offset",
+    "plan_water",
 ]
 
 HOUR_S: Final = 3600.0
@@ -595,3 +647,310 @@ def _rate_limited(config: PlannerConfig, target: float, previous: float) -> floa
     allowed = min(abs(delta), config.rate_k_per_slice)
     whole = math.floor(allowed / config.quantum_k + EPSILON)
     return _quantise(previous + math.copysign(whole * config.quantum_k, delta), config.quantum_k)
+
+
+class WaterPlanStatus(StrEnum):
+    """Outcome of one water-planner call (a closed set).
+
+    ``issued``: a slice with a non-zero water offset. ``zero``: nothing to do (no sun
+    in the window, or the offset rounds or is rate-limited to zero). ``forecast_gap``:
+    a forecast hour the window needs is missing or has no irradiance. ``model_invalid``:
+    the model gives a non-finite sun equivalent. ``no_curve``: weather-dependent
+    control is off, so there is no curve slope to price the sun in water.
+    """
+
+    ISSUED = "issued"
+    ZERO = "zero"
+    FORECAST_GAP = "forecast_gap"
+    MODEL_INVALID = "model_invalid"
+    NO_CURVE = "no_curve"
+
+
+@dataclass(frozen=True, slots=True)
+class WaterPlannerConfig:
+    """Settings of the water planner (:func:`plan_water`; described on the fields).
+
+    :meth:`for_controller` takes the curve (``None`` while weather-dependent control
+    is off) and the water bounds from the controller's configuration, so planner and
+    controller agree on them.
+
+    Parameters
+    ----------
+    curve
+        The controller's heating curve; ``None`` while weather-dependent control is
+        off (the planner then returns ``no_curve``).
+    """
+
+    curve: HeatingCurve | None = None
+    max_lower_water_k: float = setting(
+        3.0,
+        ge=0.0,
+        le=MODEL_PLAN_MAX_LOWER_WATER_K,
+        unit="K",
+        doc="Largest water lowering the planner issues.",
+    )
+    max_raise_water_k: float = setting(
+        0.0,
+        ge=0.0,
+        le=MODEL_PLAN_MAX_RAISE_WATER_K,
+        unit="K",
+        doc="Largest water raise the planner issues; above 0 it also turns recovery on.",
+    )
+    gain: float = setting(
+        1.0,
+        gt=0.0,
+        le=2.0,
+        doc="Share of the sun's equivalent outside rise moved down the curve.",
+    )
+    lead_h: float = setting(
+        1.5, ge=0.0, le=6.0, unit="h", doc="How far ahead of now the sun window starts."
+    )
+    window_h: float = setting(1.0, ge=0.25, le=6.0, unit="h", doc="Length of the sun window.")
+    quantum_k: float = setting(0.5, gt=0.0, le=1.0, unit="K", doc="Step of the issued offset.")
+    rate_k_per_slice: float = setting(
+        0.5,
+        gt=0.0,
+        le=MODEL_PLAN_MAX_LOWER_WATER_K,
+        unit="K",
+        doc="Largest change of the offset from one slice to the next.",
+    )
+    slice_s: float = setting(900.0, ge=300.0, le=HOUR_S, unit="s", doc="Length of one slice.")
+    grace_s: float = setting(
+        300.0,
+        ge=0.0,
+        le=HOUR_S,
+        unit="s",
+        doc="Extra validity of a slice, so one late call does not drop the plan.",
+    )
+
+    def __post_init__(self) -> None:
+        """Validate the ranges and that a slice cannot outlive the controller's limit."""
+        check_settings(self)
+        if self.rate_k_per_slice < self.quantum_k:
+            raise ValueError("rate_k_per_slice must be at least one quantum_k")
+        if self.slice_s + self.grace_s > MODEL_PLAN_MAX_SLICE_S:
+            raise ValueError("slice_s + grace_s must not exceed MODEL_PLAN_MAX_SLICE_S")
+
+    @classmethod
+    def for_controller(cls, cfg: OvenbirdConfig, **overrides: Any) -> WaterPlannerConfig:
+        """Return the water-planner settings matching the controller configuration ``cfg``.
+
+        Parameters
+        ----------
+        cfg
+            Controller configuration: its curve (when weather-dependent control is on)
+            and its model water bounds are taken over.
+        **overrides
+            Other planner settings (``gain``, ``lead_h``, ...).
+
+        Returns
+        -------
+        WaterPlannerConfig
+            The planner settings.
+        """
+        base = cls(
+            curve=cfg.curve if cfg.weather_compensation else None,
+            max_lower_water_k=cfg.model_plan.max_lower_water_k,
+            max_raise_water_k=cfg.model_plan.max_raise_water_k,
+        )
+        return replace(base, **overrides) if overrides else base
+
+    @property
+    def recovery(self) -> bool:
+        """Whether recovery is on (the planner may raise the water)."""
+        return self.max_raise_water_k > 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class WaterPlanResult:
+    """What one water-planner call decided, with the numbers a UI shows.
+
+    Numbers are rounded to :data:`DIGITS` decimals; the offsets are exact multiples of
+    the quantum. Prediction fields are ``None`` when the planner could not compute
+    them (``forecast_gap``, ``model_invalid``, ``no_curve``).
+
+    Parameters
+    ----------
+    status
+        Outcome (:class:`WaterPlanStatus`).
+    slice
+        The plan slice (``None`` unless ``status`` is ``issued``).
+    sun_eq_k
+        Mean equivalent outside-temperature rise of the forecast sun over the window,
+        ``aperture · GHI / UA``.
+    trailing_sun_eq_k
+        Its mean over the 24 h before the window (recovery only, else ``None``).
+    slope_k_per_k
+        Curve slope at the filtered outside temperature (K water per K outside).
+    raw_water_k
+        ``-gain · slope · drive`` before quantum, rate limit and bounds (the drive is
+        ``sun_eq_k``, minus ``trailing_sun_eq_k`` with recovery).
+    target_water_k
+        The offset after quantum (with hold) and bounds, before the rate limit.
+    water_k
+        The offset issued (0 without a slice).
+    previous_water_k
+        The previous offset the rate limit started from.
+    lead_h
+        Lead of the window.
+    ghi_w_m2
+        Mean forecast irradiance over the window.
+    """
+
+    status: WaterPlanStatus
+    slice: PlanSlice | None
+    sun_eq_k: float | None
+    trailing_sun_eq_k: float | None
+    slope_k_per_k: float | None
+    raw_water_k: float | None
+    target_water_k: float | None
+    water_k: float
+    previous_water_k: float
+    lead_h: float
+    ghi_w_m2: float | None
+
+
+def _mean_ghi(hours: dict[float, ForecastHour], start_ts: float, end_ts: float) -> float | None:
+    """Return the mean irradiance over ``[start_ts, end_ts]`` from the hourly means.
+
+    A row at ``T`` holds the mean over ``(T - 1 h, T]``; every hour overlapping the
+    window is weighted by its overlap. ``None`` when a needed hour is missing or has no
+    irradiance.
+    """
+    total = 0.0
+    end_of_hour = math.floor(start_ts / HOUR_S) * HOUR_S + HOUR_S
+    while end_of_hour - HOUR_S < end_ts:
+        overlap = min(end_of_hour, end_ts) - max(end_of_hour - HOUR_S, start_ts)
+        if overlap > 0.0:
+            row = hours.get(end_of_hour)
+            if row is None or row.ghi_w_m2 is None:
+                return None
+            total += row.ghi_w_m2 * overlap
+        end_of_hour += HOUR_S
+    return total / (end_ts - start_ts)
+
+
+def _on_grid(value: float, quantum: float, low: float, high: float) -> float:
+    """Return ``value`` clamped to ``[-low, +high]`` and cut towards zero onto the grid."""
+    clamped = min(max(value, -low), high)
+    whole = math.floor(abs(clamped) / quantum + EPSILON)
+    return _quantise(math.copysign(whole * quantum, clamped), quantum)
+
+
+def _water_target(config: WaterPlannerConfig, raw: float, previous: float) -> float:
+    """Return the offset the water planner moves towards: quantum with hold, then bounds."""
+    target = _quantise(raw, config.quantum_k)
+    if abs(raw - previous) <= QUANTUM_HOLD * config.quantum_k:
+        target = previous
+    return _on_grid(target, config.quantum_k, config.max_lower_water_k, config.max_raise_water_k)
+
+
+def _water_step(config: WaterPlannerConfig, target: float, previous: float) -> float:
+    """Return ``target`` approached from ``previous`` by whole quanta, at most the rate."""
+    delta = target - previous
+    allowed = min(abs(delta), config.rate_k_per_slice)
+    whole = math.floor(allowed / config.quantum_k + EPSILON)
+    moved = previous + math.copysign(whole * config.quantum_k, delta)
+    return _on_grid(moved, config.quantum_k, config.max_lower_water_k, config.max_raise_water_k)
+
+
+def plan_water(
+    model: HouseModel,
+    forecast: Sequence[ForecastHour],
+    now: Instant,
+    outside_filtered_c: float,
+    config: WaterPlannerConfig,
+    previous_water_k: float = 0.0,
+) -> WaterPlanResult:
+    """Return the water plan for the slice starting at ``now`` (see the module docstring).
+
+    Parameters
+    ----------
+    model
+        The learned house model (champion), already checked by the caller; only its
+        UA (``h_air_out``) and solar aperture are used.
+    forecast
+        Hourly forecast rows covering the window ``[now + lead_h, now + lead_h +
+        window_h]`` (and the 24 h before it when recovery is on).
+    now
+        Start of the slice.
+    outside_filtered_c
+        The controller's filtered outside temperature (where the curve slope is read).
+    config
+        Planner settings.
+    previous_water_k
+        Water offset of the slice the previous call issued (0 when none, or expired).
+
+    Returns
+    -------
+    WaterPlanResult
+        The slice (or none, with the reason) and the numbers behind it.
+
+    Raises
+    ------
+    ValueError
+        When a forecast hour is given twice or an argument is not finite.
+    """
+    _require_finite("outside_filtered_c", outside_filtered_c)
+    _require_finite("previous_water_k", previous_water_k)
+    previous = _on_grid(
+        _quantise(previous_water_k, config.quantum_k),
+        config.quantum_k,
+        config.max_lower_water_k,
+        config.max_raise_water_k,
+    )
+    nothing = WaterPlanResult(
+        WaterPlanStatus.NO_CURVE,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        0.0,
+        previous,
+        config.lead_h,
+        None,
+    )
+    if config.curve is None:
+        return nothing
+    hours = _index(forecast)
+    start_ts = now.wall.timestamp() + config.lead_h * HOUR_S
+    ghi = _mean_ghi(hours, start_ts, start_ts + config.window_h * HOUR_S)
+    trailing_ghi = _mean_ghi(hours, start_ts - HISTORY_S, start_ts) if config.recovery else 0.0
+    if ghi is None or trailing_ghi is None:
+        return replace(nothing, status=WaterPlanStatus.FORECAST_GAP)
+    per_w = model.solar_aperture_m2 / model.h_air_out
+    sun_eq = per_w * ghi
+    trailing = per_w * trailing_ghi
+    slope = config.curve.sensitivity(outside_filtered_c)
+    raw = -config.gain * slope * (sun_eq - trailing)
+    if not (math.isfinite(sun_eq) and math.isfinite(trailing) and math.isfinite(raw)):
+        return replace(nothing, status=WaterPlanStatus.MODEL_INVALID)
+    target = _water_target(config, raw, previous)
+    water = _water_step(config, target, previous)
+    result = WaterPlanResult(
+        status=WaterPlanStatus.ISSUED,
+        slice=None,
+        sun_eq_k=_rounded(sun_eq),
+        trailing_sun_eq_k=_rounded(trailing) if config.recovery else None,
+        slope_k_per_k=_rounded(slope),
+        raw_water_k=_rounded(raw),
+        target_water_k=target,
+        water_k=water,
+        previous_water_k=previous,
+        lead_h=config.lead_h,
+        ghi_w_m2=_rounded(ghi),
+    )
+    if water == 0.0:
+        return replace(result, status=WaterPlanStatus.ZERO)
+    reason = ReasonCode.PLAN_SETBACK if water < 0.0 else ReasonCode.PLAN_PREHEAT
+    plan = PlanSlice(
+        room_offset_k=0.0,
+        reason=reason,
+        valid_from=now,
+        valid_until=now.shifted(config.slice_s + config.grace_s),
+        source=PlanSource.MODEL,
+        water_offset_k=water,
+    )
+    return replace(result, slice=plan)

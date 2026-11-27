@@ -259,13 +259,31 @@ A plan slice from the learned house model (`PlanSource.MODEL`, produced by
 is the one path by which the learned model reaches the controller. It only shifts the room
 target of an active room feedback, by at most `ModelPlanConfig.max_setback_k` below and
 `max_preheat_k` above comfort (defaults 0.5 K and 0.3 K; absolute ceilings 1.0 K and 0.5 K).
-There is no water term.
+
+A model slice is one of two kinds, never both at once (`PlanSlice` refuses a slice with a
+room and a water offset):
+
+- a *room-target slice* (`room_offset_k`, from `plan_offset`): the kind above. The service
+  issues only this kind today.
+- a *water slice* (`PlanSlice.water_offset_k`, from `plan_water`, a feed-forward from the
+  forecast sun; `docs/decisions/2026-11-28-model-plan-after-evaluation.md`). It does not
+  shift the room target. The controller clamps it to `[-max_lower_water_k,
+  +max_raise_water_k]` (defaults 3 K and 0 K; ceilings 4 K and 2 K) and scales it by the room
+  authority of the trusted room value against comfort: full while the room is at most
+  `authority_full_k` (0.1 K, at least one sensor step) below comfort, none from
+  `authority_zero_k` (0.4 K) below, linear between; mirrored above comfort for a raise. So the
+  plan loses its effect when the room is below comfort by more than a sensor step. The result
+  is the `plan` term, added after the curve and the room feedback and before the start ramp,
+  the cycling floor, rounding, dwell and the safety clamps. The room-target bounds do not
+  apply to water slices and the fade does not apply to room-target slices. Only the core
+  package and the evaluation produce water slices; the evaluation does not unlock either
+  kind.
 
 - The controller clamps every model slice to those bounds, whatever the planner sent, and
   gives it the reason of its sign (`plan_setback` or `plan_preheat`). The ladder level is
   `model_plan`: richer than `rule_plan` (it predicts the house), poorer than
   `optimiser_plan` (no prices, no heat pump model).
-- A slice has no effect at all (no water term; ladder and reason as without a plan) from the
+- A slice has no effect at all (no plan term; ladder and reason as without a plan) from the
   first tick on which the room value is not trusted, a wood-stove episode is active, the
   wood-stove detection is still waiting after an episode or a sensor fault, or the slice is
   valid for longer than 3600 s (`MODEL_PLAN_MAX_SLICE_S`), so a plan cannot outlive its
@@ -277,6 +295,13 @@ There is no water term.
   ticks that were given a model slice; every other record is unchanged. A replay of such a
   record feeds the slice back from `model_plan_requested_k`, valid for that tick, so it
   reproduces the recorded setpoint (`ovenbird.replay.stepping.recorded_model_plan`).
+  On a tick given a *water* slice, `controller_state` also carries
+  `model_plan_water_requested_k` (what the planner sent), `model_plan_water_applied_k`
+  (after the bounds and the authority) and `model_plan_authority` (`null` while the slice is
+  ignored). The replay rebuilds room slices only: it does not rebuild a water slice from
+  `model_plan_water_requested_k`, so a replay of a record made with a water slice does not
+  reproduce its setpoint. The service issues no water slice today, so no such record exists
+  yet.
 - The service side (``control_model_use`` `off` / `shadow` / `on`, the guards, the quarter-hour
   cadence, what is recorded) is `ovenbird.control.modelplan`; see `docs/api-v1.md`
   (`insight/house/control`). With `shadow` the controller is never given the slice.

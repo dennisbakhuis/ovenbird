@@ -283,8 +283,13 @@ def decision_note(
     stove: str | None = None,
     fixed: bool = False,
     model_ignored: str | None = None,
+    model_water: str | None = None,
 ) -> str:
-    """Return the decision note: what drove the water setpoint and what held or moved it."""
+    """Return the decision note: what drove the water setpoint and what held or moved it.
+
+    ``model_water`` is the sentence on a model water slice (what became of it); it
+    replaces the plan sentence.
+    """
     parts: list[str] = []
     curve = f"the curve's {curve_sp:.1f} °C at {outside_f:.1f} °C outside"
     if fixed:
@@ -316,7 +321,9 @@ def decision_note(
         parts.append("DHW run in progress: integrator frozen, no decrease")
     if duty_skipped:
         parts.append("defrost: the pump sets its own duty; no duty command")
-    if plan is not None and plan.source is PlanSource.MODEL:
+    if model_water is not None:
+        parts.append(model_water)
+    elif plan is not None and plan.source is PlanSource.MODEL:
         parts.append(f"model plan {signed(plan.room_offset_k)} K on the room target")
     elif plan is not None:
         parts.append(f"plan {signed(plan.room_offset_k)} K room ({signed(plan_w)} K water)")

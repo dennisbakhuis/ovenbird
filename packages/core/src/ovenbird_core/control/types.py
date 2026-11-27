@@ -110,7 +110,9 @@ class PlanSource(StrEnum):
     (:mod:`ovenbird_core.control.planner`). The controller clamps it to the bounds of
     :class:`~ovenbird_core.control.config.ModelPlanConfig`, applies it only as a
     room-target offset of an active room feedback, and ignores it otherwise
-    (:class:`ModelPlanBlock`).
+    (:class:`ModelPlanBlock`). A model *water* slice (``water_offset_k``) is a bounded
+    water feed-forward instead, applied under the same blocks and scaled by the room
+    authority.
     """
 
     OPTIMISER = "optimiser"
@@ -122,7 +124,8 @@ class ModelPlanBlock(StrEnum):
     """Why the controller ignores an active model plan slice this tick.
 
     ``room_untrusted``: no trusted room value (missing, stale or implausible), so
-    there is no room target to shift; a model plan never maps to water.
+    there is no room target to shift (a room-target slice never maps to water) and no
+    room to judge a water slice's authority by.
     ``stove_active``: a wood-stove episode is active. ``stove_recovery``: the
     wood-stove detection is still waiting after an episode or a sensor fault (the
     room has not cooled below the exit threshold, or the room value has not been
@@ -196,6 +199,12 @@ class RoomInput:
 class PlanSlice:
     """Planner output for one interval, expressed as a room-temperature offset.
 
+    A model slice (``PlanSource.MODEL``) may instead carry a water offset: a
+    feed-forward on the water setpoint from the forecast sun, which the controller
+    bounds and scales by its room authority
+    (:meth:`~ovenbird_core.control.config.ModelPlanConfig.authority`). Such a
+    *water slice* leaves the room target alone, so it carries no room offset.
+
     Parameters
     ----------
     room_offset_k
@@ -206,6 +215,9 @@ class PlanSlice:
         Half-open interval ``[valid_from, valid_until)`` in which the slice applies.
     source
         Planner that produced it.
+    water_offset_k
+        Offset to the water setpoint in K (negative lowers); non-zero only on a
+        model slice without a room offset.
     """
 
     room_offset_k: float
@@ -213,12 +225,24 @@ class PlanSlice:
     valid_from: Instant
     valid_until: Instant
     source: PlanSource = PlanSource.RULE
+    water_offset_k: float = 0.0
 
     def __post_init__(self) -> None:
-        """Validate the offset and the interval."""
+        """Validate the offsets and the interval."""
         _require_finite("room_offset_k", self.room_offset_k)
+        _require_finite("water_offset_k", self.water_offset_k)
         if not self.valid_from < self.valid_until:
             raise ValueError("plan slice interval must be non-empty")
+        if self.water_offset_k != 0.0:
+            if self.source is not PlanSource.MODEL:
+                raise ValueError("only a model plan slice may carry a water offset")
+            if self.room_offset_k != 0.0:
+                raise ValueError("a model plan slice carries a room or a water offset, not both")
+
+    @property
+    def water(self) -> bool:
+        """Whether this is a water slice (a non-zero water offset)."""
+        return self.water_offset_k != 0.0
 
     def active(self, now: Instant) -> bool:
         """Whether the slice applies at ``now``."""
