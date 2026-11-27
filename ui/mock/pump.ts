@@ -183,12 +183,25 @@ const READ: ReadSpec[] = [
   { id: 'error', signal: 'main/Error', owner: 'pump', value: null },
 ];
 
+const KNOWN_MODEL = '32 D4 0B 88 84 73 90 0C 85 84';
+const KNOWN_PROFILE = {
+  name: 'WH-MXC12J9E8',
+  source:
+    'Panasonic service manual PAPAMY2110029CE (WH-MXC09J3E8/WH-MXC12J9E8), 14.2.2 Deice Operation',
+};
+
 /**
  * `GET pump/settings` as the service answers it: the three writable rows first, then the
  * read-only ones in the service's order. Rows the model does not report are `supported: false`
  * with `value`/`age` null and `fresh` false. `label` is the catalogue meaning, not translated.
+ * With `known` the model is the WH-MXC12J9E8 and its profile is named (scenario `deice`).
  */
-export function pumpSettings(state: PumpState, now: number, paused: boolean): PumpSettingsResponse {
+export function pumpSettings(
+  state: PumpState,
+  now: number,
+  paused: boolean,
+  known = false,
+): PumpSettingsResponse {
   settle(state, now);
   const phase = progress(state, now);
   const settings: PumpSetting[] = Object.entries(WRITABLE).map(([id, spec]) => {
@@ -252,8 +265,8 @@ export function pumpSettings(state: PumpState, now: number, paused: boolean): Pu
   return {
     writable: refusals.length === 0,
     refusals,
-    model: 'C2 D3 0B 33 65 B2 D3 0B 94 65',
-    profile: null,
+    model: known ? KNOWN_MODEL : 'C2 D3 0B 33 65 B2 D3 0B 94 65',
+    profile: known ? KNOWN_PROFILE : null,
     settings,
   };
 }

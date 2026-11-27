@@ -8,6 +8,7 @@ export type Health = Schemas['Health'];
 export type Signal = Schemas['Signal'];
 export type Derived = Schemas['Derived'];
 export type Snapshot = Schemas['Snapshot'];
+export type DefrostState = Schemas['DefrostState'];
 export type HistorySeries = Schemas['HistorySeries'];
 export type HistoryPoint = HistorySeries['points'][number];
 export type History = Schemas['History'];

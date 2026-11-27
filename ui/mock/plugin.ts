@@ -1129,7 +1129,7 @@ export function mockApi(): Plugin {
         if (path.endsWith('/api/v1/pump/settings'))
           return scenario.pumpsettings === 'missing'
             ? send({ detail: 'Not Found' }, 404)
-            : send(pumpSettings(pump, now, paused()));
+            : send(pumpSettings(pump, now, paused(), scenario.deice !== undefined));
         if (path.endsWith('/api/v1/insight/daily')) {
           const days = Number(param('days') ?? 7);
           if (!Number.isInteger(days) || days < 1 || days > 90)

@@ -10,7 +10,7 @@ export const topic: HelpTopic = {
       id: 'loop',
       kind: 'see',
       title: 'Waterkring',
-      body: 'Links staat de buitenunit: wat ze doet, het toerental van de [[compressor]] in Hz, stroom erin, warmte eruit en de [[cop|COP]]. Het water vertrekt op de [[outlet|aanvoertemperatuur]], geeft zijn warmte af in je vloer of radiatoren en komt terug op de [[inlet|retourtemperatuur]].\n\nIn het midden: het [[flow|debiet]], de [[delta-t|ΔT]] naast de ingestelde waarde, en het [[pump-duty|pompvermogen]] tegen zijn maximum.',
+      body: 'Links staat de buitenunit: wat ze doet, het toerental van de [[compressor]] in Hz, stroom erin, warmte eruit en de [[cop|COP]]. Het water vertrekt op de [[outlet|aanvoertemperatuur]], geeft zijn warmte af in je vloer of radiatoren en komt terug op de [[inlet|retourtemperatuur]].\n\nIn het midden: het [[flow|debiet]], de [[delta-t|ΔT]] naast de ingestelde waarde, en het [[pump-duty|pompvermogen]] tegen zijn maximum.\n\nTijdens het [[defrost|ontdooien]] van een herkend model noemt een regel onder het schema de ontdooimodus: bij modus 1 blijft de waterpomp draaien, bij modus 2 staat ze bewust stil.',
       target: 'pump.loop',
     },
     {

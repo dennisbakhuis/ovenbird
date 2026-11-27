@@ -70,14 +70,32 @@ class Derived(ApiModel):
     reason: str | None
 
 
+class DefrostState(ApiModel):
+    """The live defrost as the safety monitor latched it at its start.
+
+    ``mode`` is the deice mode the unit picks (1: reverse cycle, water pump running;
+    2: hot gas, water pump off by design); ``None`` for an unknown model. Everything
+    but ``active`` is ``None`` outside a defrost; ``max_s`` is the ``defrost_stuck``
+    limit in effect.
+    """
+
+    active: bool
+    mode: Literal[1, 2] | None
+    since: str | None
+    inlet_at_start_c: Number | None
+    outside_at_start_c: Number | None
+    max_s: Number | None
+
+
 class Snapshot(ApiModel):
-    """``GET snapshot``: every signal and the derived values at one instant."""
+    """``GET snapshot``: every signal, the derived values and the defrost at one instant."""
 
     at: str
     heishamon: HeishamonLink
     links: dict[str, bool]
     signals: dict[str, Signal]
     derived: dict[str, Derived]
+    defrost: DefrostState
 
 
 class HistorySeries(ApiModel):

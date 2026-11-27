@@ -139,6 +139,10 @@ HA input reconnects without a restart.
   `ha/climate.<name>#current_temperature`. The service subscribes to exactly the
   entities those settings use, plus `OVENBIRD_HA_ENTITIES`, and follows every change.
   With none in use it stays connected for the picker lists but subscribes to nothing.
+  The heat pump itself is read over MQTT, never through Home Assistant: entities of a
+  Home Assistant device that copies the heat pump's HeishaMon values (such as HA's own
+  HeishaMon integration) are listed last in the pickers, grouped as "Heat pump, via
+  Home Assistant" (`pump_mirror` in `GET api/v1/config/signals`).
 - **Units**: °F and K are converted to °C when they arrive. A temperature input (room,
   cross-check, wood-stove reference, outside thermometer) without a temperature unit is
   accepted only when HA's unit system is metric; otherwise it is refused (the controller

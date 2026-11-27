@@ -5,6 +5,8 @@ import type { Alarm, ForecastPoint } from '$lib/core/types';
 import VerdictCard from './VerdictCard.svelte';
 import HomeTiles from './HomeTiles.svelte';
 import RoomCard from './RoomCard.svelte';
+import PumpCard from './PumpCard.svelte';
+import type { PumpState } from '$lib/pump/pumpState';
 
 globalThis.ResizeObserver ??= class {
   observe(): void {}
@@ -160,5 +162,46 @@ describe('RoomCard', () => {
       },
     });
     expect(screen.getByText('No room sensor is configured')).toBeTruthy();
+  });
+});
+
+describe('PumpCard defrost', () => {
+  const card = (state: PumpState) =>
+    render(PumpCard, {
+      state,
+      electricW: 1200,
+      heatW: null,
+      inletC: 25.5,
+      outletC: 22,
+      flowLpm: 0,
+      decision: null,
+      reportedC: 30,
+    });
+
+  it('appends the deice mode and explains it', () => {
+    card({ kind: 'defrost', frequencyHz: 86, quiet: false, deice: 2 });
+    const pill = screen.getByTestId('pump-state').querySelector('.pill');
+    expect(pill?.textContent?.trim()).toBe('Defrosting · mode 2');
+    expect(pill?.getAttribute('title')).toBe(
+      'Defrosting · mode 2 (hot gas, water pump off by design)',
+    );
+    expect(screen.getByTestId('pump-deice').textContent?.trim()).toBe(
+      'Mode 2: hot gas, the water pump is off by design.',
+    );
+  });
+
+  it('names mode 1 as a reverse cycle with the water pump running', () => {
+    card({ kind: 'defrost', frequencyHz: 60, quiet: false, deice: 1 });
+    expect(screen.getByTestId('pump-state').querySelector('.pill')?.getAttribute('title')).toBe(
+      'Defrosting · mode 1 (reverse cycle, water pump running)',
+    );
+  });
+
+  it('keeps the plain text for an unknown model', () => {
+    card({ kind: 'defrost', frequencyHz: 86, quiet: false, deice: null });
+    const pill = screen.getByTestId('pump-state').querySelector('.pill');
+    expect(pill?.textContent?.trim()).toBe('Defrosting');
+    expect(pill?.hasAttribute('title')).toBe(false);
+    expect(screen.queryByTestId('pump-deice')).toBeNull();
   });
 });

@@ -21,7 +21,9 @@ off by design, in mode 1 it should run. ``safety_defrost_low_flow`` decides what
 otherwise, ``log`` only journals it in mode 2 and for an unknown model, ``alarm``
 always raises it; in mode 1 it is always raised. Journalled means a ``started`` and a
 ``cleared`` event (severity ``info``, detail ``logged_only``), never active on the
-board and never notified.
+board and never notified. :meth:`SafetyMonitor.defrost_state` gives the latched defrost
+to the snapshot (``defrost``: active, mode, start, the values at the start and the
+``defrost_stuck`` limit).
 
 Monitors (``critical`` ones concern the plant's safety):
 
@@ -80,7 +82,7 @@ from __future__ import annotations
 import logging
 import math
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
 
@@ -94,6 +96,7 @@ from ovenbird.control.alarms import (
     AlarmEventKind,
     Severity,
 )
+from ovenbird.payloads import Json, defrost_payload
 from ovenbird_core import (
     HeishaSignal,
     Instant,
@@ -291,11 +294,15 @@ class DeiceOnset:
         ``Main_Inlet_Temp`` when the defrost started; ``None`` when unknown.
     outside_c
         ``Outside_Temp`` when the defrost started; ``None`` when unknown.
+    started
+        When the safety monitor saw the defrost start; ``None`` when unknown (not part
+        of the comparison: two onsets with the same facts are equal).
     """
 
     profile: PumpProfile | None = None
     inlet_c: float | None = None
     outside_c: float | None = None
+    started: Instant | None = field(default=None, compare=False)
 
     @property
     def spec(self) -> DeiceSpec | None:
@@ -852,6 +859,7 @@ class SafetyMonitor:
                 self.profile,
                 _number(snapshot, HeishaSignal.INLET_TEMP),
                 _number(snapshot, HeishaSignal.OUTSIDE_TEMP),
+                snapshot.now,
             )
             LOGGER.info("defrost started: deice mode %s expected", self.deice.mode)
         if defrost is not None:
@@ -898,6 +906,26 @@ class SafetyMonitor:
     ) -> None:
         LOGGER.warning("%s %s (logged only): %s", code.value, kind.value, message)
         self.alarms.record(AlarmEvent(moment, code.value, Severity.INFO, kind, message, detail))
+
+    def defrost_state(self, snapshot: Snapshot) -> Json:
+        """Return the snapshot's ``defrost``: the latched onset while ``snapshot`` defrosts.
+
+        ``active`` follows ``Defrosting_State`` in ``snapshot``; the mode, the start and
+        the values at the start come from the onset latched by :meth:`check` and stay
+        ``None`` until the next evaluation latched this defrost.
+        """
+        active = defrost_active(snapshot).value is True
+        deice = self.deice if active and self._defrosting is True else None
+        if deice is None:
+            return defrost_payload(active, max_s=self.config.defrost_max_s)
+        return defrost_payload(
+            active,
+            mode=deice.mode,
+            since=None if deice.started is None else iso_z(deice.started.wall),
+            inlet_c=deice.inlet_c,
+            outside_c=deice.outside_c,
+            max_s=_defrost_limit(self.config, deice),
+        )
 
     def status(self) -> dict[str, Any]:
         """Return the API form: overall level and every monitor."""

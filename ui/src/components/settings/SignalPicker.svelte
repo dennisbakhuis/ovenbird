@@ -1,5 +1,13 @@
+<!--
+  SignalPicker: one signal (a native select) or several (checkboxes) from the `config/signals`
+  candidates, with the live reading of the chosen one. Candidates on a Home Assistant device that
+  copies the heat pump (`pump_mirror`) come last, grouped as "Heat pump, via Home Assistant (N)":
+  an optgroup in the select (with a note when one is chosen) and a folded group under the
+  checkboxes that starts open when one of them is ticked. Without a list it falls back to text.
+-->
 <script lang="ts">
   import Checkbox from '$ui/Checkbox.svelte';
+  import Details from '$ui/Details.svelte';
   import Select from '$ui/Select.svelte';
   import TextInput from '$ui/TextInput.svelte';
   import type { Availability } from '$lib/core/cfg.svelte';
@@ -43,6 +51,10 @@
   const list = $derived(candidates ?? []);
   const selected = $derived(list.find((c) => c.signal === value));
   const known = $derived(new Set(list.map((c) => c.signal)));
+  const own = $derived(list.filter((c) => c.pump_mirror !== true));
+  const mirrors = $derived(list.filter((c) => c.pump_mirror === true));
+  const mirrorTitle = $derived(t('pickerMirrorGroup', { n: mirrors.length }));
+  const mirrorTicked = $derived(mirrors.some((c) => values.includes(c.signal)));
 
   function reading(c: SignalCandidate): string {
     if (typeof c.value !== 'number') return '';
@@ -103,32 +115,33 @@
     </p>
   </div>
 {:else if multiple}
+  {#snippet check(c: SignalCandidate)}
+    <li>
+      <Checkbox
+        class="signal-check"
+        {disabled}
+        checked={values.includes(c.signal)}
+        onchange={(e) => toggle(c.signal, e.currentTarget.checked)}
+      >
+        <span class="opt">
+          <span>{nameOf(c)}</span>
+          {#if reading(c) || c.held_s !== null || c.area}
+            <span class="muted small"
+              >{reading(c)}{#if c.held_s !== null}
+                · {formatAge(c.held_s)}{/if}{#if c.area}
+                · {c.area}{/if}</span
+            >
+          {/if}
+          {#if sameDevice(c)}
+            <span class="small same" data-testid="signal-same-device">{t('pickerSameDevice')}</span>
+          {/if}
+        </span>
+      </Checkbox>
+    </li>
+  {/snippet}
   <ul class="checks" {id} data-testid="signal-multi">
-    {#each list as c (c.signal)}
-      <li>
-        <Checkbox
-          class="signal-check"
-          {disabled}
-          checked={values.includes(c.signal)}
-          onchange={(e) => toggle(c.signal, e.currentTarget.checked)}
-        >
-          <span class="opt">
-            <span>{nameOf(c)}</span>
-            {#if reading(c) || c.held_s !== null || c.area}
-              <span class="muted small"
-                >{reading(c)}{#if c.held_s !== null}
-                  · {formatAge(c.held_s)}{/if}{#if c.area}
-                  · {c.area}{/if}</span
-              >
-            {/if}
-            {#if sameDevice(c)}
-              <span class="small same" data-testid="signal-same-device"
-                >{t('pickerSameDevice')}</span
-              >
-            {/if}
-          </span>
-        </Checkbox>
-      </li>
+    {#each own as c (c.signal)}
+      {@render check(c)}
     {/each}
     {#each values.filter((s) => !known.has(s)) as orphan (orphan)}
       <li>
@@ -146,6 +159,18 @@
       <li class="muted">{t('pickerNone')}</li>
     {/if}
   </ul>
+  {#if mirrors.length > 0}
+    <div class="mirrors" data-testid="signal-mirror-group" data-count={mirrors.length}>
+      <Details summary={mirrorTitle} open={mirrorTicked} testid="signal-mirror-details">
+        <p class="muted small hint">{t('pickerMirrorHint')}</p>
+        <ul class="checks">
+          {#each mirrors as c (c.signal)}
+            {@render check(c)}
+          {/each}
+        </ul>
+      </Details>
+    </div>
+  {/if}
 {:else}
   <Select
     {id}
@@ -155,9 +180,16 @@
     data-testid="signal-select"
   >
     <option value="">{t('pickerNone')}</option>
-    {#each list as c (c.signal)}
+    {#each own as c (c.signal)}
       <option value={c.signal}>{label(c)}</option>
     {/each}
+    {#if mirrors.length > 0}
+      <optgroup label={mirrorTitle} data-testid="signal-mirror-group" data-count={mirrors.length}>
+        {#each mirrors as c (c.signal)}
+          <option value={c.signal}>{label(c)}</option>
+        {/each}
+      </optgroup>
+    {/if}
     {#if value && !selected}
       <option {value}>{value} ({t('pickerUnlisted')})</option>
     {/if}
@@ -165,6 +197,11 @@
   {#if value && !selected}
     <p class="note warn" role="status" data-testid="signal-unknown">
       {t('pickerUnknownWarn', { signal: value })}
+    </p>
+  {/if}
+  {#if selected?.pump_mirror === true}
+    <p class="note muted" role="status" data-testid="signal-mirror-note">
+      {t('pickerMirrorSelected')}
     </p>
   {/if}
   {#if selected}
@@ -229,6 +266,12 @@
   .warn {
     color: var(--status-limited);
     font-weight: var(--fw-semibold);
+  }
+  .mirrors {
+    margin-top: var(--space-1);
+  }
+  .hint {
+    margin: 0 0 var(--space-1);
   }
   .opt {
     display: flex;

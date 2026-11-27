@@ -45,6 +45,27 @@ describe('LoopDiagram', () => {
     expect(screen.getByTestId('loop-diagram').getAttribute('aria-label')).toContain('220 of 159');
   });
 
+  it('names the deice mode of a defrost when the model is known', () => {
+    render(LoopDiagram, { props: { ...loop, kind: 'defrost', deice: 2 } });
+    expect(screen.getByTestId('loop-deice').textContent).toBe(
+      'Defrosting · mode 2 (hot gas, water pump off by design)',
+    );
+    expect(screen.getByTestId('loop-diagram').getAttribute('aria-label')).toContain(
+      'Defrosting · mode 2 (hot gas, water pump off by design)',
+    );
+  });
+
+  it('keeps the plain defrost text without a mode', () => {
+    render(LoopDiagram, { props: { ...loop, kind: 'defrost', deice: null } });
+    expect(screen.queryByTestId('loop-deice')).toBeNull();
+    expect(screen.getByTestId('loop-state').textContent).toBe('Defrosting');
+  });
+
+  it('ignores a mode outside a defrost', () => {
+    render(LoopDiagram, { props: { ...loop, deice: 1 } });
+    expect(screen.queryByTestId('loop-deice')).toBeNull();
+  });
+
   it('renders with every value missing', () => {
     render(LoopDiagram, {
       props: {

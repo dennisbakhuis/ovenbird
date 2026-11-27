@@ -99,3 +99,55 @@ test('liveness lists the room sensor device first', async ({ page }) => {
   await expect(list).toContainText('Gang beweging battery');
   await page.getByTestId('draft-discard').click();
 });
+
+test('heat pump values copied by Home Assistant are grouped last in the pickers', async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem('ovenbird.language', 'en'));
+  await page.goto('./#/settings/room');
+  const select = page.locator('#field-control_room_signal');
+  await expect(select).toBeVisible();
+  const group = select.getByTestId('signal-mirror-group');
+  await expect(group).toHaveAttribute('label', 'Heat pump, via Home Assistant (6)');
+  await expect(group.locator('option')).toHaveCount(6);
+  await expect(select.locator('option').last()).toHaveAttribute(
+    'value',
+    /^ha\/sensor\.panasonic_heat_pump_main_/,
+  );
+  await expect(select.locator(':scope > option', { hasText: 'Panasonic' })).toHaveCount(0);
+  await select.selectOption('ha/sensor.panasonic_heat_pump_main_main_inlet_temp');
+  await expect(page.getByTestId('signal-mirror-note')).toContainText(
+    'ovenbird already reads it directly from HeishaMon over MQTT',
+  );
+  await page.getByTestId('draft-discard').click();
+  await expect(page.getByTestId('signal-mirror-note')).toBeHidden();
+
+  await page.getByTestId('room-sensor-behaviour-details').locator('summary').click();
+  const details = page.getByTestId('signal-mirror-details');
+  await expect(details).not.toHaveAttribute('open', '');
+  const summary = details.locator('summary');
+  await expect(summary).toContainText('Heat pump, via Home Assistant (7)');
+  await summary.focus();
+  await page.keyboard.press('Enter');
+  await expect(details).toHaveAttribute('open', '');
+  await expect(details).toContainText('ovenbird already reads these directly from HeishaMon');
+  await expect(details.locator('input[type=checkbox]')).toHaveCount(7);
+  await expect(page.getByTestId('signal-multi').locator('li').first()).not.toContainText(
+    'Panasonic',
+  );
+  await page.screenshot({ path: 'e2e/shots/ha-pump-mirrors.png' });
+});
+
+test('the Home Assistant page says the heat pump is read over MQTT, in Dutch too', async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem('ovenbird.language', 'nl'));
+  await page.goto('./#/settings/ha');
+  await expect(page.getByTestId('ha-pump-mqtt')).toContainText(
+    'De warmtepomp zelf leest ovenbird via MQTT',
+  );
+  await page.goto('./#/settings/room');
+  await expect(
+    page.locator('#field-control_room_signal').getByTestId('signal-mirror-group'),
+  ).toHaveAttribute('label', 'Warmtepomp, via Home Assistant (6)');
+});

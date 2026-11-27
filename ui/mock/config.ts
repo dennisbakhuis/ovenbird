@@ -679,6 +679,46 @@ export function rollback(
   return apply(state, { ...body, changes }, now, paused, 'rollback');
 }
 
+type Candidate = ConfigSignals['room'][number];
+
+const PUMP_DEVICE = 'dev-panasonic-heat-pump';
+
+/**
+ * A Home Assistant entity of the heat pump's own device, as Home Assistant's HeishaMon
+ * integration creates it: the service marks it `pump_mirror` because its values equal the
+ * HeishaMon values ovenbird already reads over MQTT.
+ */
+function pumpMirror(entity: string, name: string, unit: string, value: number): Candidate {
+  const climate = entity.startsWith('climate.');
+  return {
+    signal: climate ? `ha/${entity}#current_temperature` : `ha/${entity}`,
+    name: `Panasonic Heat Pump ${name}`,
+    unit,
+    value,
+    held_s: 40,
+    source: 'ha',
+    pump_mirror: true,
+    entity_id: entity,
+    area: 'Utility room',
+    device_id: PUMP_DEVICE,
+  };
+}
+
+const PUMP_TEMPERATURES: Candidate[] = [
+  pumpMirror('climate.panasonic_heat_pump_main_z1_temp', 'Zone 1', '°C', 32.5),
+  pumpMirror('sensor.panasonic_heat_pump_main_dhw_temp', 'DHW Temp', '°C', 47.5),
+  pumpMirror('sensor.panasonic_heat_pump_main_main_inlet_temp', 'Inlet Temp', '°C', 28),
+  pumpMirror('sensor.panasonic_heat_pump_main_main_outlet_temp', 'Outlet Temp', '°C', 32.5),
+  pumpMirror('sensor.panasonic_heat_pump_main_outside_temp', 'Outside Temp', '°C', 5),
+  pumpMirror('sensor.panasonic_heat_pump_main_room_thermostat_temp', 'Room Temp', '°C', 21.5),
+];
+
+const PUMP_SENSORS: Candidate[] = [
+  ...PUMP_TEMPERATURES.filter((c) => c.entity_id?.startsWith('sensor.')),
+  pumpMirror('sensor.panasonic_heat_pump_main_pump_flow', 'Pump Flow', 'L/min', 17.4),
+  pumpMirror('sensor.panasonic_heat_pump_main_compressor_freq', 'Compressor Freq', 'Hz', 38),
+];
+
 export const signals: ConfigSignals = {
   ha: { enabled: true, link_up: true, temperature_unit: '°C' },
   room: [
@@ -689,6 +729,7 @@ export const signals: ConfigSignals = {
       value: 21.9,
       held_s: 7800,
       source: 'ha',
+      pump_mirror: false,
       entity_id: 'sensor.living_room_temperature',
       area: 'Living room',
       device_id: 'dev-living-room-climate',
@@ -700,9 +741,11 @@ export const signals: ConfigSignals = {
       value: 19.4,
       held_s: 120,
       source: 'ha',
+      pump_mirror: false,
       entity_id: 'sensor.bedroom_temperature',
       area: 'Bedroom',
     },
+    ...PUMP_TEMPERATURES,
     {
       signal: 'ha/climate.living_room#current_temperature',
       name: 'Living room thermostat',
@@ -710,6 +753,7 @@ export const signals: ConfigSignals = {
       value: 21.6,
       held_s: 300,
       source: 'ha',
+      pump_mirror: false,
       entity_id: 'climate.living_room',
       area: 'Living room',
     },
@@ -720,6 +764,7 @@ export const signals: ConfigSignals = {
       value: 21.7,
       held_s: 40,
       source: 'mqtt',
+      pump_mirror: false,
     },
     {
       signal: 'ha/sensor.garden_temperature',
@@ -728,6 +773,7 @@ export const signals: ConfigSignals = {
       value: 5.8,
       held_s: 120,
       source: 'ha',
+      pump_mirror: false,
       entity_id: 'sensor.garden_temperature',
       area: 'Garden',
     },
@@ -740,10 +786,12 @@ export const signals: ConfigSignals = {
       value: 64,
       held_s: 900,
       source: 'ha',
+      pump_mirror: false,
       entity_id: 'sensor.hallway_motion_battery',
       area: 'Gang',
       device_id: 'dev-gang-beweging',
     },
+    ...PUMP_SENSORS,
     {
       signal: 'ha/sensor.living_room_humidity',
       name: 'Living room climate humidity',
@@ -751,6 +799,7 @@ export const signals: ConfigSignals = {
       value: 54,
       held_s: 120,
       source: 'ha',
+      pump_mirror: false,
       entity_id: 'sensor.living_room_humidity',
       area: 'Living room',
       device_id: 'dev-living-room-climate',
@@ -762,6 +811,7 @@ export const signals: ConfigSignals = {
       value: 87,
       held_s: null,
       source: 'ha',
+      pump_mirror: false,
       entity_id: 'sensor.living_room_battery',
       area: 'Living room',
       device_id: 'dev-living-room-climate',
@@ -773,6 +823,7 @@ export const signals: ConfigSignals = {
       value: 21.9,
       held_s: 7800,
       source: 'ha',
+      pump_mirror: false,
       entity_id: 'sensor.living_room_temperature',
       area: 'Living room',
       device_id: 'dev-living-room-climate',
@@ -786,6 +837,7 @@ export const signals: ConfigSignals = {
       value: 21.9,
       held_s: 7800,
       source: 'ha',
+      pump_mirror: false,
       entity_id: 'sensor.living_room_temperature',
       area: 'Living room',
       device_id: 'dev-living-room-climate',
@@ -797,9 +849,11 @@ export const signals: ConfigSignals = {
       value: 21.6,
       held_s: 300,
       source: 'ha',
+      pump_mirror: false,
       entity_id: 'climate.living_room',
       area: 'Living room',
     },
+    ...PUMP_TEMPERATURES,
     {
       signal: 'main/Room_Thermostat_Temp',
       name: null,
@@ -807,14 +861,13 @@ export const signals: ConfigSignals = {
       value: 22,
       held_s: 0,
       source: 'heishamon',
+      pump_mirror: false,
     },
   ],
 };
 
 const ROOM_SIGNALS = ['ha/sensor.living_room_temperature', 'room_temperature'];
 const TEMPERATURE_UNITS = new Set(['°C', 'C', 'celsius']);
-
-type Candidate = ConfigSignals['room'][number];
 
 /**
  * Candidates for the stored MQTT inputs that the fixed lists do not have yet: temperatures (°C)
@@ -835,6 +888,7 @@ function inputCandidates(inputs: unknown): { temperature: Candidate[]; all: Cand
         value: unit && TEMPERATURE_UNITS.has(unit) ? 6.2 : null,
         held_s: unit && TEMPERATURE_UNITS.has(unit) ? 30 : null,
         source: 'mqtt',
+        pump_mirror: false,
       },
     ];
   });

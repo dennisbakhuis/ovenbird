@@ -14,6 +14,10 @@ export type PumpPhase = 'idle' | 'heating' | 'defrost' | 'dhw';
  * `pump:defrost.weather:stale`.
  *
  * - `pump`: heating | idle | defrost | dhw (forces the snapshot and the last 15 min of history)
+ * - `deice`: 1 | 2 (the pump is the known WH-MXC12J9E8: `pump/settings` names its profile and a
+ *   defrost in the snapshot carries that deice mode; without it the model is unknown and a defrost
+ *   has no mode). In mode 2 a defrost has no water flow and 25.5 °C return water, as by design.
+ *   Combine with `pump:defrost` to show one now.
  * - `quiet`: on | off (forces the quiet level in the snapshot)
  * - `dhw`: none (the pump has no hot-water tank: it reports `main/DHW_Installed` 0, runs no
  *   scheduled hot-water runs and the config says `hot_water.installed` false; `pump:dhw` still
@@ -64,6 +68,7 @@ export type PumpPhase = 'idle' | 'heating' | 'defrost' | 'dhw';
  */
 export interface Scenario {
   pump?: PumpPhase;
+  deice?: '1' | '2';
   quiet?: 'on' | 'off';
   dhw?: 'none';
   weather?: 'off' | 'stale';
@@ -92,6 +97,7 @@ export const SCENARIO_OPTIONS: {
   [K in Exclude<keyof Scenario, 'shiftMin' | 'tag'>]-?: readonly NonNullable<Scenario[K]>[];
 } = {
   pump: ['idle', 'heating', 'defrost', 'dhw'],
+  deice: ['1', '2'],
   quiet: ['on', 'off'],
   dhw: ['none'],
   weather: ['off', 'stale'],

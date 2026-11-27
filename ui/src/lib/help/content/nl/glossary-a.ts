@@ -67,7 +67,7 @@ export const glossary: GlossaryEntry[] = [
     term: 'Ontdooien',
     short:
       'Een paar minuten waarin de pomp ijs van haar buitenunit smelt, met warmte uit het water.',
-    body: 'IJs ontstaat bij koud, vochtig weer. Tijdens het ontdooien koelt het water even af en stuurt de pomp haar circulatiepomp zelf aan. ovenbird zet dan de ruimtecorrectie stil en verlaagt de aanvoertemperatuur niet, zodat de dip geen overreactie geeft.',
+    body: 'IJs ontstaat bij koud, vochtig weer. Tijdens het ontdooien koelt het water even af en stuurt de pomp haar circulatiepomp zelf aan. ovenbird zet dan de ruimtecorrectie stil en verlaagt de aanvoertemperatuur niet, zodat de dip geen overreactie geeft.\n\nBij een warmtepompmodel dat ovenbird herkent (Systeem → Over deze installatie) noemt het ook de **ontdooimodus** die de pomp kiest. **Modus 1** is een omgekeerde cyclus: het koudemiddel stroomt andersom en de waterpomp blijft draaien. **Modus 2** ontdooit met heet gas: de waterpomp staat bewust stil, het debiet zakt naar nul en het ontdooien kan tot 30 minuten duren. Volgens de servicehandleiding kiest de pomp modus 2 bij koud retourwater: onder 27 °C, of onder 60 °C bij vorst onder −10 °C.',
     related: ['pump-duty', 'cop', 'dhw'],
   },
   {

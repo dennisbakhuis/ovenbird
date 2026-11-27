@@ -9,6 +9,7 @@ const candidate = (signal: string, device?: string): SignalCandidate => ({
   value: null,
   held_s: null,
   source: 'ha',
+  pump_mirror: false,
   ...(device ? { device_id: device } : {}),
 });
 

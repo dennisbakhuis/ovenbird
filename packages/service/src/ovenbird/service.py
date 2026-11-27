@@ -457,6 +457,7 @@ def build_control(
         interval_s=settings.safety_interval_s,
         sleep=sleep,
     )
+    runtime.defrost = loop.safety.defrost_state
     store = facts if facts is not None else Facts()
     latest = latest_decision(settings.history_path)
     loop.release = ReleaseManager(

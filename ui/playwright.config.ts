@@ -46,6 +46,7 @@ export default defineConfig({
     { name: 'trial', testMatch: 'trial.spec.ts', dependencies: ['routes'] },
     { name: 'house', testMatch: 'house.spec.ts', dependencies: ['routes'] },
     { name: 'ha', testMatch: 'ha.spec.ts', dependencies: ['routes'] },
+    { name: 'deice', testMatch: 'deice.spec.ts', dependencies: ['routes'] },
     { name: 'system', testMatch: 'system.spec.ts', dependencies: ['routes'] },
     { name: 'chunks', testMatch: 'chunks.spec.ts', dependencies: ['routes'] },
     { name: 'topbar', testMatch: 'topbar.spec.ts', dependencies: ['routes'] },

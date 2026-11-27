@@ -2275,6 +2275,77 @@
         ],
         "type": "object"
       },
+      "DefrostState": {
+        "description": "The live defrost as the safety monitor latched it at its start.\n\n``mode`` is the deice mode the unit picks (1: reverse cycle, water pump running;\n2: hot gas, water pump off by design); ``None`` for an unknown model. Everything\nbut ``active`` is ``None`` outside a defrost; ``max_s`` is the ``defrost_stuck``\nlimit in effect.",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "inlet_at_start_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  1,
+                  2
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outside_at_start_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "active",
+          "mode",
+          "since",
+          "inlet_at_start_c",
+          "outside_at_start_c",
+          "max_s"
+        ],
+        "type": "object"
+      },
       "Delivery": {
         "description": "The last notification ntfy accepted.",
         "properties": {
@@ -8011,7 +8082,7 @@
         "type": "object"
       },
       "SignalCandidate": {
-        "description": "A signal the room, liveness or cross-check picker offers.\n\nHome Assistant candidates also carry their entity id and, when Home Assistant's\nregistry could be read, the area name and the device id (the liveness picker\nlists the room sensor's own device first).",
+        "description": "A signal the room, liveness or cross-check picker offers.\n\nHome Assistant candidates also carry their entity id and, when Home Assistant's\nregistry could be read, the area name and the device id (the liveness picker\nlists the room sensor's own device first). ``pump_mirror`` is true for a Home\nAssistant entity on a device whose entities copy the heat pump's HeishaMon values;\nthe pickers list those apart.",
         "properties": {
           "area": {
             "anyOf": [
@@ -8063,6 +8134,9 @@
               }
             ]
           },
+          "pump_mirror": {
+            "type": "boolean"
+          },
           "signal": {
             "type": "string"
           },
@@ -8096,7 +8170,8 @@
           "unit",
           "value",
           "held_s",
-          "source"
+          "source",
+          "pump_mirror"
         ],
         "type": "object"
       },
@@ -8133,10 +8208,13 @@
         "type": "object"
       },
       "Snapshot": {
-        "description": "``GET snapshot``: every signal and the derived values at one instant.",
+        "description": "``GET snapshot``: every signal, the derived values and the defrost at one instant.",
         "properties": {
           "at": {
             "type": "string"
+          },
+          "defrost": {
+            "$ref": "#/components/schemas/DefrostState"
           },
           "derived": {
             "additionalProperties": {
@@ -8165,7 +8243,8 @@
           "heishamon",
           "links",
           "signals",
-          "derived"
+          "derived",
+          "defrost"
         ],
         "type": "object"
       },

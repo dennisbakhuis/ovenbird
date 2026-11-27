@@ -12,6 +12,7 @@
       "value": 21.0,
       "held_s": 60.0,
       "source": "ha",
+      "pump_mirror": false,
       "entity_id": "climate.living_room",
       "area": "Living room",
       "device_id": "dev-2"
@@ -23,6 +24,7 @@
       "value": 21.9,
       "held_s": 7800.0,
       "source": "ha",
+      "pump_mirror": false,
       "entity_id": "sensor.living_room_temperature",
       "area": "Living room",
       "device_id": "dev-1"
@@ -36,6 +38,7 @@
       "value": 54.0,
       "held_s": null,
       "source": "ha",
+      "pump_mirror": false,
       "entity_id": "sensor.living_room_humidity",
       "area": "Living room",
       "device_id": "dev-1"
@@ -47,6 +50,7 @@
       "value": 21.9,
       "held_s": 7800.0,
       "source": "ha",
+      "pump_mirror": false,
       "entity_id": "sensor.living_room_temperature",
       "area": "Living room",
       "device_id": "dev-1"
@@ -60,6 +64,7 @@
       "value": 21.0,
       "held_s": 60.0,
       "source": "ha",
+      "pump_mirror": false,
       "entity_id": "climate.living_room",
       "area": "Living room",
       "device_id": "dev-2"
@@ -71,6 +76,7 @@
       "value": 21.9,
       "held_s": 7800.0,
       "source": "ha",
+      "pump_mirror": false,
       "entity_id": "sensor.living_room_temperature",
       "area": "Living room",
       "device_id": "dev-1"
@@ -81,7 +87,8 @@
       "unit": null,
       "value": 22,
       "held_s": 0.0,
-      "source": "heishamon"
+      "source": "heishamon",
+      "pump_mirror": false
     }
   ]
 }

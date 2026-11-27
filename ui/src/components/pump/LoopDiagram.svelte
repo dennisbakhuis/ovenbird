@@ -6,7 +6,9 @@
   the SVG is sized in pixels from the measured width so text never scales down.
 
   Props: kind (PumpStateKind), outletC, inletC, flowLpm, duty, maxDuty, hz, electricW, heatW,
-  setDeltaK (all number | null).
+  setDeltaK (all number | null), deice (the defrost's deice mode, null when unknown).
+  A defrost of a known model reads "Defrosting · mode 2" in the narrow layout (the wide unit box
+  has no room: it keeps "Defrosting") and the long form in a line under the diagram.
   Honesty: while the pump defrosts it drives its own duty (often above the maximum setting);
   the duty is shown as "220 of 159" in the warning colour with a sentence saying why.
   A11y: role="img" with a generated sentence; the values are also in the text of the page cards.
@@ -15,7 +17,7 @@
   import { copOf, formatNum, formatValue } from '$lib/core/chartSummary';
   import { hotWater } from '$lib/core/hotWater.svelte';
   import { minus } from '$lib/core/minus';
-  import type { PumpStateKind } from '$lib/pump/pumpState';
+  import type { DeiceMode, PumpStateKind } from '$lib/pump/pumpState';
   import { dutyReading } from '$lib/pump/pumpStats';
   import { settings, t } from '$lib/core/settings.svelte';
   import { GLYPHS } from '$components/charts/glyphs';
@@ -32,10 +34,22 @@
     electricW: number | null;
     heatW: number | null;
     setDeltaK: number | null;
+    deice?: DeiceMode | null;
   }
 
-  let { kind, outletC, inletC, flowLpm, duty, maxDuty, hz, electricW, heatW, setDeltaK }: Props =
-    $props();
+  let {
+    kind,
+    outletC,
+    inletC,
+    flowLpm,
+    duty,
+    maxDuty,
+    hz,
+    electricW,
+    heatW,
+    setDeltaK,
+    deice = null,
+  }: Props = $props();
 
   const lang = $derived(settings.language);
   let width = $state(640);
@@ -47,6 +61,11 @@
   const reading = $derived(dutyReading(duty, maxDuty));
   const own = $derived(reading.above && kind === 'defrost');
   const stateKey = $derived(`loopState_${kind}` as 'loopState_idle');
+  const mode = $derived(kind === 'defrost' ? deice : null);
+  const stateLong = $derived(mode === null ? t(stateKey) : t(`deiceMode_${mode}`));
+  const stateShort = $derived(
+    mode === null ? t(stateKey) : t('pumpStateDefrostMode', { mode: mode }),
+  );
   const glyph = $derived(
     kind === 'defrost'
       ? GLYPHS.snowflake
@@ -82,7 +101,7 @@
   );
   const summary = $derived(
     t('loopSummary', {
-      state: t(stateKey),
+      state: stateLong,
       outlet: temp(outletC),
       inlet: temp(inletC),
       delta: deltaText,
@@ -156,7 +175,7 @@
           <path class="glyph" d={glyph} />
         </g>
       </g>
-      <text class="strong" x="46" y="36">{t(stateKey)}</text>
+      <text class="strong" x="46" y="36" data-testid="loop-state">{t(stateKey)}</text>
       <text class="cap" x="14" y="62">{t('loopCompressor')}</text>
       <text class="big" x="14" y="88">{formatValue(hz, 'Hz', 0, lang)}</text>
       <text class="val" x="14" y="118">
@@ -235,7 +254,7 @@
           <path class="glyph" d={glyph} />
         </g>
       </g>
-      <text class="strong" x="46" y="32">{t(stateKey)}</text>
+      <text class="strong" x="46" y="32" data-testid="loop-state">{stateShort}</text>
       <text class="cap" x="14" y="62">{t('loopCompressor')}</text>
       <text class="big" x="14" y="88">{formatValue(hz, 'Hz', 0, lang)}</text>
       <text class="cap" x="14" y="126">{t('loopOutdoor')}</text>
@@ -296,6 +315,9 @@
       >
     {/if}
   </svg>
+  {#if mode !== null}
+    <p class="deice" data-testid="loop-deice" data-deice={mode}>{stateLong}</p>
+  {/if}
   {#if reading.above && maxDuty !== null}
     <p class="honest" data-testid="loop-duty-note">
       {own
@@ -361,6 +383,11 @@
   .warn {
     fill: var(--status-limited);
     font-weight: var(--fw-semibold);
+  }
+  .deice {
+    margin: var(--space-2) 0 0;
+    color: var(--muted);
+    font-size: var(--fs-caption);
   }
   .honest {
     margin: var(--space-2) 0 0;
