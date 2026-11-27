@@ -22,6 +22,19 @@ the types it computes with, and falls back to the ``learning`` state on any erro
 A model whose learner has not run for more than twice its interval is marked stale
 (``learner.stale``).
 
+The learner judges a model by three gates, one per use (:func:`effective_gates`):
+``heat_loss`` (U: the insulation score, the curve proposal, the what-if steady state
+and the live balance), ``dynamics`` (D: the what-if cool-down and the room-target
+planner) and ``sun`` (S: the water planner). ``credible`` is the heat-loss gate.
+Every learner run re-validates the champion on the newest held-out days, all three
+gates, and writes the result to ``status.json`` as ``champion_revalidation``
+(:func:`checked_revalidation`). When it names the champion, its gates replace the
+frozen ones of the champion's insight: the score, the proposal draft, the what-if
+views and the model planner all follow it. A model fitted before the gates has its
+old ``credible`` as the heat-loss gate, its old prediction check (else its old
+``credible``, which included it) as the dynamics gate and no sun gate until the next
+run re-validates it.
+
 The insulation score is recomputed here from the champion's UA and the current
 ``house_floor_area_m2`` (so a floor area set after the run counts at once); the
 constants repeat :mod:`ovenbird_sim.learn.score` and a test keeps them equal. The
@@ -76,8 +89,14 @@ INSIGHT_KEYS: Final = frozenset(
         "internal_gains_w",
         "balance_temperature_c",
         "signature",
+        "heat_capacity_kwh_per_k",
+        "capacities_kwh_per_k",
+        "emitter_time_constant_h",
+        "structure",
+        "excitation",
         "credibility",
         "validation",
+        "at_bound",
         "error_trend",
         "daily_error",
         "proposal",
@@ -96,7 +115,43 @@ STATUS_KEYS: Final = (
     "error",
     "runtime_s",
     "interval_h",
+    "warnings",
+    "champion_revalidation",
 )
+MAX_WARNINGS: Final = 20
+MAX_REASONS: Final = 20
+MAX_AT_BOUND: Final = 40
+REVALIDATION_TEXT: Final = ("model", "at", "source", "data_to", "fitted_to", "from", "to")
+REVALIDATION_NUMBERS: Final = (
+    "room_rmse_k",
+    "persistence_room_rmse_k",
+    "skill_horizon_h",
+    "skill",
+    "series_rmse_k",
+    "series_bias_k",
+)
+REVALIDATION_SOURCES: Final = frozenset({"held_out", "revalidated"})
+GATES: Final = ("heat_loss", "dynamics", "sun")
+GATE_NEEDS: Final = frozenset(
+    {
+        "no_signature",
+        "more_heating_days",
+        "more_outside_spread",
+        "ua_interval_wide",
+        "ua_disagrees",
+        "ua_unstable",
+        "no_dynamics_skill",
+        "more_sunny_days",
+        "no_sun_skill",
+        "sun_response_off",
+        "legacy_model",
+    }
+)
+MAX_GATE_CHECKS: Final = 12
+LEGACY_SUN: Final = (
+    "this model was fitted before the sun gate; the next learner run judges its sun response"
+)
+LEGACY_DYNAMICS: Final = "the model does not predict the room better than persistence"
 UNREADABLE: Final = "the learner's files could not be read ({why}); waiting for its next run"
 CURRENT: Final = "current.json"
 INDEX: Final = "index.json"
@@ -266,6 +321,60 @@ def _object(value: Any, what: str) -> Json:
     return value
 
 
+def checked_gate(raw: Any, what: str) -> Json:
+    """Return one checked credibility gate.
+
+    ``ok`` a boolean, ``needed`` at most 20 codes (codes the service does not know are
+    dropped with a warning: a newer learner), ``message`` text or ``null``,
+    ``reasons`` at most 20 texts, ``uses`` at most 20 texts and ``checks`` at most
+    :data:`MAX_GATE_CHECKS` objects, each with a boolean ``ok``.
+
+    Raises
+    ------
+    ValueError
+        When a field has the wrong type or size.
+    """
+    gate = _object(raw, what)
+    if not isinstance(gate.get("ok"), bool):
+        raise ValueError(f"{what}.ok is not a boolean")
+    needed = _texts(gate.get("needed"), f"{what}.needed", MAX_REASONS) or []
+    unknown = [code for code in needed if code not in GATE_NEEDS]
+    if unknown:
+        LOGGER.warning("%s: dropping unknown codes %s", what, unknown)
+    message = gate.get("message")
+    if message is not None and not isinstance(message, str):
+        raise ValueError(f"{what}.message is not text")
+    checks = _object(gate.get("checks"), f"{what}.checks")
+    if len(checks) > MAX_GATE_CHECKS or not all(
+        isinstance(check, dict) and isinstance(check.get("ok"), bool) for check in checks.values()
+    ):
+        raise ValueError(f"{what}.checks is not a short object of checks with a boolean ok")
+    return {
+        "ok": gate["ok"],
+        "needed": [code for code in needed if code in GATE_NEEDS],
+        "message": message,
+        "reasons": _texts(gate.get("reasons"), f"{what}.reasons", MAX_REASONS) or [],
+        "uses": _texts(gate.get("uses"), f"{what}.uses", MAX_REASONS) or [],
+        "checks": checks,
+    }
+
+
+def checked_gates(raw: Any, what: str) -> Json | None:
+    """Return the checked ``gates`` object (:func:`checked_gate` each); ``None`` when absent.
+
+    Raises
+    ------
+    ValueError
+        When it is not an object holding exactly the three gates, each valid.
+    """
+    if raw is None:
+        return None
+    gates = _object(raw, what)
+    if set(gates) != set(GATES):
+        raise ValueError(f"{what} does not hold exactly the gates {', '.join(GATES)}")
+    return {name: checked_gate(gates[name], f"{what}.{name}") for name in GATES}
+
+
 def checked_insight(raw: Any) -> Json:
     """Return the allow-listed, type-checked insight a learner wrote.
 
@@ -291,7 +400,78 @@ def checked_insight(raw: Any) -> Json:
         proposal = _object(proposal, "proposal")
         _curve_points(proposal.get("curve"), "proposal.curve")
         _curve_points(proposal.get("based_on_curve"), "proposal.based_on_curve")
+    validation = _object(body.get("validation"), "validation")
+    for key in ("challenger_room_rmse_k", "held_out_room_rmse_k", "skill_at_horizon"):
+        _number_or_none(validation.get(key), f"validation.{key}")
+    checks = _object(cred.get("checks"), "credibility.checks")
+    if not all(isinstance(value, bool) for value in checks.values()):
+        raise ValueError("credibility.checks holds a value that is not a boolean")
+    gates = checked_gates(cred.get("gates"), "credibility.gates")
+    if gates is not None:
+        if gates["heat_loss"]["ok"] != cred.get("credible", False):
+            raise ValueError("credibility.credible is not the heat-loss gate")
+        body["credibility"] = cred | {"gates": gates}
+    excitation = _object(body.get("excitation"), "excitation")
+    if not isinstance(excitation.get("excited", False), bool):
+        raise ValueError("excitation.excited is not a boolean")
+    at_bound = body.get("at_bound")
+    if at_bound is not None and (
+        not isinstance(at_bound, list)
+        or len(at_bound) > MAX_AT_BOUND
+        or not all(isinstance(row, dict) for row in at_bound)
+    ):
+        raise ValueError("at_bound is not a short list of objects")
     return body
+
+
+def _texts(value: Any, what: str, limit: int) -> list[str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list) or len(value) > limit:
+        raise ValueError(f"{what} is not a list of at most {limit} texts")
+    if not all(isinstance(item, str) for item in value):
+        raise ValueError(f"{what} is not a list of text")
+    return list(value)
+
+
+def checked_revalidation(raw: Any) -> Json:
+    """Return the checked ``champion_revalidation`` of ``status.json``.
+
+    Raises
+    ------
+    ValueError
+        When it is not an object with the documented keys and types: texts (``model``,
+        ``at``, ``source`` one of ``held_out``/``revalidated``, times), finite numbers or
+        ``null``, ``origins`` a whole number, ``in_sample`` and ``credible`` booleans,
+        ``reasons`` at most 20 texts, ``gates`` the three gates (:func:`checked_gates`;
+        ``null`` from a learner before the gates).
+    """
+    if not isinstance(raw, dict):
+        raise ValueError("champion_revalidation is not an object")
+    body: Json = bounded(raw)
+    out: Json = {}
+    for key in REVALIDATION_TEXT:
+        value = body.get(key)
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"champion_revalidation.{key} is not text")
+        out[key] = value
+    if not isinstance(out["model"], str) or out["source"] not in REVALIDATION_SOURCES:
+        raise ValueError("champion_revalidation names no model or source")
+    for key in REVALIDATION_NUMBERS:
+        out[key] = _number_or_none(body.get(key), f"champion_revalidation.{key}")
+    origins = body.get("origins")
+    if isinstance(origins, bool) or not isinstance(origins, int) or origins < 0:
+        raise ValueError("champion_revalidation.origins is not a count")
+    out["origins"] = origins
+    for key in ("in_sample", "credible"):
+        if not isinstance(body.get(key), bool):
+            raise ValueError(f"champion_revalidation.{key} is not a boolean")
+        out[key] = body[key]
+    out["reasons"] = _texts(body.get("reasons"), "champion_revalidation.reasons", MAX_REASONS) or []
+    out["gates"] = checked_gates(body.get("gates"), "champion_revalidation.gates")
+    if out["gates"] is not None and out["gates"]["heat_loss"]["ok"] != out["credible"]:
+        raise ValueError("champion_revalidation.credible is not the heat-loss gate")
+    return out
 
 
 def checked_status(raw: Any) -> Json | None:
@@ -310,9 +490,21 @@ def checked_status(raw: Any) -> Json | None:
             raise ValueError("missing is not a list of text")
         _number_or_none(out.get("runtime_s"), "runtime_s")
         _number_or_none(out.get("interval_h"), "interval_h")
+        if "warnings" in out:
+            out["warnings"] = _texts(out["warnings"], "warnings", MAX_WARNINGS)
     except ValueError as exc:
         LOGGER.warning("ignoring the learner's status.json: %s", exc)
         return None
+    if "champion_revalidation" in out:
+        try:
+            out["champion_revalidation"] = (
+                None
+                if out["champion_revalidation"] is None
+                else checked_revalidation(out["champion_revalidation"])
+            )
+        except ValueError as exc:
+            LOGGER.warning("ignoring the champion's re-validation in status.json: %s", exc)
+            out["champion_revalidation"] = None
     return out
 
 
@@ -401,6 +593,85 @@ def last_run(models: Path) -> Json | None:
     if not models_ok(models):
         return None
     return checked_status(read_json(models / STATUS))
+
+
+def revalidation_of(run: Json | None, model: Any) -> Json | None:
+    """Return the run's ``champion_revalidation`` when it names ``model``, else ``None``."""
+    found = run.get("champion_revalidation") if run is not None else None
+    if not isinstance(found, dict) or not isinstance(model, str) or found.get("model") != model:
+        return None
+    return found
+
+
+def _served(gate: Json, source: str) -> Json:
+    ok = bool(gate["ok"])
+    message = gate.get("message")
+    if not ok and not message:
+        message = "; ".join(gate.get("reasons") or []) or "the checks did not pass"
+    return {
+        "ok": ok,
+        "needed": [] if ok else list(gate.get("needed") or []),
+        "message": None if ok else message,
+        "source": source,
+    }
+
+
+def _legacy_gates(cred: Json) -> Json:
+    """Return the gates of an insight written before them (see the module docstring)."""
+    credible = cred.get("credible") is True
+    message = cred.get("message")
+    checks = _dict(cred.get("checks"))
+    predictive = checks["predictive"] is True if "predictive" in checks else credible
+    return {
+        "heat_loss": {
+            "ok": credible,
+            "needed": [] if credible else ["legacy_model"],
+            "message": None if credible else message if isinstance(message, str) else None,
+        },
+        "dynamics": {
+            "ok": predictive,
+            "needed": [] if predictive else ["no_dynamics_skill"],
+            "message": None if predictive else LEGACY_DYNAMICS,
+        },
+        "sun": {"ok": False, "needed": ["legacy_model"], "message": LEGACY_SUN},
+    }
+
+
+def effective_gates(insight: Json, revalidated: Json | None) -> Json:
+    """Return the champion's three gates now: ``{name: {ok, needed, message, source}}``.
+
+    The re-validation of the latest run wins over the insight's frozen gates
+    (``source`` ``revalidated``; else ``fitted``, or ``legacy`` for a model fitted
+    before the gates). A re-validation from a learner before the gates only has
+    ``credible``: it then still bounds the heat-loss gate.
+    """
+    if revalidated is not None and revalidated.get("gates") is not None:
+        return {name: _served(revalidated["gates"][name], "revalidated") for name in GATES}
+    cred = _dict(insight.get("credibility"))
+    frozen = cred.get("gates")
+    if isinstance(frozen, dict):
+        gates = {name: _served(frozen[name], "fitted") for name in GATES}
+    else:
+        gates = {name: _served(gate, "legacy") for name, gate in _legacy_gates(cred).items()}
+    if revalidated is not None and not revalidated["credible"] and gates["heat_loss"]["ok"]:
+        reasons = revalidated.get("reasons") or []
+        gates["heat_loss"] = {
+            "ok": False,
+            "needed": ["legacy_model"],
+            "message": "; ".join(reasons) or "the latest re-validation did not pass",
+            "source": "revalidated",
+        }
+    return gates
+
+
+def effective_credible(insight: Json, revalidated: Json | None) -> tuple[bool, str | None]:
+    """Return whether the champion's heat-loss gate passes now, and what it lacks if not.
+
+    The re-validation of the latest run wins over the insight's frozen credibility
+    (:func:`effective_gates`).
+    """
+    gate = effective_gates(insight, revalidated)["heat_loss"]
+    return bool(gate["ok"]), gate["message"]
 
 
 def champion(models: Path) -> tuple[Json, Json] | None:
@@ -549,15 +820,20 @@ def house_payload(
     current, insight = found
     body = dict(insight)
     ua = _dict(insight.get("ua"))
-    cred = _dict(insight.get("credibility"))
+    revalidated = revalidation_of(run, current.get("model"))
+    gates = effective_gates(insight, revalidated)
+    credible, message = bool(gates["heat_loss"]["ok"]), gates["heat_loss"]["message"]
     interval = ua.get("interval_90")
     body["score"] = score(
         _float(ua.get("w_per_k")),
         interval if isinstance(interval, list) else None,
         settings.house_floor_area_m2,
-        credible=bool(cred.get("credible")),
-        message=cred.get("message"),
+        credible=credible,
+        message=message,
     )
+    body["credible"] = credible
+    body["gates"] = gates
+    body["revalidation"] = revalidated
     proposal = insight.get("proposal")
     if isinstance(proposal, dict):
         curve = _curve(settings)
@@ -595,6 +871,7 @@ def history_payload(models: Path, settings: Settings) -> Json:
             _pair(run.get("ua_interval_90"), "ua_interval_90")
             _number_or_none(run.get("time_constant_h"), "time_constant_h")
             _number_or_none(run.get("challenger_room_rmse_k"), "challenger_room_rmse_k")
+            _number_or_none(run.get("held_out_room_rmse_k"), "held_out_room_rmse_k")
         except ValueError as exc:
             LOGGER.warning("ignoring a run in the learner's index.json: %s", exc)
             continue
@@ -609,7 +886,9 @@ def history_payload(models: Path, settings: Settings) -> Json:
                 "ua_interval_90": interval,
                 "time_constant_h": run.get("time_constant_h"),
                 "credible": run.get("credible"),
-                "room_rmse_24h_k": run.get("challenger_room_rmse_k"),
+                "room_rmse_24h_k": run.get(
+                    "held_out_room_rmse_k", run.get("challenger_room_rmse_k")
+                ),
                 "score": score(
                     _float(run.get("ua_w_per_k")),
                     interval if isinstance(interval, list) else None,
@@ -637,6 +916,8 @@ def proposal_changes(models: Path, settings: Settings) -> tuple[int, Json]:
     if found is None:
         return 404, {"detail": "no house model has been promoted yet"}
     current, insight = found
+    revalidated = revalidation_of(last_run(models), current.get("model"))
+    credible, _ = effective_credible(insight, revalidated)
     proposal = _dict(insight.get("proposal"))
     curve = proposal.get("curve")
     if not isinstance(curve, list) or not curve:
@@ -650,7 +931,7 @@ def proposal_changes(models: Path, settings: Settings) -> tuple[int, Json]:
         "changes": {"control_curve": curve},
         "current": {"control_curve": now},
         "stale": now is not None and proposal.get("based_on_curve") != now,
-        "credible": bool(proposal.get("credible")),
+        "credible": bool(proposal.get("credible")) and credible,
         "points": proposal.get("points"),
     }
 

@@ -11,11 +11,15 @@ correction). ``H`` is the *apparent* heat-loss coefficient: with a handful of in
 sensors it describes the house as those sensors see it. Intervals come from a
 day bootstrap.
 
-Credibility follows the design: at least 30 heating days spanning at least 10 K of
-outside temperature with at least 10 days below 5 degC. A capacity check at the
-design temperature is shown only when the data reach within 10 K of it, and the
-result is flagged low-confidence when it differs from the RC model's envelope
-conductance by more than 20 %.
+The signature's own credibility is data sufficiency for the regression: at least 30
+heating days spanning at least 10 K of outside temperature. Days below 5 degC are
+counted and reported but no longer required: the slope is identified by the spread of
+the outside temperature, not by its absolute level, and the learner's model
+credibility (:mod:`ovenbird_sim.learn.checks`) asks instead for a tight RC heat-loss
+coefficient that agrees with this signature. A capacity check at the design
+temperature is shown only when the data reach within 10 K of it, and the result is
+flagged low-confidence when it differs from the RC model's envelope conductance by
+more than 20 %.
 """
 
 from __future__ import annotations
@@ -34,7 +38,6 @@ MIN_DAY_COVERAGE = 0.98
 HEATING_DAY_W = 300.0
 CREDIBLE_DAYS = 30
 CREDIBLE_SPAN_K = 10.0
-CREDIBLE_COLD_DAYS = 10
 COLD_DAY_C = 5.0
 DESIGN_WINDOW_K = 10.0
 RC_DISAGREEMENT = 0.2
@@ -166,7 +169,7 @@ class Signature:
     rmse_w
         Residual of the daily fit.
     credible
-        Whether the design's credibility rules are met.
+        Whether the signature has enough data: heating days and outside span.
     reasons
         Why it is not credible or low-confidence.
     capacity_at_design_w
@@ -286,8 +289,6 @@ def energy_signature(
         reasons.append(f"{int(heating.sum())} heating days < {CREDIBLE_DAYS}")
     if span < CREDIBLE_SPAN_K:
         reasons.append(f"outside span {span:.1f} K < {CREDIBLE_SPAN_K:.0f} K")
-    if cold < CREDIBLE_COLD_DAYS:
-        reasons.append(f"{cold} days below {COLD_DAY_C:.0f} degC < {CREDIBLE_COLD_DAYS}")
     h = float(theta[0])
     low = False
     if (

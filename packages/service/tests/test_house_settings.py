@@ -11,6 +11,7 @@ import pytest
 from ovenbird.config import Settings
 from ovenbird.config.validation.house import check_excluded_days
 from ovenbird.configstore import ConfigManager
+from ovenbird.configstore.effective import merge
 from ovenbird.configstore.fields import EDITABLE, FIELDS, schema_payload
 from ovenbird.insight import house
 from ovenbird.testing import FakeClock
@@ -23,7 +24,6 @@ PAIRS = [
 ]
 RANGES = [
     ("house_volume_m3", 50, 5000),
-    ("house_floor_heating_share", 0, 1),
     ("house_window_area_m2", 0, 200),
     ("house_occupants", 0, 12),
     ("house_learn_fit_days", 21, 90),
@@ -95,7 +95,24 @@ def test_the_fields_are_editable_and_grouped() -> None:
     assert FIELDS["house_ua_min_w_per_k"].group == "house_bounds"
     assert FIELDS["house_volume_m3"].tier.value == "advanced"
     assert FIELDS["house_build_period"].tier.value == "basic"
-    assert FIELDS["house_floor_heating_share"].display == "%"
+    assert "house_floor_heating_share" not in FIELDS
+    assert "house_floor_heating_share" not in Settings.model_fields
+
+
+def test_a_stored_floor_heating_share_is_ignored(
+    make_settings: Callable[..., Settings], caplog: pytest.LogCaptureFixture
+) -> None:
+    doc = {"house_floor_heating_share": 0.6, "house_occupants": 2}
+    with caplog.at_level("WARNING"):
+        merged = merge(make_settings(), {}, doc)
+    assert merged.house_occupants == 2
+    assert not hasattr(merged, "house_floor_heating_share")
+    assert "house_floor_heating_share" in caplog.text
+
+
+def test_a_new_floor_heating_share_is_an_unknown_field(manager: ConfigManager) -> None:
+    result = manager.validate({"house_floor_heating_share": 0.6})
+    assert [e.code for e in result.errors] == ["unknown_field"]
 
 
 def test_schema_lists_the_groups_in_order(make_settings: Callable[..., Settings]) -> None:
@@ -106,8 +123,7 @@ def test_schema_lists_the_groups_in_order(make_settings: Callable[..., Settings]
     assert days["type"] == "dates"
     assert days["max_items"] == 60
     assert payload["fields"]["house_build_period"]["options"][0] == "before_1945"
-    share = payload["fields"]["house_floor_heating_share"]
-    assert (share["unit"], share["display"], share["min"], share["max"]) == ("ratio", "%", 0, 1)
+    assert "house_floor_heating_share" not in payload["fields"]
 
 
 @pytest.mark.parametrize(("low", "high", "_lo", "_hi"), PAIRS)

@@ -61,14 +61,14 @@ export const settings: Record<keyof typeof en, string> = {
   fieldNotSet: 'niet ingesteld',
   check_not_dates: 'De dagen moeten een lijst met datums zijn.',
   check_date_format: 'Schrijf elke dag als JJJJ-MM-DD, een echte datum.',
-  check_date_future: 'Een dag om over te slaan mag niet meer dan een dag vooruit liggen.',
-  check_date_repeated: 'Elke dag kan maar één keer worden overgeslagen.',
+  check_date_future: 'Een dag om weg te laten mag niet verder dan een dag vooruit liggen.',
+  check_date_repeated: 'Elke dag kan maar één keer worden weggelaten.',
   check_model_use_on_locked:
-    'Het model gebruiken voor de regeling (Aan) is voorlopig vergrendeld. Gebruik Schaduw: dat rekent en legt vast, en verandert niets.',
+    'Het model gebruiken voor de regeling (Aan) is voorlopig vergrendeld. Kies Schaduw: dan rekent het mee en legt het vast, zonder iets te veranderen.',
   check_house_bounds_order:
     '{min_field} ({min} {unit}) mag niet hoger zijn dan {max_field} ({max} {unit}).',
   check_house_fit_days_short:
-    'Dagen om van te leren ({fit_days}) moeten minstens {min} zijn: de dagen voor de test ({test_days}) plus 8.',
+    'Bij Dagen om van te leren ({fit_days}) moeten het er minstens {min} zijn: het aantal testdagen ({test_days}) plus 8.',
   check_below_min: 'Moet minimaal {min} {unit} zijn.',
   check_above_max: 'Mag maximaal {max} {unit} zijn.',
   check_not_a_number: 'Voer een getal in.',

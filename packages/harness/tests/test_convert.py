@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -13,6 +14,7 @@ import pytest
 from ovenbird.configstore.preview import run_open_loop
 from ovenbird.history.journal import decisions_between, query_commands
 from ovenbird_core.control import OvenbirdConfig
+from ovenbird_core.store import StalenessPolicy
 from ovenbird_harness.convert import (
     RECORDED_STATUS,
     ConvertError,
@@ -22,6 +24,7 @@ from ovenbird_harness.convert import (
     convert,
     main,
 )
+from ovenbird_sim.evaluate.openloop import staleness_policy
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = ROOT / "packages/core/tests/fixtures/synthetic/2026-01-06.jsonl.gz"
@@ -145,3 +148,38 @@ def test_the_command_line_converts_and_refuses(
     assert main(argv) == 1
     assert "--force" in capsys.readouterr().err
     assert main([*argv, "--force", "--config-version", "1"]) == 0
+
+
+def _room_limits_used(
+    capture: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    room_max_age_s: float | None = None,
+) -> list[float]:
+    seen: list[float] = []
+    original = staleness_policy
+
+    def spy(room_max_age_s: float, reference: tuple[str, float] | None = None) -> StalenessPolicy:
+        seen.append(room_max_age_s)
+        return original(room_max_age_s, reference)
+
+    monkeypatch.setattr("ovenbird_harness.convert.staleness_policy", spy)
+    settings, values = build_settings(SEED)
+    options = replace(_options(capture, tmp_path / "out"), room_max_age_s=room_max_age_s)
+    convert(options, settings, values)
+    return seen
+
+
+def test_the_room_hold_defaults_to_the_profile_silence_limit(
+    capture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings, _ = build_settings(SEED)
+    expected = settings.room_profile().max_age_s
+    assert expected > 1800.0
+    assert set(_room_limits_used(capture, tmp_path, monkeypatch)) == {expected}
+
+
+def test_an_explicit_room_max_age_overrides_the_profile(
+    capture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert set(_room_limits_used(capture, tmp_path, monkeypatch, room_max_age_s=900.0)) == {900.0}

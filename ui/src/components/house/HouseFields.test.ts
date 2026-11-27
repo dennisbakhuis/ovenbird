@@ -32,12 +32,14 @@ describe('HouseFields', () => {
     expect(screen.getByTestId('advanced-house')).toBeTruthy();
   });
 
-  it('shows every fact when flat, the share in percent', async () => {
+  it('shows every fact when flat, without the retired floor-heating share', async () => {
     render(HouseFields, { schema: sch, config: doc, subset: 'facts', flat: true });
     expect(screen.getByTestId('field-house_volume_m3')).toBeTruthy();
-    const share = screen.getByLabelText('Share of floor heating') as HTMLInputElement;
-    await fireEvent.input(share, { target: { value: '60' } });
-    expect(draft.changes['house_floor_heating_share']).toBe(0.6);
+    expect(screen.queryByLabelText('Share of floor heating')).toBeNull();
+    expect(screen.queryByTestId('field-house_floor_heating_share')).toBeNull();
+    const volume = screen.getByLabelText('Heated volume') as HTMLInputElement;
+    await fireEvent.input(volume, { target: { value: '400' } });
+    expect(draft.changes['house_volume_m3']).toBe(400);
     expect(draft.count).toBe(1);
   });
 

@@ -18,18 +18,31 @@ export const house = {
   houseChangeArea: 'Change floor area',
   houseNoArea: 'Enter the heated floor area to see the heat loss per m² and a band.',
   houseNoAreaLink: 'Enter your floor area',
-  houseServiceSays: 'The service says: {message}',
   houseIndicative: 'Indicative, not the official energielabel.',
   houseStillLearning: 'Still learning: {list} needed.',
+  houseStillLearningHead: 'Still learning: no score yet.',
   houseStillLearningPlain: 'Still learning: not enough data for a score yet.',
-  houseNeed_cold_days: '{n} more cold days (daily mean below {below} °C)',
-  houseNeedOne_cold_days: '1 more cold day (daily mean below {below} °C)',
   houseNeed_heating_days: '{n} more heating days',
   houseNeedOne_heating_days: '1 more heating day',
   houseNeed_outside_span_k: '{n} K more spread in outside temperature',
 
+  houseProgressLabel: 'Progress towards enough heating weather',
+  houseProgress_heating_days: 'Heating days: {have} of {need}',
+  houseProgress_outside_range_k: 'Spread of outside temperature: {have} of {need} K',
+  houseReasonNoSkill: 'it no longer predicts the room better than "the room stays as it is"',
+  houseRevalTitle: 'Last check against new data',
+  houseRevalGood: 'Last checked against new data on {time}: still good.',
+  houseRevalBad: 'Last checked against new data on {time}: no longer trusted because {reasons}.',
+  houseRevalGates: 'Last checked against new data on {time}: not yet trusted for {uses}.',
+  houseRevalBadPlain: 'Last checked against new data on {time}: no longer trusted.',
+  houseRevalErrors:
+    'Room error over 24 h: {model} K; "the room stays as it is" would give {persistence} K.',
+  houseRevalSource_held_out: 'Tested on days the model did not learn from.',
+  houseRevalSource_revalidated: 'The model in use, scored again on the newest days.',
+  houseWarningsTitle: 'Notes about the data',
+
   houseFactsTitle: 'What the model learned',
-  houseTau: 'Time constant',
+  houseTau: 'House time constant',
   houseTauText:
     'On a 0 °C day without heating the room would cool about 1 °C in the first {hours} hours.',
   houseBalance: 'Balance temperature',
@@ -37,8 +50,13 @@ export const house = {
     'Above {value} °C outside the house needs no heating: sun, people and appliances are enough.',
   houseSolar: 'Solar aperture',
   houseSolarText: 'A sunny hour (500 W/m² on the ground) brings in about {kw} kW.',
-  houseGains: 'Internal gains',
-  houseGainsText: 'People, cooking and appliances add about {value} W, day and night.',
+  houseGains: 'Net free heat',
+  houseGainsText:
+    'About {value} W from people, appliances and other sources. It cannot be separated from the heat loss.',
+  houseGainsZero:
+    'The model put this at 0 W. That means the data cannot pin it down, not that anything is wrong.',
+  houseGainsCoupling:
+    'Pinning 100 W more free heat raises the heat-loss figure by about {value} W/K.',
 
   houseSignatureTitle: 'Energy signature',
   houseSignatureSubtitle:
@@ -68,12 +86,12 @@ export const house = {
   houseLimited_max_supply: 'capped at the maximum supply',
   houseLimited_min_setpoint: 'raised to the minimum',
   houseLimited_envelope: 'kept inside the safety band',
-  houseExtrapolated: 'beyond the measured days',
+  houseExtrapolated: 'outside the measured range',
   houseProposalChange: 'Average change {mean} K, largest {max} K.',
   houseProposalStale:
     'Your curve changed since this run; the suggestion was made for the previous curve.',
   houseProposalNotCredible:
-    'Not yet credible: the model needs more cold days before its suggestion can be trusted.',
+    'Not yet credible: the heat-loss check does not pass yet, so this suggestion cannot be trusted either.',
   houseProposalOpen: 'Open as draft',
   houseProposalOpenHint: 'Nothing changes until you review and apply it in Settings.',
   houseProposalSame: 'The suggestion equals your current curve.',
@@ -102,6 +120,20 @@ export const house = {
     'Low confidence: the two ways of estimating the heat loss differ by more than 20 %.',
   houseAboutModel: 'About this model',
   houseLimitsTitle: 'Limits of this model',
+  houseCapacityLabel: 'Heat capacity',
+  houseCapacityText:
+    'Water loop, floor and house together store about {value} kWh for every degree the temperature rises.',
+  houseCapacityParts:
+    'Water loop {loop}, floor and screed {emitter}, the rest of the house {building} kWh per K.',
+  houseResponseLabel: 'Response time',
+  houseResponseText: 'The floor responds in about {floor} hours, the house in about {house} hours.',
+  houseResponseHouseOnly: 'The house responds in about {house} hours.',
+  houseStructureLabel: 'Model shape',
+  houseStructureText:
+    'A chain of three parts: the water loop, the floor and screed (fast) and the whole house (slow). {free} values are fitted, {fixed} are held fixed.',
+  houseUaRangeLabel: 'Heat-loss range',
+  houseUaRangeText:
+    'The range of {lo}–{hi} W/K combines resampling of the days ({blo}–{bhi} W/K) and separate training periods ({flo}–{fhi} W/K).',
   houseLimitsNote: 'As reported by the learner for {model}.',
 
   houseLearningTitle: 'Still learning',
@@ -150,7 +182,7 @@ export const house = {
   houseRunLearning: 'There is not enough history yet to fit a trustworthy model.',
   houseRunExpect:
     'The first model appears at the first run after enough history has been collected. The learner tries again at every run.',
-  houseRunFailed: 'The last attempt failed {time}: {reason}.',
+  houseRunFailed: 'The last attempt failed ({time}): {reason}.',
   houseRunFailure_timeout: 'it took too long and was stopped',
   houseRunFailure_memory: 'it ran out of memory',
   houseRunFailure_exit: 'it stopped with an error',
@@ -201,6 +233,7 @@ export const house = {
   houseFactsInputTitle: 'What you know about the house',
   houseFactsInputSubtitle:
     'Starting points for the model. The measurements overrule them when they disagree.',
+  houseFactsSet: '{n} set',
   houseFactsInputIntro:
     'Fill in what you know while the model is still learning: the learner starts from it and the measurements overrule it. Everything is optional.',
   houseBoundsTitle: 'Pin or limit what is learned',
@@ -211,10 +244,34 @@ export const house = {
   houseBoundsLearned: 'Learned: {value} {unit} · 90 % range {lo}–{hi}',
   houseBoundsLearnedPlain: 'Learned: {value} {unit}',
   houseBoundsPinned: 'Pinned: the model uses this value.',
+  houseAtLimit: 'At your limit',
+  houseAtLimitHint: 'The learned value ended at the limit you set.',
+  houseConstraintWorse:
+    'With your limits the model is {with} K off, without them {without} K: a limit may be wrong.',
+  houseConstraintWorsePlain:
+    'With your limits the model is clearly less accurate than without them: a limit may be wrong.',
+  houseStructuralSummary: 'Values at the edge of the model',
+  houseStructuralText:
+    'The model keeps every value inside a built-in range. These ended at the edge of that range. That says something about the shape of the model, not about a setting of yours.',
+  houseStructuralRow: '{name}: {value}, {side} ({limit})',
+  houseSide_lower: 'lower edge',
+  houseSide_upper: 'upper edge',
+  houseSide_pinned: 'fixed',
+  houseParam_c_water: 'Heat capacity of the loop water',
+  houseParam_c_mass: 'Heat capacity of floor and screed',
+  houseParam_c_air: 'Heat capacity of the whole house',
+  houseParam_h_water_mass: 'Heat transfer, loop to floor',
+  houseParam_h_water_air: 'Heat transfer, loop straight to room',
+  houseParam_h_mass_air: 'Heat transfer, floor to air',
+  houseParam_h_air_out: 'Heat loss to outside',
+  houseParam_solar_aperture_m2: 'Solar aperture',
+  houseParam_solar_mass_fraction: 'Share of sun on floor and walls',
+  houseParam_q_int_w: 'Net free heat',
+  houseParam_q_int_modulation: 'Day-night swing of free heat',
   houseBound_ua: 'Heat loss',
   houseBound_tau: 'Time constant',
   houseBound_aperture: 'Solar aperture',
-  houseBound_gain: 'Internal gains',
+  houseBound_gain: 'Net free heat',
   houseBoundMin: 'At least',
   houseBoundMax: 'At most',
   houseLearningSettingsTitle: 'Learning settings',

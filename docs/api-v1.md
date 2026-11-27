@@ -611,9 +611,10 @@ dynamic bounds follow the current emitter and limits).
   overrule: `house_floor_area_m2`, the heated floor area in m² for the indicative
   insulation score of `insight/house`; `house_volume_m3` 50 to 5000; `house_build_period`,
   one of `before_1945`, `1945_1974`, `1975_1991`, `1992_2005`, `2006_2014`, `2015_later`;
-  `house_floor_heating_share`, a fraction 0 to 1 with unit `ratio` and display unit `%`;
   `house_window_area_m2` 0 to 200; `house_window_orientation`, one of `north`, `east`,
-  `south`, `west`, `mixed`; `house_occupants` 0 to 12; all unset by default),
+  `south`, `west`, `mixed`; `house_occupants` 0 to 12; all unset by default; the former
+  `house_floor_heating_share` is retired: a stored value is ignored with a warning in the
+  log, a change that sets it is `unknown_field`),
   `house_bounds` (advanced limits on the learned values, each pair optional on either
   side, equal values pin the quantity: `house_ua_min_w_per_k`/`_max_w_per_k` 30 to 1500
   W/K, `house_time_constant_min_h`/`_max_h` 5 to 500 h, `house_solar_aperture_min_m2`/
@@ -1247,17 +1248,39 @@ as `state` `learning` with the reason in `missing`. Always `200`; with the champ
  "champion": {"model": "house-20260214", "promoted_at": "2026-02-19T19:23:52+00:00"},
  "last_run": {"at": "...", "outcome": "promoted", "model": "house-20260214",
               "champion": "house-20260214", "message": "...", "runtime_s": 275.7,
-              "interval_h": 168.0},
+              "interval_h": 168.0, "warnings": [],
+              "champion_revalidation": {"model": "house-20260214", "at": "...",
+                                        "source": "held_out", "...": "..."}},
+ "credible": true, "revalidation": null,
+ "gates": {"heat_loss": {"ok": true, "needed": [], "message": null, "source": "fitted"},
+           "dynamics": {"ok": true, "needed": [], "message": null, "source": "fitted"},
+           "sun": {"ok": false, "needed": ["more_sunny_days"],
+                   "message": "2 more sunny days needed to check the model's sun response",
+                   "source": "fitted"}},
  "learner": {"last_run_at": "2026-02-19T19:23:52+00:00", "age_h": 30.5,
              "interval_h": 168.0, "stale_after_h": 336.0, "stale": false},
  "data": {"from": "2026-01-05T00:00:00+00:00", "to": "2026-02-14T18:01:00+00:00",
-          "fit_days": 40.75, "signature_days": 38, "excluded_days": []},
- "ua": {"w_per_k": 147.3, "interval_90": [142.1, 152.8], "source": "rc_model",
+          "fit_days": 40.75, "signature_days": 38, "excluded_days": [], "warnings": []},
+ "ua": {"w_per_k": 147.3, "interval_90": [140.2, 152.8],
+        "interval_source": "bootstrap_and_folds",
+        "bootstrap_interval_90": [142.1, 152.8], "fold_w_per_k": [140.2, 149.0],
+        "source": "rc_model",
         "signature_w_per_k": 145.9, "signature_interval_90": [137.6, 154.4],
         "low_confidence": false},
  "time_constant_h": {"value": 52.6, "interval_90": [48.9, 56.4]},
+ "heat_capacity_kwh_per_k": 7.75,
+ "capacities_kwh_per_k": {"loop": 0.35, "emitter": 1.25, "building": 6.15},
+ "emitter_time_constant_h": {"value": 1.26, "interval_90": [1.1, 1.4]},
+ "structure": {"name": "chain",
+               "fixed": {"h_water_air": 5.0, "solar_mass_fraction": 0.0,
+                         "q_int_modulation": 0.0, "q_int_peak_hour": 19.0},
+               "free": ["c_water", "c_mass", "c_air", "h_water_mass", "h_mass_air",
+                        "h_air_out", "solar_aperture_m2", "q_int_w"],
+               "nodes": {"c_water": "loop", "c_mass": "emitter", "c_air": "building"}},
  "solar_aperture_m2": {"value": 3.62, "interval_90": [3.18, 4.07]},
- "internal_gains_w": {"value": 318.0, "interval_90": [262.0, 381.0]},
+ "internal_gains_w": {"value": 318.0, "interval_90": [262.0, 381.0], "identified": false,
+                      "label": "net_free_heat", "note": "net free heat ...",
+                      "at_zero": false, "ua_w_per_k_per_100_w": 10.2},
  "balance_temperature_c": {"value": 17.6, "interval_90": [17.1, 18.2]},
  "signature": {"indoor": "house_mean",
                "points": [{"date": "2026-01-06", "outside_c": 4.12, "heat_w": 2012.4,
@@ -1266,22 +1289,63 @@ as `state` `learning` with the reason in `missing`. Always `200`; with the champ
                        "gains_w": 322.6, "solar_m2": 3.71, "balance_c": 17.6,
                        "balance_interval_90": [17.1, 18.2], "rmse_w": 141.8,
                        "mean_indoor_c": 21.02, "mean_ghi_w_m2": 41.3, "model": "..."}},
- "credibility": {"credible": false, "days": 38, "heating_days": 37, "cold_days": 6,
-                 "outside_span_k": 11.8,
-                 "rules": {"heating_days": 30, "heating_day_w": 300.0, "cold_days": 10,
-                           "cold_day_below_c": 5.0, "outside_span_k": 10.0},
-                 "needed": {"heating_days": 0, "cold_days": 4, "outside_span_k": 0.0},
-                 "reasons": ["6 days below 5 degC < 10"], "low_confidence": false,
-                 "message": "insufficient data: 4 more cold days (daily mean below 5 °C) needed"},
- "score": {"state": "learning", "message": "insufficient data: 4 more cold days ...",
+ "excitation": {"excited": false, "days": 36, "heating_days": 14, "delta_t_days": 30,
+                "run_share_days": 15, "heat_days": 12, "mean_delta_t_k": 9.8,
+                "mean_run_share": 0.31, "heat_kwh_per_day": 22.4, "outside_sd_k": 2.9,
+                "outside_range_k": 8.6, "ua_relative_width": 0.07, "ua_tight": true,
+                "rules": {"heating_days": 20, "delta_t_k": 5.0, "run_share": 0.2,
+                          "outside_range_k": 10.0, "ua_relative_width": 0.3,
+                          "heat_day_kwh": 20.0},
+                "needed": {"heating_days": 6, "outside_range_k": 1.4},
+                "reasons": ["14 heating days in the fit window < 20", "..."]},
+ "credibility": {"credible": false,
+                 "gates": {"heat_loss": {"ok": false, "uses": ["insulation_score", "..."],
+                                         "checks": {"ua_stability": {"ok": true,
+                                                    "value": 0.05, "limit": 0.15,
+                                                    "folds": 2,
+                                                    "fold_ua_w_per_k": [140.2, 149.0]},
+                                                    "...": "..."},
+                                         "needed": ["more_heating_days"],
+                                         "reasons": ["..."], "message": "...",
+                                         "shortfall": {"heating_days": 6,
+                                                       "outside_span_k": 1.4}},
+                           "dynamics": {"ok": true, "...": "...",
+                                        "diagnostics": {"skill_24h": -0.02, "note": "..."}},
+                           "sun": {"ok": false, "...": "..."}},
+                 "checks": {"signature": true, "excitation": false, "ua_consistent": true,
+                            "ua_stable": true, "predictive": true, "sun": false},
+                 "days": 38, "heating_days": 37, "cold_days": 6, "outside_span_k": 11.8,
+                 "agreement": 0.01, "skill": 0.21,
+                 "rules": {"heating_days": 30, "heating_day_w": 300.0, "outside_span_k": 10.0,
+                           "cold_day_below_c": 5.0, "ua_agreement": 0.2,
+                           "skill_horizon_h": 6.0, "min_skill": 0.0},
+                 "needed": {"heating_days": 6, "outside_span_k": 1.4},
+                 "reasons": ["14 heating days in the fit window < 20", "..."],
+                 "low_confidence": false,
+                 "message": "insufficient data: 6 more heating days, 1.4 K more spread ..."},
+ "score": {"state": "learning", "message": "insufficient data: 6 more heating days ...",
            "design_indoor_c": 20.0, "design_outside_c": -10.0, "floor_area_m2": 130.0,
            "bands": [{"band": "A", "below_w_per_m2": 30.0}, "...",
                      {"band": "G", "below_w_per_m2": null}],
            "indicative": true, "note": "Indicative: ... Not the official energielabel."},
  "validation": {"test_from": "2026-01-31T00:00:00+00:00", "test_to": "2026-02-14T00:00:00+00:00",
-                "score_horizon_h": 24.0, "challenger_room_rmse_k": 0.093,
-                "champion_room_rmse_k": null, "champion": null, "promoted": true,
-                "rule": "no champion yet", "settings_changed": false},
+                "score_horizon_h": 24.0, "held_out_room_rmse_k": 0.093,
+                "persistence_room_rmse_k": 0.12, "skill_horizon_h": 6.0,
+                "skill_at_horizon": 0.21,
+                "skill": {"horizons_h": [1, 3, 6, 12, 24], "room_rmse_k": ["..."],
+                          "persistence_rmse_k": ["..."], "diurnal_rmse_k": ["..."],
+                          "skill": ["..."], "skill_diurnal": ["..."], "origins": 104},
+                "series_rmse_k": 0.11, "series_bias_k": -0.03, "series_points": 1248,
+                "challenger_room_rmse_k": 0.093, "champion_room_rmse_k": null,
+                "compared": {"from": "...", "to": "...", "origins": 104,
+                             "champion_in_sample": false},
+                "champion": null, "challenger_credible": false, "champion_credible": null,
+                "challenger_gates": {"heat_loss": false, "dynamics": true, "sun": false},
+                "champion_gates": null, "same_house": null, "promoted": true, "rule": "no champion yet",
+                "settings_changed": false, "tolerance_k": 0.0,
+                "unconstrained_room_rmse_k": null, "constraint_cost": null},
+ "at_bound": [{"parameter": "solar_aperture_m2", "value": 6.0, "side": "upper",
+               "limit": 6.0, "kind": "owner"}],
  "error_trend": [{"model": "house-20260214", "data_to": "...", "promoted": true,
                   "ua_w_per_k": 147.3, "room_rmse_24h_k": 0.093}],
  "daily_error": [{"date": "2026-01-31", "room_rmse_24h_k": 0.078, "origins": 9}],
@@ -1305,21 +1369,126 @@ as `state` `learning` with the reason in `missing`. Always `200`; with the champ
                              "excluded_days": ["2026-02-03"], "excluded_days_in_fit": 1}}}
 ```
 
-- `ua`: the RC model's envelope conductance (`h_air_out`, W/K) with its 90 % day-block
-  bootstrap interval; `signature_*` the energy signature's apparent heat-loss
-  coefficient over the whole 15 min history as a cross-check (`low_confidence` when
-  they differ by more than 20 %). Apparent: one room sensor, ventilation included.
-- `credibility`: the signature's rules (at least 30 heating days, 10 K spread of daily
-  outside means, 10 days below 5 °C); `needed` and `message` say what is missing.
+- `ua`: the RC model's envelope conductance (`h_air_out`, W/K). `interval_90` is the
+  reported range (`interval_source` `bootstrap_and_folds`): the envelope of the 90 %
+  day-block bootstrap interval (`bootstrap_interval_90`) and the UAs of the rolling-origin
+  train-window fits (`fold_w_per_k`); the insulation score and the heat-loss gate use
+  this range. `signature_*` the energy signature's apparent heat-loss coefficient over
+  the whole 15 min history as a cross-check (`low_confidence` when they differ by more
+  than 20 %). Apparent: one room sensor, ventilation included. Older models have no
+  `interval_source`: their `interval_90` is the bootstrap interval.
+- `structure`: the model's shape. `chain` (the default): heat flows loop → emitter →
+  building → outside, and four parameters are held, not fitted (`fixed`: no direct
+  loop-to-room path beyond a token 5 W/K, all sun onto the building node, constant
+  internal gains); `free` lists the eight fitted ones. `nodes` names the three nodes:
+  `loop` (the circulating water), `emitter` (the fast node: floor, screed, radiators) and
+  `building` (the slow node: air, furniture, inner walls). Older models have no
+  `structure`.
+- `heat_capacity_kwh_per_k`: the model's total heat capacity (all three nodes); show this
+  rather than a single node. `capacities_kwh_per_k`: per node under the labels above.
+  `emitter_time_constant_h`: how fast the emitter follows a change of the loop (its
+  capacity over its two conductances), with its bootstrap interval; the building's
+  `time_constant_h` is the slow one.
+- `internal_gains_w`: `identified` is always `false`: the value is net free heat
+  (people, appliances, anything else that warms the house), not separable from the heat
+  loss (the data fix the balance temperature, so more gains mean a larger UA).
+  `ua_w_per_k_per_100_w` is how much the UA moves with 100 W more gains at the fit
+  window's mean indoor-outdoor difference; `at_zero` when the fit put them at 0, which
+  is "not identified", not a fault. Show it with that caveat, never as a measurement.
+- `excitation`: whether the fit window held enough heating weather to separate the
+  envelope loss from the gains. Counted over local days with at least 80 % usable data
+  (room and outside known, outside every known event): a *heating day* has a mean
+  indoor-minus-outside difference of at least 5 K and the compressor running at least
+  20 % of the time. `excited` needs at least 20 heating days, a 10 K range of the
+  heating days' outside means and a 90 % UA interval narrower than 30 % of the UA
+  (`ua_relative_width`, `ua_tight`). `needed` is what is missing (`heating_days`,
+  `outside_range_k`), `reasons` the failed rules; the other counts and means
+  (`delta_t_days`, `run_share_days`, `heat_days` with at least 20 kWh of heat,
+  `mean_delta_t_k`, `mean_run_share`, `heat_kwh_per_day`, `outside_sd_k`) are for display
+  only.
+- `credibility`: three gates, one per use (`gates`), each with `ok`, `uses`, `checks`
+  (per check `ok`, `value`, `limit` and detail), `needed` (codes), `reasons` and
+  `message` (`null` when `ok`):
+  - `heat_loss` (U; the insulation score, the curve proposal, the what-if steady state
+    and the balance): `signature` (the energy signature over the 15 min history: at
+    least 30 heating days of more than 300 W and a 10 K spread of daily outside means),
+    `excitation` (above), `ua_interval` (the reported UA range at most 30 % of the UA),
+    `ua_agreement` (the signature's coefficient within 20 % of the RC model's) and
+    `ua_stability` (every rolling-origin train-window UA within 15 % of the full fit's;
+    `folds`, `fold_ua_w_per_k`). `shortfall` holds `heating_days` and
+    `outside_span_k` for a "not enough heating weather yet" message.
+  - `dynamics` (D; the what-if cool-down and the room-target planner): `skill_6h`, the
+    held-out skill against persistence pooled over the first 6 h, above 0.
+    `diagnostics.skill_24h` is reported and never gated (a room held flat by the
+    controller makes "no change" hard to beat a day ahead).
+  - `sun` (S; the water planner): `sunny_days` (at least 5 held-out local days with
+    global irradiance above 150 W/m² for at least 3 h, the room known), `sun_skill` (the
+    6 h room error on sunny hours, model against the same model without sun, `1 -
+    model / no sun` above 0) and `sun_response` (`value` the slope of the room's
+    measured sun response on the model's, from 09:00 origins over 8 h; its 90 %
+    day-block bootstrap `interval` must overlap `limit` 0.67 to 1.5; `origins`).
+  `needed` codes: `no_signature`, `more_heating_days`, `more_outside_spread`,
+  `ua_interval_wide`, `ua_disagrees`, `ua_unstable` (U); `no_dynamics_skill` (D);
+  `more_sunny_days`, `no_sun_skill`, `sun_response_off` (S); `legacy_model` (a model
+  fitted before the gates). `credible` is the heat-loss gate. The flat `checks`
+  (`signature`, `excitation`, `ua_consistent`, `ua_stable`, `predictive`, `sun`),
+  `needed` (the heat-loss shortfall), `reasons` and `message` (both the heat-loss gate's)
+  are kept for older readers. Older models have no `gates` and carry `cold_days` in
+  `rules` and `needed` and sometimes no `checks`.
+- `credible`, `gates`, `revalidation` (top level): what the service uses. `revalidation`
+  is the champion's latest re-validation on newer data (`last_run.champion_revalidation`
+  when it names the champion, else `null`). `gates` holds each gate now: `ok`,
+  `needed`, `message` (`null` when `ok`) and `source`: `revalidated` (the
+  re-validation's gates), `fitted` (the model's own) or `legacy` (a model fitted before
+  the gates: its old `credible` as `heat_loss`, its old `predictive` check, else its old
+  `credible`, as `dynamics`, and `sun` not passing with `legacy_model` until the next
+  run). A re-validation from a learner before the gates still turns `heat_loss` off when
+  its `credible` is false. `credible` is `gates.heat_loss.ok`. The `score`, the proposal
+  draft, the what-if steady state and the `balance` use `heat_loss`; the what-if
+  cool-down `dynamics`; the planner gate needs `heat_loss` and `dynamics`. Show each gate
+  next to what it guards, with its `message`.
 - `score`: recomputed on every request from `ua` and the current `house_floor_area_m2`.
-  `state` is `learning` (credibility fails: `message`), `no_floor_area` (only
+  `state` is `learning` (`credible` false: `message`, or the re-validation's first
+  reason), `no_floor_area` (only
   `heat_loss_w`) or `ready` with `heat_loss_w` (UA × 30 K), `w_per_m2`, `band` (A < 30,
   B < 45, C < 60, D < 80, E < 100, F < 125, G ≥ 125 W/m² at 20 °C in, −10 °C out),
   `interval_90` and `band_interval`. Indicative, **not the official energielabel**.
-- `validation`: the champion/challenger comparison of this model's run: free-run room
-  RMSE at 24 h on the latest 14 days, the new model fitted before them; promoted when
-  not worse than the champion's on the same days. `error_trend`: that error per run,
+- `validation`: the held-out test of this model's run, the new model fitted before the
+  latest `house_learn_test_days` (the *challenger*) and scored on them.
+  `held_out_room_rmse_k` is the free-run room RMSE pooled over leads up to 24 h,
+  `persistence_room_rmse_k` the same for "the room stays as it is" from the same origins
+  (every 3 h). `skill` lists, per horizon, the model's RMSE, persistence's, the diurnal
+  reference's (the room 24 h earlier) and the skills `1 - model / reference`;
+  `skill_at_horizon` is the skill against persistence at `skill_horizon_h` (6 h).
+  `series_rmse_k` and `series_bias_k` (predicted minus measured) are over the series'
+  out-of-sample rows (see `insight/house/series`): **the typical error to show**, the
+  error of a prediction made a day ahead, wood-stove periods left out.
+  Promotion compares `challenger_room_rmse_k` with `champion_room_rmse_k` on `compared`:
+  the held-out days after the end of the champion's own data when at least 16 origins
+  fall there, else the whole block (`champion_in_sample` true when the champion saw part
+  of it). The rules, in order, stated in `rule`: no usable new error keeps the champion;
+  no champion promotes; a credible model (heat-loss gate) replaces one that is not
+  (`challenger_credible`, `champion_credible`); a model that is not credible never
+  replaces a credible one, also when the owner's settings changed; a model that fails
+  the dynamics or the sun gate the champion passes on the same compared days never
+  replaces it, also when the settings changed (`challenger_gates`, `champion_gates`:
+  each gate on the compared days; the champion's re-validated); changed settings
+  promote (`settings_changed`); the same house on at least a day of newer data promotes
+  (`same_house`: the new UA and time constant both inside the champion's 90 % intervals);
+  otherwise the new model must not be worse than the champion's plus `tolerance_k`
+  (`house_learn_tolerance_k`; positive accepts a slightly worse model, negative demands a
+  clear improvement). `unconstrained_room_rmse_k`, only when the owner set bounds or
+  pins: the held-out error of a fit with those released; `constraint_cost`
+  (`excess_k`, `limit_k`, `worse`) flags when the constrained model is worse by more than
+  0.05 K or 15 % of the free one. `error_trend`: the held-out error per run,
   `daily_error`: per day of the held-out block.
+- `at_bound`: parameters fitted at a limit (within 2 %): `side` `lower`, `upper` or
+  `pinned`, `kind` `owner` (an owner bound or pin, or the owner's time-constant range on
+  `time_constant_h`) or `structural` (the model's own hard range: a sign that the model
+  shape, not the house, sets the value). The parameters the structure holds are never
+  listed, nor internal gains at 0 (see `internal_gains_w`).
+- `data.warnings`: data notes the owner should see, for instance a wood-stove episode
+  without a recorded end that the learner capped.
 - `proposal`: the water temperature the model needs to hold `comfort_c` at each outside
   temperature of the curve the run saw (`based_on_curve`), within the installation's
   limits (`limited_by`: `min_setpoint`, `max_supply` or `envelope`), with the change
@@ -1341,7 +1510,7 @@ as `state` `learning` with the reason in `missing`. Always `200`; with the champ
   give one), `learning` the learning options in force (`fit_days`, `test_days`,
   `tolerance_k`, the owner's `excluded_days` and `excluded_days_in_fit`, how many of them
   fell inside the data). `validation.settings_changed` is true when the owner's facts or
-  bounds differed from the champion's and that alone promoted the new model. All of these
+  bounds differed from the champion's. All of these
   pass through the service's generic checks unchanged (older models lack them).
 - `learner`: when the learner last ran (`status.json`, real time) and whether that is
   too long ago: `stale` when `age_h` exceeds `stale_after_h`, twice the learner's
@@ -1400,9 +1569,12 @@ latest planner evaluation and what it computed over the last 7 days.
 - `verdict`: the guards, evaluated now (also while `off`, so the owner sees what would block),
   in this fixed order, all reported: `weather_off` (no forecast is fetched),
   `model_missing` (no champion, or its files are refused; the next three need a champion),
-  `model_not_credible`, `model_stale` (the learner has not re-validated the model within
-  twice its interval), `model_error_high` (the champion's held-out 24 h room error exceeds
-  `control_model_max_rmse_k`, or is unknown), `forecast_stale` (the newest stored forecast is
+  `model_not_credible` (the champion's heat-loss or dynamics gate does not pass, as
+  re-validated by the latest run when it did),
+  `model_stale` (the learner has not re-validated the model within
+  twice its interval), `model_error_high` (the champion's room error exceeds
+  `control_model_max_rmse_k`, or is unknown: the latest re-validation's when there is one,
+  else the held-out error of its own run), `forecast_stale` (the newest stored forecast is
   older than 3 h, or there is none), `room_untrusted` (the controller has no fresh,
   plausible room value), `stove_active` (a wood-stove episode runs) and `stove_tail` (the
   last episode ended less than 12 h ago, read back from the journal so a restart does not
@@ -1451,6 +1623,20 @@ and last result. Always `200`:
   schedule is off, the learner is unavailable or the clock is simulated.
 - `last`: the learner's last run as `status.json` reports it (`outcome` such as
   `promoted`, `kept_champion`, `learning` or `failed`; `message` is its message or error), or `null`.
+  It also carries `warnings` (data notes, as `data.warnings` of the insight) and
+  `champion_revalidation`: the champion after this run checked on the newest data, or
+  `null`. Its fields: `model`, `at`, `source` (`held_out`: a just-promoted model's own
+  held-out test; `revalidated`: a kept champion re-run on the newest data), `data_to` (the
+  run's data end), `fitted_to` (the end of the data the champion was fitted on), `from`,
+  `to` and `origins` (the scored span), `in_sample` (the span overlaps the champion's own
+  data), `room_rmse_k` and `persistence_room_rmse_k` (pooled to 24 h), `skill_horizon_h`
+  and `skill` (against persistence), `series_rmse_k` and `series_bias_k` (its series'
+  out-of-sample rows), `gates` (all three gates as of this run, in the format of the
+  insight's `credibility.gates`; for a kept champion: its frozen heat-loss checks with
+  the UA agreement re-checked against this run's signature, and dynamics and sun on the
+  compared days; `null` from a learner before the gates), `credible` (the heat-loss
+  gate) and `reasons` (its reasons). A malformed block is dropped (logged), the rest of
+  the status kept. The same fields are in `last_run` of `insight/house`.
 - `failure`: the service's last failed attempt (`at`, `reason` and `detail`, the tail of
   the child's output), or `null`. `reason` is `timeout` (30 minutes), `memory` (the child
   exceeded 768 MB), `exit` (non-zero exit) or `spawn` (it could not start, or there is no
@@ -1476,18 +1662,29 @@ The champion's room temperature over the last 14 days at 15 min resolution, meas
 and as the model predicted it 24 h earlier:
 
 ```json
-{"model": "house-20260214", "step_s": 900, "from": "2026-02-01T00:15:00Z",
+{"model": "house-20260214", "step_s": 900, "from": "2026-02-02T00:15:00Z",
  "to": "2026-02-15T00:00:00Z",
- "points": [["2026-02-01T00:15:00Z", 20.84, null],
-            ["2026-02-02T00:15:00Z", 20.91, 20.77]]}
+ "points": [["2026-02-02T00:15:00Z", 20.91, 20.77]],
+ "events": [{"kind": "stove_mode", "from": "2026-02-07T17:00:00Z",
+             "to": "2026-02-07T22:00:00Z", "tail_to": "2026-02-08T10:00:00Z"}],
+ "out_of_sample_from": "2026-02-01T00:00:00Z", "rmse_k": 0.11, "bias_k": -0.03,
+ "compared_points": 1150}
 ```
 
-`points` are `[time, measured, predicted]`, oldest first (1344 rows for 14 days); either
-value is `null` where unknown. The prediction exists only from 24 h after the start of the
-learner's held-out block (the latest `house_learn_test_days`): it is the Kalman-filtered
-state at `t - 24 h` of the model fitted *before* that block, run free for 24 h with the
-measured heat, outside temperature and irradiance, so it is out-of-sample. `measured` is the raw
-sensor, also inside wood-stove periods (the room then runs above its prediction).
+`points` are `[time, measured, predicted]`, oldest first (at most 1344 rows for 14
+days), starting at the first prediction; either value is `null` where unknown. The
+prediction at `t` is the Kalman-filtered state at `t - 24 h`, run free for 24 h with the
+measured heat, outside temperature and irradiance. The learner rewrites the champion's
+series on every run: for a newly promoted model it predicts from origins in its held-out
+block only (the model fitted *before* that block); for a kept champion it predicts from
+every origin with its own parameters. `out_of_sample_from` is the first origin the
+predicting model had not seen (`null` when unknown); rows whose origin is earlier are
+in-sample. `measured` is the raw sensor, also inside wood-stove periods; `predicted` is
+`null` where its 24 h path touches an event or its recovery tail, and `events` (at most
+50; `kind` `stove`, `stove_mode` or `excluded_day`, `from`, `to`, `tail_to`) lists them
+for shading. `rmse_k` and `bias_k` (predicted minus measured, K) summarise the
+`compared_points` out-of-sample rows with both values: the typical error of a day-ahead
+prediction, to show next to the chart. All are `[]`, `null` or `0` for an older file.
 
 The learner writes the data as `models/series-<YYYYMMDD>.json` next to the model, listed
 as `series` in the model's entry of `index.json`:
@@ -1495,13 +1692,16 @@ as `series` in the model's entry of `index.json`:
 ```json
 {"schema": "ovenbird.house-series/1", "model": "house-20260214", "step_s": 900,
  "horizon_h": 24.0, "from": "...", "to": "...", "predicted_from": "...",
- "columns": ["ts", "room_measured", "room_predicted_24h"],
- "rows": [["2026-02-01T00:15:00+00:00", 20.84, null]]}
+ "out_of_sample_from": "...", "columns": ["ts", "room_measured", "room_predicted_24h"],
+ "rows": [["2026-02-02T00:15:00+00:00", 20.91, 20.77]], "events": [],
+ "rmse_k": 0.11, "bias_k": -0.03, "points": 1150}
 ```
 
 The service reads it as untrusted (no links, regular file of at most 1 MiB, strict JSON,
 the champion's own model name, at most 2000 rows, increasing zoned times, temperatures
-within -40 to 60 degC or `null`); a file that fails any check is treated as missing.
+within -40 to 60 degC or `null`, at most 50 events of a known kind with ordered zoned
+times, `rmse_k` 0 to 20, `bias_k` -20 to 20, `points` 0 to the row count); a file that
+fails any check is treated as missing.
 `404` `{"detail": {"code": "house_series_missing", "message", "params": {}}}` without a
 champion, without its series file or when the file is refused.
 
@@ -1518,17 +1718,20 @@ default 0), `stove_w` (0 to 15000; default 0, heat a wood stove puts into the ro
 A value outside its range is `422`.
 
 ```json
-{"source": "model", "model": "house-20260214", "credible": false,
+{"source": "model", "model": "house-20260214", "credible": true,
  "inputs": {"outside_c": 3.0, "comfort_c": 21.0, "sun_wm2": 0.0, "stove_w": 0.0},
  "heat_demand_w": 2368, "free_heat_w": 300, "loss_w": 2668,
  "loop_mean_c": 27.1, "supply_c": 28.2, "curve_c": 32.2, "max_supply_c": 40.0,
  "limited_by": [], "balance_outside_c": 19.3,
- "drift": {"hours": 8, "step_s": 900, "room_c": [21.0, 20.99, "... 33 values"]},
+ "drift": {"credible": false, "hours": 8, "step_s": 900,
+           "room_c": [21.0, 20.99, "... 33 values"]},
  "time_constant_h": 52.6}
 ```
 
 - `source`: `model` (the champion, also when it is not `credible`) or `estimate` (the owner's
-  facts; `model` is `null` and `credible` false).
+  facts; `model` is `null` and `credible` false). `credible` is the champion's heat-loss
+  gate (it guards the steady state: demand, loop, supply, balance temperature);
+  `drift.credible` its dynamics gate (it guards the cool-down).
 - `heat_demand_w`: the heat the loop must deliver at steady state, `max(0, loss_w -
   free_heat_w)`. `free_heat_w`: sun (`solar aperture x sun_wm2`), mean internal gains and
   `stove_w`. `loss_w`: `UA x (comfort - outside)`.
@@ -1543,7 +1746,8 @@ A value outside its range is `422`.
   inputs (sun and stove included).
 - `drift`: the room temperature with the loop off: starting at the steady state that holds
   `comfort_c` (no stove), the loop heat is zero and the outside temperature, sun and mean
-  internal gains stay as given; `hours` x 3600 / `step_s` + 1 values.
+  internal gains stay as given; `hours` x 3600 / `step_s` + 1 values. `credible`: the
+  dynamics gate (false for an estimate).
 - `time_constant_h`: the slowest time constant of the model (`null` when a node is
   isolated).
 
@@ -1572,11 +1776,14 @@ The heat balance of the house right now, for a schematic, from the same model as
   `loss_w` is `ua_w_per_k x (room - outside)`; `sun_w` is the solar aperture x `sun_wm2`;
   `internal_w` the model's internal gains at the local hour; `stove_active` is wood-stove
   mode. `storage_w` = `heat_pump_w + sun_w + internal_w - loss_w`: positive while the
-  building warms up, negative while it cools; `null` when one of the first three is `null`
-  or a stove episode is active (its heat is not measured).
+  building warms up, negative while it cools; `null` when one of the first three is `null`,
+  a stove episode is active or its 12 h tail runs (its heat is not measured, and the
+  building still releases it afterwards).
+- `credible`: the champion's heat-loss gate (false for an estimate).
 - `notes`: codes for what limits the reading: `estimate` (the model is the facts estimate),
-  `not_credible`, `room_unknown`, `outside_unknown`, `sun_unknown`, `dhw_active`,
-  `heat_unknown`, `defrost`, `stove_active`.
+  `not_credible` (the heat-loss gate does not pass), `room_unknown`, `outside_unknown`, `sun_unknown`, `dhw_active`,
+  `heat_unknown`, `defrost`, `stove_active`, `stove_tail` (the last wood-stove episode in
+  the journal ended less than 12 h ago).
 
 `404` `house_model_missing` as for `whatif`.
 

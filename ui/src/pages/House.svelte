@@ -1,13 +1,14 @@
 <!--
-  House: what the learned house model says, in tabs. Overview: the indicative insulation
-  score, the other learned figures and a line about the model in use. Model: the energy signature
+  House: what the learned house model says, in tabs. Overview: what the model can be
+  trusted for (three gates), the indicative insulation score, the other learned figures and a line about the model in use. Model: the energy signature
   and the model's quality. Control: how the controller uses the model (the shadow switch, what the
   planner does and why not, the computed shifts). Learning: the learner and its run now button, how the model is learned
   (errors, left-out periods, data) and the curve suggestion (opened as a settings draft, never
   applied here). Before a model exists the page shows what is missing and the learner; on an
   older service one card says so. Loads insight/house and insight/house/history, refreshed
   every 30 minutes and after a learner run, and insight/house/control every minute (an older
-  service without it shows no use card).
+  service without it shows no use card). The schematic's balance is refetched every minute and
+  when a new live decision arrives, at most every 15 s.
 -->
 <script lang="ts">
   import FactsCard from '$components/house/FactsCard.svelte';
@@ -23,13 +24,16 @@
   import ScoreCard from '$components/house/ScoreCard.svelte';
   import SignatureChart from '$components/house/SignatureChart.svelte';
   import StatusLine from '$components/house/StatusLine.svelte';
+  import SunGateLine from '$components/house/SunGateLine.svelte';
   import TimelineCard from '$components/house/TimelineCard.svelte';
+  import TrustNote from '$components/house/TrustNote.svelte';
   import Tabs from '$ui/Tabs.svelte';
   import { fetchVersions } from '$lib/core/api';
   import { fetchHouseBalance, type BalanceResult } from '$lib/house/balance';
   import { cfg } from '$lib/core/cfg.svelte';
   import type { ControlStore } from '$lib/core/control.svelte';
   import {
+    dataWarnings,
     fetchHouse,
     fetchHouseHistory,
     type HouseHistory,
@@ -48,6 +52,8 @@
 
   const REFRESH_MS = 1_800_000;
   const BALANCE_REFRESH_MS = 60_000;
+  const BALANCE_MIN_GAP_MS = 15_000;
+  const VERSIONS_SHOWN = 50;
   const CONTROL_REFRESH_MS = 60_000;
   const TABS = ['overview', 'model', 'control', 'learning', 'what-if'] as const;
   type Tab = (typeof TABS)[number];
@@ -81,11 +87,18 @@
       ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
 
+  let balanceAt = 0;
+  let balanceConfig: number | null | undefined;
+
   $effect(() => {
-    void live.configVersion;
+    const configVersion = live.configVersion;
+    void live.decisionSeq;
+    const throttled = configVersion === balanceConfig;
+    balanceConfig = configVersion;
     const controller = new AbortController();
     let timer: number | undefined;
     const load = async () => {
+      balanceAt = Date.now();
       try {
         balance = await fetchHouseBalance(controller.signal);
         balanceFailed = false;
@@ -95,7 +108,8 @@
       }
       timer = window.setTimeout(load, BALANCE_REFRESH_MS);
     };
-    void load();
+    const wait = throttled ? Math.max(0, balanceAt + BALANCE_MIN_GAP_MS - Date.now()) : 0;
+    timer = window.setTimeout(load, wait);
     return () => {
       controller.abort();
       window.clearTimeout(timer);
@@ -135,7 +149,7 @@
     void live.configVersion;
     void ctl.config?.version;
     const controller = new AbortController();
-    fetchVersions(10, controller.signal)
+    fetchVersions(VERSIONS_SHOWN, controller.signal)
       .then((body) => (versions = body.versions))
       .catch(() => {
         if (!controller.signal.aborted) versions = [];
@@ -227,6 +241,9 @@
       {/if}
     </div>
   {:else if active === 'control'}
+    {#if control}
+      <div class="sun-line"><SunGateLine house={result.data} /></div>
+    {/if}
     <div class="grid" data-testid="house-page" data-tab="control">
       {#if control}
         <ModelPlanCard {control} {schema} {config} />
@@ -236,7 +253,12 @@
     </div>
   {:else if active === 'learning'}
     <div class="grid" data-testid="house-page" data-tab="learning">
-      <RunCard credibility={result.data.credibility} onsettled={() => (reload += 1)} />
+      <RunCard
+        credibility={result.data.credibility}
+        revalidation={result.data.revalidation}
+        warnings={dataWarnings(result.data)}
+        onsettled={() => (reload += 1)}
+      />
       {#if available('learning') && schema && config}
         <HouseInputCard
           subset="learning"
@@ -258,8 +280,14 @@
     <StatusLine house={result.data} use={control?.use ?? null} onuse={openControl} />
     <div class="grid" data-testid="house-page" data-tab="overview">
       {#if balance?.kind !== 'absent'}
-        <HouseSchematic {balance} failed={balanceFailed} onfacts={openFacts} />
+        <HouseSchematic
+          {balance}
+          failed={balanceFailed}
+          onfacts={openFacts}
+          capacity={result.kind === 'ready' ? (result.data.heat_capacity_kwh_per_k ?? null) : null}
+        />
       {/if}
+      <TrustNote house={result.data} />
       <ScoreCard house={result.data} />
       <FactsCard house={result.data} />
       {#if available('facts') && schema && config}
@@ -281,6 +309,9 @@
 <style>
   .spacer {
     height: 4.5rem;
+  }
+  .sun-line {
+    margin-bottom: var(--space-4);
   }
   .lead {
     margin: calc(-1 * var(--space-2)) 0 var(--space-4);

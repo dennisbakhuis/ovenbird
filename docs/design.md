@@ -186,7 +186,8 @@ ramp**, then clamps, rounding with hysteresis, deadband ≥ 1 K and dwell.
   `ovenbird.control.modelplan`). Bounds are settings (defaults: set back at most 0.5 K,
   pre-heat at most 0.3 K, horizon 6 h), so the comfort effect is at most the bound whatever
   the model error. Start ramp, cycling floor, wood-stove pause and safety clamp still apply
-  after it. No water term, no automatic curve or gain change. Switch
+  after it. No automatic curve or gain change. Two kinds of slice exist (below); the service
+  issues only the room-target kind. Switch
   `control_model_use`: `off` (default; no planner call, nothing recorded), `shadow` (computed
   every quarter hour and recorded as `derived/model_plan_offset_k` and
   `derived/model_plan_applied`, the guard verdict changes journalled as informational
@@ -202,6 +203,25 @@ ramp**, then clamps, rounding with hysteresis, deadband ≥ 1 K and dwell.
   and withdraw a slice at once. After a restart no plan is in force until the first
   evaluation and the rate limit ramps from 0. The weather forecast is a controller input only
   through this path and only with `on`.
+  - *Room-target slice* (v1, `plan_offset`; wired into the service): shifts the room
+    target. It has little authority below 0.5 K: the controller's `kp` turns 0.5 K of target
+    into 1 K of water, the setpoint rounding step.
+  - *Water slice* (v2, `plan_water`, `PlanSlice.water_offset_k`; in core and in the
+    evaluation, **not** wired into the service): lowers the water setpoint ahead of forecast
+    sun. The sun is read as an equivalent outside-temperature rise (aperture × irradiance ÷
+    heat loss) and moved down the heating curve by its slope; lead 1.5 h, 0.5 K steps,
+    default at most 3 K down, and an optional raise after the sun
+    (`max_raise_water_k`, default 0). It has no room offset. The controller clamps it to
+    `max_lower_water_k` / `max_raise_water_k` and scales it by a room authority: full while
+    the trusted room is at most `authority_full_k` (0.1 K, but at least one sensor step)
+    below comfort, none from `authority_zero_k` (0.4 K), linear between (mirrored above
+    comfort for a raise). The decision extras then carry `model_plan_water_requested_k`,
+    `model_plan_water_applied_k` and `model_plan_authority`.
+  - Evaluation, 2026-11-28 ([page](evaluation/model-plan.md),
+    [record](decisions/2026-11-28-model-plan-after-evaluation.md)): neither planner passes
+    the gate. v1 has no credible FAIL, a small benefit and stays in `shadow`. v2 at full
+    strength costs comfort and starts; half gain with recovery is the most promising
+    setting and is still blocked. `on` stays locked.
 - **LP optimiser** (experimental, shadow until it wins): HiGHS via scipy; 15-min steps to
   end of published prices; uses the fitted model (below); COP per step incl. defrost
   penalty; separate import/export; terminal constraint; start penalty.
@@ -304,9 +324,49 @@ Heat delivered = flow × (outlet − inlet) × c_p (inlet/outlet offset calibrat
 pump-on/compressor-off periods). Change-point regression of daily heat on (room − outside)
 with an irradiance regressor and room-temperature-change correction → *apparent* heat-loss
 coefficient (single sensor), balance temperature; RC time constant. Shown with intervals;
-credible after ~30 heating days spanning ≥ 10 K and ≥ 10 days below 5 °C; capacity check at
-design temperature hidden until data is within ~10 K of it; low-confidence flag when
-signature and RC estimates differ > 20 %.
+capacity check at design temperature hidden until data is within ~10 K of it;
+low-confidence flag when signature and RC estimates differ > 20 %.
+
+**Model.** Three nodes in a chain: the loop water, the *emitter* (the fast node: floor,
+screed, radiators; about an hour) and the *building* (the slow node: air, furniture,
+inner walls; days), heat flowing loop → emitter → building → outside. Eight parameters
+are fitted: the three capacities, the two internal conductances, the heat-loss
+coefficient UA, the solar aperture (all sun onto the building node) and constant
+internal gains. Four are held by the structure because the data cannot separate them
+(profile fits on real and simulated histories, 2026-11): the direct loop-to-room
+conductance (5 W/K, its hard lower bound, where free fits ended anyway), the share of
+the sun onto the emitter (0), and the day-curve of the internal gains (amplitude 0, so
+its peak hour drops out). Freeing them is a fit option, not a setting. The internal
+gains are reported as net free heat, not separable from the heat loss (the data fix the
+balance temperature: 100 W more gains is about `100 / ΔT` W/K more UA at the window's
+mean indoor-outdoor difference ΔT). The owner can pin or bound UA, the time constant, the
+aperture and the gains only. Shown: UA, total capacity, the building time constant, the
+emitter time constant, the aperture; never a single node's capacity as a fact.
+
+**Credibility: three gates, one per use.** A model can be good enough for one thing and
+not another, so each consumer reads its own gate:
+
+- *Heat loss (U)*, for the insulation score, the curve proposal, the what-if steady
+  state and the live balance: the signature over ~30 heating days spanning ≥ 10 K,
+  enough heating weather in the fit window (20 days with ≥ 5 K indoor-outside and the
+  pump running, a 10 K range), the reported UA range (the envelope of the bootstrap
+  interval and the rolling-origin train-window UAs) within 30 % of the UA, RC and
+  signature UA within 20 %, and every rolling-origin train-window UA within 15 % of the
+  full fit's (the learned UA must not depend on which weeks it came from). Room
+  prediction skill is not part of it.
+- *Dynamics (D)*, for the what-if cool-down and the room-target planner: a positive
+  skill against persistence pooled over the first 6 h of held-out days. The 24 h skill
+  is reported only: in a room the controller holds flat, "no change" is hard to beat a
+  day ahead.
+- *Sun (S)*, for the water planner: at least 5 sunny held-out days (global irradiance
+  above 150 W/m² for 3 h), the sun term improving the 6 h room prediction on sunny hours
+  against the same model without sun, and the slope of the measured sun response on the
+  model's (09:00 origins, 8 h) with a 90 % day-block interval overlapping 0.67-1.5: a
+  model learned only on low autumn sun and wrong by more than a factor 1.5 fails.
+
+`credible` is the heat-loss gate. Every learner run re-validates the champion's three
+gates on the newest data; a new model never replaces a champion while failing a dynamics
+or sun gate the champion passes on the same days.
 
 ### Learning loop (self-learning house model)
 
@@ -343,10 +403,12 @@ now; `shadow` computes and records it without effect).
   only on the database, the configuration and the code version. About 5 min for 40-50
   days on one core; the building-only fit on a 41-day simulated history took 11 s of one
   thread and 237 MB peak memory (measured 2026-11-27).
-- **Owner input (planned, 2026-11-27).** The owner can state facts about the house as
-  weak priors, and pin or bound four learned quantities only: heat loss (UA), time
-  constant, solar aperture and internal gains. Internal conductances are not pinnable;
-  they are not separately identifiable.
+- **Owner input.** The owner can state facts about the house as weak priors (floor area,
+  volume, build period, windows, occupants), and pin or bound four learned quantities
+  only: heat loss (UA), time constant, solar aperture and internal gains. Internal
+  conductances are not pinnable; they are not separately identifiable. The floor-heating
+  share is no longer a fact: the chain holds the direct loop-to-room path it would
+  split.
 - **Promotion (champion/challenger).** The challenger is the latest fold's train-only
   building (fitted before the latest 14 days). Its free-run room error at 24 h on those
   14 days is compared with the current champion's on the same days (events masked);
@@ -382,13 +444,13 @@ now; `shadow` computes and records it without effect).
 
 ### Insulation score (indicative)
 
-UA = the RC model's envelope conductance `h_air_out` (W/K) with its 90 % bootstrap
-interval; heat loss at design conditions = UA × (20 − (−10)) K; per m² with the optional
+UA = the RC model's envelope conductance `h_air_out` (W/K) with its reported range; heat loss at design conditions = UA × (20 − (−10)) K; per m² with the optional
 installation field `house_floor_area_m2`. Bands (W/m² at design, upper limits): **A** < 30,
 **B** < 45, **C** < 60, **D** < 80, **E** < 100, **F** < 125, **G** ≥ 125 (a well-insulated
 new build sits around 25-40 W/m², an unrenovated pre-1975 house above 100). Shown with its
-interval and the band of each end, and only when the credibility rules above pass;
-otherwise "insufficient data: N more cold days needed" (and heating days / outside span).
+interval (the reported UA range: bootstrap and train-window UAs) and the band of each end,
+and only when the heat-loss gate above passes;
+otherwise "insufficient data: N more heating days needed" (and outside span).
 **Indicative, not the official energielabel**: the label is an asset rating (primary
 energy per m² per year under standard use), this is a measured apparent heat-loss rate.
 

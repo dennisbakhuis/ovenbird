@@ -39,6 +39,7 @@ export interface SpanSpec {
   label?: string;
   color?: string;
   opacity?: number;
+  pattern?: 'hatch' | 'dots';
 }
 
 export interface RuleSpec {

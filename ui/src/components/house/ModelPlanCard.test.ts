@@ -150,7 +150,9 @@ describe('ModelPlanCard', () => {
 
   it('shows a shadow shift as "would", with the expected effect and the bounds', () => {
     show(control());
-    expect(screen.getByTestId('house-control-pill').textContent).toContain('Shadow: computes only');
+    expect(screen.getByTestId('house-control-pill').textContent).toContain(
+      'Shadow (computes only)',
+    );
     expect(screen.getByTestId('house-control-shift').textContent).toMatch(
       /^Would lower the room target by 0\.3 K until \d/,
     );

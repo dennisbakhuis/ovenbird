@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 import pytest
 
+from ovenbird_sim.data import events as ev
 from ovenbird_sim.data.dataset import Dataset
 from ovenbird_sim.data.synthetic import simulated_dataset
 from ovenbird_sim.learn.run import iso
@@ -36,10 +38,12 @@ def test_series_has_the_last_fourteen_days_at_quarter_hours(
 ) -> None:
     params, ds = recording
     coarse = ds.coarsen(5)
-    held_out = START + 6 * 86400.0
+    held_out = START + 3 * 86400.0
     body = room_series(coarse, coarse, params.building, held_out, iso)
     rows = body["rows"]
     assert len(rows) == SERIES_DAYS * 96
+    assert body["out_of_sample_from"] == iso(held_out)
+    assert body["events"] == []
     assert body["columns"] == list(COLUMNS)
     assert body["step_s"] == SERIES_STEP_S
     assert body["from"] == rows[0][0]
@@ -47,7 +51,7 @@ def test_series_has_the_last_fourteen_days_at_quarter_hours(
     assert all(len(row) == 3 for row in rows)
 
 
-def test_predictions_start_one_horizon_after_the_held_out_block(
+def test_rows_start_at_the_first_prediction(
     recording: tuple[PlantParams, Dataset],
 ) -> None:
     params, ds = recording
@@ -57,11 +61,11 @@ def test_predictions_start_one_horizon_after_the_held_out_block(
     first = body["predicted_from"]
     assert first is not None
     assert first >= iso(held_out + 86400.0)
-    before = [row for row in body["rows"] if row[0] < first]
-    assert before
-    assert all(row[2] is None for row in before)
-    after = [row for row in body["rows"] if row[0] >= first]
-    assert all(row[2] is not None for row in after)
+    assert body["from"] == first
+    assert body["rows"][0][2] is not None
+    assert len(body["rows"]) < SERIES_DAYS * 96
+    assert all(row[2] is not None for row in body["rows"])
+    assert body["points"] == len(body["rows"])
 
 
 def test_the_true_model_predicts_its_own_simulation(
@@ -85,3 +89,54 @@ def test_no_prediction_before_the_held_out_block_exists(
     assert body["predicted_from"] is None
     assert all(row[2] is None for row in body["rows"])
     assert any(row[1] is not None for row in body["rows"])
+
+
+def test_an_event_nulls_every_prediction_whose_path_it_touches(
+    recording: tuple[PlantParams, Dataset],
+) -> None:
+    params, ds = recording
+    coarse = ds.coarsen(5)
+    fire_start, fire_end = START + 12 * 86400.0, START + 12 * 86400.0 + 4 * 3600.0
+    fire = ev.Event(ev.STOVE_MODE, fire_start, fire_end, fire_end + ev.TAIL_S, math.nan, math.nan)
+    scored = replace(coarse, events=(fire,))
+    body = room_series(scored, coarse, params.building, START + 6 * 86400.0, iso)
+    assert body["events"] == [
+        {
+            "kind": ev.STOVE_MODE,
+            "from": iso(fire_start),
+            "to": iso(fire_end),
+            "tail_to": iso(fire_end + ev.TAIL_S),
+        }
+    ]
+    touched = [
+        row
+        for row in body["rows"]
+        if iso(fire_start) <= row[0] < iso(fire_end + ev.TAIL_S + 86400.0)
+    ]
+    assert touched
+    assert all(row[2] is None for row in touched)
+    assert all(row[1] is not None for row in touched)
+    clear = [row for row in body["rows"] if row[0] >= iso(fire_end + ev.TAIL_S + 86400.0)]
+    assert clear
+    assert all(row[2] is not None for row in clear)
+    assert body["points"] == sum(1 for row in body["rows"] if row[2] is not None)
+
+
+def test_the_champion_series_scores_only_its_unseen_days(
+    recording: tuple[PlantParams, Dataset],
+) -> None:
+    params, ds = recording
+    coarse = ds.coarsen(5)
+    seen = START + 15 * 86400.0
+    body = room_series(coarse, coarse, params.building, -math.inf, iso, out_of_sample_from=seen)
+    assert body["out_of_sample_from"] == iso(seen)
+    assert body["predicted_from"] == body["from"]
+    predicted = [row for row in body["rows"] if row[2] is not None]
+    unseen = [row for row in predicted if row[0] >= iso(seen + 86400.0)]
+    assert len(predicted) > len(unseen) > 0
+    assert body["points"] == len(unseen)
+    assert body["rmse_k"] is not None
+    assert body["rmse_k"] < 0.5
+    assert abs(body["bias_k"]) <= body["rmse_k"]
+    nothing = room_series(coarse, coarse, params.building, START + 40 * 86400.0, iso)
+    assert (nothing["rmse_k"], nothing["bias_k"], nothing["points"]) == (None, None, 0)

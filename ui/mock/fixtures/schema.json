@@ -2132,24 +2132,6 @@
       "type": "number",
       "unit": "m²"
     },
-    "house_floor_heating_share": {
-      "display": "%",
-      "editable": true,
-      "env": "OVENBIRD_HOUSE_FLOOR_HEATING_SHARE",
-      "exclusive_max": false,
-      "exclusive_min": false,
-      "group": "house",
-      "max": 1.0,
-      "min": 0.0,
-      "nullable": true,
-      "preset_default": false,
-      "soft_max": null,
-      "soft_min": null,
-      "step": 0.05,
-      "tier": "basic",
-      "type": "number",
-      "unit": "ratio"
-    },
     "house_internal_gain_max_w": {
       "display": "W",
       "editable": true,
@@ -3350,7 +3332,6 @@
         "house_floor_area_m2",
         "house_volume_m3",
         "house_build_period",
-        "house_floor_heating_share",
         "house_window_area_m2",
         "house_window_orientation",
         "house_occupants"

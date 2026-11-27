@@ -90,8 +90,45 @@ describe('i18n completeness', () => {
       'pendelbeveiliging',
       'ontdooien',
       'blokkade',
+      'warmteverlies',
+      'tijdconstante',
+      'stookgrens',
+      'zonvenster',
+      'netto vrije warmte',
+      'warmtecapaciteit',
+      'warmteopslag',
+      'isolatiescore',
+      'kamerdoel',
+      'modelplan',
+      'leerprogramma',
+      'leerronde',
+      'testdagen',
+      'weggelaten dagen',
+      'nawarmte',
+      'houtkachel',
+      'vastzetten',
+      'begrenzen',
     ]) {
       expect(joined, term).toContain(term);
+    }
+  });
+
+  it('keeps out the rejected Dutch variants of the House terms', () => {
+    const joined = Object.values(dictionaries.nl).join(' ').toLowerCase();
+    for (const term of [
+      'zonopening',
+      'zonne-opening',
+      'gratis warmte',
+      'learner',
+      'leerrun',
+      'ongeziene',
+      'herbemonster',
+      'gefit',
+      'fitvenster',
+      'koude omslag',
+      'wat-als',
+    ]) {
+      expect(joined, term).not.toContain(term);
     }
   });
 });

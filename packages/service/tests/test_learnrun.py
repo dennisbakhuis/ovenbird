@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -104,6 +105,8 @@ class Rig:
         self.clock = Clock(NIGHT)
         self.children: list[FakeChild] = []
         self.spawned: list[tuple[Sequence[str], Mapping[str, str]]] = []
+        self.cwds: list[Path] = []
+        self.available_bytes: int | None = None
         self.next_child: Callable[[], FakeChild] = FakeChild
         self.rss_bytes: int | None = None
         self.spawn_error: Exception | None = None
@@ -119,16 +122,18 @@ class Rig:
             available=options.pop("available", lambda: True),
             spawn=self.spawn,
             rss=lambda _pid: self.rss_bytes,
+            memory_available=lambda: self.available_bytes,
             now=self.clock.now,
             monotonic=self.clock.monotonic,
             sleep=self.clock.sleep,
             export=self.export,
         )
 
-    async def spawn(self, argv: Sequence[str], env: Mapping[str, str]) -> Child:
+    async def spawn(self, argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> Child:
         if self.spawn_error is not None:
             raise self.spawn_error
         self.spawned.append((argv, env))
+        self.cwds.append(cwd)
         child = self.next_child()
         self.children.append(child)
         return child
@@ -184,8 +189,11 @@ async def test_a_run_spawns_the_fixed_command_with_a_limited_environment(
     (argv, env), *_ = rig.spawned
     folder = house.learner_dir(rig.settings)
     assert list(argv)[1:] == [
+        "-P",
         "-m",
         "ovenbird_sim.learn",
+        "--low-priority",
+        str(learnrun.CPU_LIMIT_S),
         "--history",
         str(folder / "history.snapshot.db"),
         "--config",
@@ -196,6 +204,9 @@ async def test_a_run_spawns_the_fixed_command_with_a_limited_environment(
     ]
     assert env["OPENBLAS_NUM_THREADS"] == env["OMP_NUM_THREADS"] == env["MKL_NUM_THREADS"] == "1"
     assert "OVENBIRD_ADMIN_PASSWORD" not in env
+    assert "PYTHONPATH" not in env
+    assert "VIRTUAL_ENV" not in env
+    assert rig.cwds == [folder]
     assert rig.exports == 1
     assert rig.runner.failure is None
     assert rig.runner.state == "idle"
@@ -351,6 +362,7 @@ async def test_a_success_clears_the_failure(rig: Rig) -> None:
     await rig.finish()
     assert rig.runner.failure is not None
     rig.spawn_error = None
+    rig.clock.advance(learnrun.COOL_DOWN.total_seconds() + 1)
     rig.runner.start()
     await rig.finish()
     assert rig.runner.failure is None
@@ -586,3 +598,138 @@ def test_run_endpoints_enforce_roles(settings: Settings) -> None:
     assert anonymous.status_code in (401, 403)
     assert no_mark.status_code in (400, 401, 403)
     assert rig.spawned == []
+
+
+async def test_run_now_is_refused_for_five_minutes_after_a_run(rig: Rig) -> None:
+    rig.runner.start()
+    await rig.finish()
+    with pytest.raises(learnrun.LearnerCoolingDownError):
+        rig.runner.start()
+    rig.clock.advance(learnrun.COOL_DOWN.total_seconds() + 1)
+    rig.runner.start()
+    await rig.finish()
+    assert len(rig.spawned) == 2
+
+
+async def test_low_memory_refuses_run_now_and_skips_the_scheduled_run_until_next_night(
+    rig: Rig,
+) -> None:
+    rig.available_bytes = learnrun.MIN_AVAILABLE_BYTES - 1
+    with pytest.raises(learnrun.LearnerUnavailableError):
+        rig.runner.start()
+    await after_start_delay(rig)
+    await rig.tick()
+    assert rig.spawned == []
+    assert rig.runner.state == "idle"
+    assert rig.runner.failure is None
+    assert rig.runner.skip_reason is not None
+    assert "MB of memory" in rig.runner.skip_reason
+    rig.available_bytes = learnrun.MIN_AVAILABLE_BYTES + 1
+    rig.clock.advance(30 * 60)
+    await rig.tick()
+    assert rig.spawned == []
+    rig.clock.advance(24 * 3600)
+    await rig.tick()
+    assert len(rig.spawned) == 1
+    assert rig.runner.skip_reason is None
+
+
+def test_mem_available_is_read_from_proc_meminfo() -> None:
+    value = learnrun.read_mem_available_bytes()
+    assert value is None or value > 0
+
+
+async def test_another_learner_running_is_not_a_failure(rig: Rig) -> None:
+    rig.spawn_error = OSError("boom")
+    rig.runner.start()
+    await rig.finish()
+    before = rig.runner.failure
+    assert before is not None
+    rig.spawn_error = None
+    rig.next_child = lambda: FakeChild(learnrun.BUSY_EXIT, b"another learner is running")
+    rig.clock.advance(learnrun.COOL_DOWN.total_seconds() + 1)
+    rig.runner.start()
+    await rig.finish()
+    assert rig.runner.failure == before
+    assert rig.runner.state == "idle"
+    assert rig.facts.get(learnrun.FACT_KEY) is not None
+
+
+async def test_a_busy_exit_does_not_back_off_for_a_day(rig: Rig) -> None:
+    rig.next_child = lambda: FakeChild(learnrun.BUSY_EXIT)
+    rig.runner.start()
+    await rig.finish()
+    assert rig.runner.failure is None
+    assert rig.runner._base(None, rig.settings) < rig.clock.now() + timedelta(hours=7)
+
+
+async def test_the_read_role_gets_a_summary_without_paths(rig: Rig) -> None:
+    rig.next_child = lambda: FakeChild(
+        1,
+        b'Traceback\n  File "/data/x.py", line 3\nFileNotFoundError: /data/learner/h.db gone',
+    )
+    rig.runner.start()
+    await rig.finish()
+    brief = rig.runner.payload()["failure"]
+    full = rig.runner.payload(full_detail=True)["failure"]
+    assert brief["reason"] == full["reason"] == "exit"
+    assert brief["detail"] == "FileNotFoundError: <path> gone"
+    assert "/data/" in full["detail"]
+    assert "Traceback" in full["detail"]
+
+
+def test_failure_detail_by_role_over_http(settings: Settings) -> None:
+    rig = Rig(settings)
+    rig.rss_bytes = None
+    rig.facts.set(
+        learnrun.FACT_KEY,
+        {
+            "at": "2026-11-27T01:00:00Z",
+            "reason": "exit",
+            "detail": "Traceback\nError in /data/x.py",
+        },
+    )
+    runner = rig.build()
+    client, _ = api_client(settings, runner)
+    with client:
+        read = client.get("/api/v1/insight/house/run")
+        operate = client.get("/api/v1/insight/house/run", headers=BEARER)
+    assert read.json()["failure"]["detail"] == "Error in <path>"
+    assert operate.json()["failure"]["detail"] == "Traceback\nError in /data/x.py"
+
+
+@pytest.mark.skipif(not learnrun.learner_installed(), reason="the learner extra is not installed")
+async def test_the_real_child_ignores_a_planted_module_and_lowers_its_priority(
+    settings: Settings, tmp_path: Path
+) -> None:
+    runner = LearnRunner(lambda: settings, Facts())
+    folder = house.learner_dir(settings)
+    folder.mkdir(parents=True, exist_ok=True)
+    marker = tmp_path / "planted"
+    (folder / "json.py").write_text(f"open({str(marker)!r}, 'w').close()\n")
+    argv = runner._argv(settings)
+    assert argv[:3] == [sys.executable, "-P", "-m"]
+    assert argv[3 + 1] == "--low-priority"
+    child = await learnrun.spawn_child(argv, runner._env(), folder)
+    assert child.stdout is not None
+    await child.stdout.read()
+    code = await asyncio.wait_for(child.wait(), 120)
+    assert code == 1
+    assert not marker.exists()
+
+    unsafe = [sys.executable, *argv[2:]]
+    child = await learnrun.spawn_child(unsafe, runner._env(), folder)
+    assert child.stdout is not None
+    await child.stdout.read()
+    await asyncio.wait_for(child.wait(), 120)
+    assert marker.exists()
+
+
+def test_the_child_environment_has_no_import_path_variables(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PYTHONPATH", "/evil")
+    monkeypatch.setenv("VIRTUAL_ENV", "/evil")
+    env = LearnRunner(lambda: settings, Facts())._env()
+    assert "PYTHONPATH" not in env
+    assert "VIRTUAL_ENV" not in env

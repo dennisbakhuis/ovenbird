@@ -25,6 +25,7 @@
     learnedOf,
     type Subset,
   } from '$lib/house/settings';
+  import { ownerBound } from '$lib/house/trust';
   import Details from '$ui/Details.svelte';
   import Pill from '$ui/Pill.svelte';
   import Field, { type EditorApi } from '$components/settings/Field.svelte';
@@ -55,6 +56,7 @@
     moreChanged > 0 ? t('groupChanged', { n: moreChanged }) : t('groupCount', { n: listed.length }),
   );
   const groupTitle = $derived(tOpt(`group_${group}`) ?? group);
+  const coupling = $derived(house?.internal_gains_w?.ua_w_per_k_per_100_w ?? null);
   const bounds = $derived(
     BOUND_ROWS.filter((row) => schema.fields[row.min] && schema.fields[row.max]),
   );
@@ -91,11 +93,17 @@
     {#each bounds as row (row.id)}
       {@const learned = learnedOf(house, row.id)}
       {@const pinned = isPinned(draft.value(row.min, config), draft.value(row.max, config))}
+      {@const atLimit = ownerBound(house?.at_bound, row.id)}
       <section class="quantity" data-testid="bound-{row.id}">
         <div class="title">
           <h3>{t(`houseBound_${row.id}`)}</h3>
           {#if pinned}<Pill tone="info" testid="bound-pinned-{row.id}"
               >{t('houseBoundsPinned')}</Pill
+            >{/if}
+          {#if atLimit}<Pill
+              tone="warn"
+              testid="bound-at-limit-{row.id}"
+              title={t('houseAtLimitHint')}>{t('houseAtLimit')}</Pill
             >{/if}
         </div>
         <p class="learned muted" data-testid="bound-learned-{row.id}">
@@ -104,17 +112,22 @@
           {:else if learned.interval}
             {t('houseBoundsLearned', {
               value: num(learned.value, row.digits),
-              unit: row.unit,
+              unit: row.unit === 'h' ? t('unitHour') : row.unit,
               lo: num(learned.interval[0], row.digits),
               hi: num(learned.interval[1], row.digits),
             })}
           {:else}
             {t('houseBoundsLearnedPlain', {
               value: num(learned.value, row.digits),
-              unit: row.unit,
+              unit: row.unit === 'h' ? t('unitHour') : row.unit,
             })}
           {/if}
         </p>
+        {#if row.id === 'gain' && coupling !== null}
+          <p class="caption coupling" data-testid="bound-coupling-gain">
+            {t('houseGainsCoupling', { value: num(coupling, 0) })}
+          </p>
+        {/if}
         <div class="fields">
           {@render field(row.min)}
           {@render field(row.max)}
@@ -179,6 +192,7 @@
     gap: var(--space-4);
   }
   .explain,
+  .coupling,
   .learned {
     margin: 0;
   }

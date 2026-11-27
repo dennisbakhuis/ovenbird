@@ -25,6 +25,7 @@ import {
   hotWaterState,
   exportDoc,
   houseFactsStored,
+  housePinStored,
   initialConfigState,
   preview,
   rollback,
@@ -710,7 +711,14 @@ export function mockApi(): Plugin {
     if (scenarioCookie === '') return sharedConfig;
     let found = configStates.get(scenarioCookie);
     if (!found) {
-      found = initialConfigState(Date.now(), scenario.house === 'facts' ? houseFactsStored() : {});
+      found = initialConfigState(
+        Date.now(),
+        scenario.house === 'facts'
+          ? houseFactsStored()
+          : scenario.house === 'pin-cost'
+            ? housePinStored()
+            : {},
+      );
       configStates.set(scenarioCookie, found);
     }
     return found;

@@ -1,8 +1,8 @@
 <!--
   ScoreCard: the indicative insulation score. Heat loss in W/K with its 90 % range and the heat
   loss at the design conditions; when the score is ready also W/m² with its range and the band
-  A–G on a small scale with the range marked and the W/m² limits of each band under it. While the model is not credible it says what is
-  still needed; without a floor area it links to the field. Always says that the band is
+  A–G on a small scale with the range marked and the W/m² limits of each band under it. While the model is not credible it says
+  why the heat-loss check does not pass yet (see GateReasons); without a floor area it links to the field. Always says that the band is
   indicative and not the official energielabel.
 
   Props: house (HouseInsight).
@@ -10,18 +10,12 @@
 -->
 <script lang="ts">
   import { formatNumber } from '$lib/core/format';
-  import {
-    bandLimits,
-    bandPosition,
-    BAND_LETTERS,
-    learningNeeds,
-    needsText,
-    type HouseInsight,
-  } from '$lib/house/house';
+  import { bandLimits, bandPosition, BAND_LETTERS, type HouseInsight } from '$lib/house/house';
   import { buildHash } from '$lib/core/router.svelte';
   import { settings, t } from '$lib/core/settings.svelte';
   import Card from '$ui/Card.svelte';
   import Icon from '$ui/Icon.svelte';
+  import GateReasons from './GateReasons.svelte';
 
   let { house }: { house: HouseInsight } = $props();
 
@@ -29,7 +23,6 @@
   const num = (value: number, digits = 1) => formatNumber(value, digits, lang);
   const score = $derived(house.score);
   const ua = $derived(house.ua);
-  const needs = $derived(learningNeeds(house.credibility));
   const heatLossKw = $derived(
     score.heat_loss_w !== undefined
       ? score.heat_loss_w / 1000
@@ -135,13 +128,9 @@
   {:else}
     <p class="notice" data-testid="house-learning-score">
       <Icon name="clock" size={16} />
-      <span>
-        <strong>{needsText(needs, house.credibility, t, num)}</strong>
-        {#if house.credibility.message}
-          <span class="caption service"
-            >{t('houseServiceSays', { message: house.credibility.message })}</span
-          >
-        {/if}
+      <span class="why">
+        <strong>{t('houseStillLearningHead')}</strong>
+        <GateReasons {house} gate="heat_loss" progressOnly />
       </span>
     </p>
   {/if}
@@ -276,8 +265,9 @@
     margin-top: 0.15rem;
     color: var(--status-manual);
   }
-  .service {
-    display: block;
-    margin-top: 0.2rem;
+  .why {
+    display: grid;
+    gap: var(--space-2);
+    min-width: 0;
   }
 </style>

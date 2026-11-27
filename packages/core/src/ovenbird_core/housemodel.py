@@ -2,15 +2,22 @@
 
 The learner (``ovenbird_sim.learn``) fits the model with numpy and scipy; the service
 only needs to *use* it, so this module repeats the physics with the standard library
-alone. Nodes (temperatures in degC, capacities in J/K, conductances in W/K):
+alone. Nodes (temperatures in degC, capacities in J/K, conductances in W/K; the
+field names are the learner's, the labels what the app shows):
 
-``water``
+``water`` (loop)
     the heating loop at its mean temperature; receives the heat ``Q`` the pump delivers;
-``mass``
-    floor screed and the structure coupled to it;
-``air``
-    the room air with the interior mass it equilibrates with; observed by the room
-    sensor.
+``mass`` (emitter)
+    the floor loop and screed, the fast node (a time constant of about an hour);
+``air`` (building)
+    the room air with the bulk of the building's heat capacity, the slow node (days);
+    observed by the room sensor.
+
+The learner fits a chain (water to mass to air to outside) and holds the direct
+water-to-air conductance, the solar share into the mass and the daily swing of the
+internal gains (``h_water_air`` 5 W/K, ``solar_mass_fraction`` 0, ``q_int_modulation``
+0); a model file with other values is used as it is, the maths here are the general
+network.
 
 Energy balances::
 
@@ -28,8 +35,8 @@ by scaling and squaring with a Taylor series. The exact discrete model conserves
 energy: ``Ad`` is non-negative and every row of ``[Ad | outside column of Bd]`` sums to
 one, which :class:`DiscreteHouse` checks on construction.
 
-The numbers of :data:`DEFAULTS` and :data:`SHARE_LIMITS` repeat the learner's prior
-means and a test in ``packages/sim/tests`` keeps them equal.
+The numbers of :data:`DEFAULTS` repeat the learner's prior means with the values its
+structure holds, and a test in ``packages/sim/tests`` keeps them equal.
 """
 
 from __future__ import annotations
@@ -61,20 +68,19 @@ CAPACITY_RANGE: Final = (1e3, 1e11)
 MAX_CONDUCTANCE: Final = 1e6
 MAX_SOLAR_APERTURE_M2: Final = 1e3
 MAX_INTERNAL_GAIN_W: Final = 1e5
-SHARE_LIMITS: Final = (0.05, 0.95)
 DEFAULTS: Final[Mapping[str, float]] = MappingProxyType(
     {
         "c_water": 2.5e6,
         "c_mass": 4.0e7,
         "c_air": 1.0e7,
         "h_water_mass": 400.0,
-        "h_water_air": 150.0,
+        "h_water_air": 5.0,
         "h_mass_air": 800.0,
         "h_air_out": 200.0,
         "solar_aperture_m2": 3.0,
-        "solar_mass_fraction": 0.5,
+        "solar_mass_fraction": 0.0,
         "q_int_w": 300.0,
-        "q_int_modulation": 0.3,
+        "q_int_modulation": 0.0,
         "q_int_peak_hour": 19.0,
     }
 )
@@ -528,9 +534,8 @@ def with_defaults_from_estimate(estimate: FactEstimate) -> HouseModel:
     """Return a model from the owner's facts for when no model has been learned.
 
     The heat-loss coefficient, solar aperture and internal gains come from the
-    estimate where it has them; every other parameter takes the learner's prior mean
-    (:data:`DEFAULTS`). A floor-heating share splits the default water-to-mass and
-    water-to-air conductances as the learner's prior does.
+    estimate where it has them; every other parameter takes the learner's prior mean,
+    or the value its structure holds (:data:`DEFAULTS`).
 
     Raises
     ------
@@ -545,9 +550,4 @@ def with_defaults_from_estimate(estimate: FactEstimate) -> HouseModel:
         values["solar_aperture_m2"] = estimate.solar_aperture_m2
     if estimate.internal_gain_w is not None:
         values["q_int_w"] = estimate.internal_gain_w
-    if estimate.floor_share is not None:
-        share = min(max(estimate.floor_share, SHARE_LIMITS[0]), SHARE_LIMITS[1])
-        total = DEFAULTS["h_water_mass"] + DEFAULTS["h_water_air"]
-        values["h_water_mass"] = share * total
-        values["h_water_air"] = (1.0 - share) * total
     return HouseModel(**values)

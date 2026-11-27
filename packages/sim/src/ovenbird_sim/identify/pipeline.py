@@ -75,6 +75,7 @@ INTERVAL_FIELDS = (
     "q_int_modulation",
     "q_int_peak_hour",
     "time_constant_h",
+    "emitter_time_constant_h",
 )
 
 

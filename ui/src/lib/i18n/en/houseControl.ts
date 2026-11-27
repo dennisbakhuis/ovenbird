@@ -6,10 +6,10 @@ export const houseControl = {
   wfModelPlan_up:
     'The house model raised the room target by {k}; room feedback works on the raised target.',
   houseCtlTitle: 'How the controller uses the model',
-  houseCtlSubtitle: 'Shifts the room target a little ahead of sun or a cold turn.',
+  houseCtlSubtitle: 'Can shift the room target a little ahead of sun or colder weather.',
   houseCtlSwitchLabel: 'Controller use of the model',
   houseCtlUse_off: 'Off',
-  houseCtlUse_shadow: 'Shadow: computes only',
+  houseCtlUse_shadow: 'Shadow (computes only)',
   houseCtlUse_on: 'On',
   houseCtlUseShort_off: 'Off',
   houseCtlUseShort_shadow: 'Shadow',
@@ -21,7 +21,7 @@ export const houseControl = {
   houseCtlMeaning_on:
     'Every 15 minutes the planner shifts the room target within the bounds below: down before free heat arrives, up before a cold turn.',
   houseCtlLocked:
-    'On is locked for now: it opens after an evaluation and a shadow period. Choosing it is refused until then.',
+    'On is locked for now: it opens after an evaluation and a period in Shadow. Until then, choosing it is refused.',
   houseCtlDraftHint: 'A change goes through the bar at the bottom, like any setting.',
   houseCtlChangeLink: 'Change',
 
@@ -118,6 +118,7 @@ export const houseControl = {
   explain_plan_ignored: 'The house model’s plan was not used: {why}.',
   houseCtlIgnored_room_untrusted: 'the room temperature is not trusted',
   houseCtlIgnored_stove_active: 'a wood stove is burning',
-  houseCtlIgnored_stove_recovery: 'the wood-stove detection is still recovering',
-  houseCtlIgnored_slice_too_long: 'the plan covers too long a stretch',
+  houseCtlIgnored_stove_recovery:
+    'the wood-stove detection is still waiting after a fire or a sensor fault',
+  houseCtlIgnored_slice_too_long: 'the plan was valid for longer than allowed',
 } as const;

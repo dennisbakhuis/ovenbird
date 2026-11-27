@@ -16,8 +16,22 @@ so the service never imports numpy or scipy:
 The champion's building parameters are read from its house file (``params.building``)
 through :func:`ovenbird.insight.house.read_untrusted`, checked field by field by
 :meth:`HouseModel.from_json`; the series file is read the same way with its own bounds
-(:data:`SERIES_MAX_BYTES`, :data:`SERIES_MAX_ROWS`, a plausible temperature range).
-Anything refused is logged and treated as absent.
+(:data:`SERIES_MAX_BYTES`, :data:`SERIES_MAX_ROWS`, :data:`SERIES_MAX_EVENTS`, a
+plausible temperature and error range). Anything refused is logged and treated as
+absent.
+
+:func:`champion_model` (also the model planner's view of the champion) prefers the
+latest run's re-validation of the champion (``status.json``,
+``champion_revalidation``) over the frozen values of its insight when it names the
+same model: the gates and the held-out 24 h error then come from it
+(:func:`ovenbird.insight.house.effective_gates`). The steady state of the what-if and
+the balance answer under the heat-loss gate (``credible``), the what-if cool-down
+under the dynamics gate (``drift.credible``).
+
+The balance's storage is unknown during a wood-stove episode and for
+:data:`STOVE_TAIL_S` after it (the note ``stove_tail``): the stove and the room it
+warmed give back heat the model does not see. The end of the last episode comes from
+the alarm journal in the history database.
 """
 
 from __future__ import annotations
@@ -35,6 +49,7 @@ from zoneinfo import ZoneInfo
 from ovenbird.clock import iso_z
 from ovenbird.config import Settings
 from ovenbird.history.forecast import issue_rows, latest_issue
+from ovenbird.history.journal import alarms_since
 from ovenbird.insight import house
 from ovenbird.runtime import Runtime
 from ovenbird.weather.service import WeatherService
@@ -58,6 +73,12 @@ SERIES_MAX_BYTES: Final = 1024 * 1024
 SERIES_MAX_ROWS: Final = 2000
 SERIES_COLUMNS: Final = ["ts", "room_measured", "room_predicted_24h"]
 SERIES_TEMPERATURE_RANGE: Final = (-40.0, 60.0)
+SERIES_ERROR_MAX_K: Final = 20.0
+SERIES_MAX_EVENTS: Final = 50
+SERIES_EVENT_KINDS: Final = frozenset({"stove", "stove_mode", "excluded_day"})
+STOVE_JOURNAL_CODE: Final = "stove_mode"
+STOVE_END_EVENTS: Final = frozenset({"expired", "released"})
+STOVE_TAIL_S: Final = 12 * 3600.0
 SERIES_STEP_RANGE_S: Final = (60, 86400)
 MODEL_NAME: Final = re.compile(r"^house-\d{8}(-\d{1,3})?$")
 DRIFT_HOURS: Final = 8
@@ -99,10 +120,20 @@ class ModelChoice:
     name
         The champion's name (``None`` for an estimate).
     credible
-        Whether the learner's credibility rules pass (always ``False`` for an estimate).
+        The model planner's gate: the heat-loss and the dynamics gate both pass (always
+        ``False`` for an estimate).
     rmse_k
         The champion's held-out 24 h room error in K (``None`` when unknown or for an
-        estimate).
+        estimate): the latest re-validation's when there is one.
+    skill
+        The champion's skill against persistence over the planner's horizon (``1 -
+        model / persistence``; ``None`` when unknown).
+    checked_at
+        When the latest run re-validated the champion (``None`` when the values are
+        the frozen ones of its insight).
+    gate_heat_loss, gate_dynamics, gate_sun
+        Whether each gate passes (``None``: not given, :meth:`gate` follows
+        ``credible``).
     """
 
     model: HouseModel
@@ -110,6 +141,20 @@ class ModelChoice:
     name: str | None
     credible: bool
     rmse_k: float | None = None
+    skill: float | None = None
+    checked_at: str | None = None
+    gate_heat_loss: bool | None = None
+    gate_dynamics: bool | None = None
+    gate_sun: bool | None = None
+
+    def gate(self, name: str) -> bool:
+        """Return whether the gate ``heat_loss``, ``dynamics`` or ``sun`` passes."""
+        value = {
+            "heat_loss": self.gate_heat_loss,
+            "dynamics": self.gate_dynamics,
+            "sun": self.gate_sun,
+        }[name]
+        return self.credible if value is None else value
 
 
 def champion_model(models: Path) -> ModelChoice | None:
@@ -136,17 +181,40 @@ def champion_model(models: Path) -> ModelChoice | None:
     except (house.LearnerFileError, ValueError) as exc:
         LOGGER.warning("what-if: the champion's parameters are refused: %s", exc)
         return None
-    credibility = insight.get("credibility")
-    credible = isinstance(credibility, dict) and credibility.get("credible") is True
-    return ModelChoice(model, "model", name, credible, _held_out_rmse(insight))
-
-
-def _held_out_rmse(insight: dict[str, Any]) -> float | None:
+    revalidated = house.revalidation_of(house.last_run(models), name)
+    gates = {
+        key: bool(gate["ok"]) for key, gate in house.effective_gates(insight, revalidated).items()
+    }
+    credible = gates["heat_loss"] and gates["dynamics"]
     validation = insight.get("validation")
-    value = validation.get("challenger_room_rmse_k") if isinstance(validation, dict) else None
+    validation = validation if isinstance(validation, dict) else {}
+    return ModelChoice(
+        model,
+        "model",
+        name,
+        credible,
+        _held_out_rmse(validation)
+        if revalidated is None
+        else _finite(revalidated.get("room_rmse_k")),
+        _finite(validation.get("skill_at_horizon"))
+        if revalidated is None
+        else _finite(revalidated.get("skill")),
+        None if revalidated is None else revalidated.get("at"),
+        gate_heat_loss=gates["heat_loss"],
+        gate_dynamics=gates["dynamics"],
+        gate_sun=gates["sun"],
+    )
+
+
+def _finite(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
         return None
     return float(value)
+
+
+def _held_out_rmse(validation: dict[str, Any]) -> float | None:
+    held_out = _finite(validation.get("held_out_room_rmse_k"))
+    return held_out if held_out is not None else _finite(validation.get("challenger_room_rmse_k"))
 
 
 def _estimated_model(settings: Settings) -> ModelChoice | None:
@@ -224,7 +292,7 @@ def whatif_payload(
     return {
         "source": choice.source,
         "model": choice.name,
-        "credible": choice.credible,
+        "credible": choice.gate("heat_loss"),
         "inputs": {
             "outside_c": outside_c,
             "comfort_c": comfort_c,
@@ -241,6 +309,7 @@ def whatif_payload(
         "limited_by": limited,
         "balance_outside_c": _rounded(model.balance_outside_c(comfort_c, sun_wm2, stove_w)),
         "drift": {
+            "credible": choice.gate("dynamics"),
             "hours": DRIFT_HOURS,
             "step_s": DRIFT_STEP_S,
             "room_c": [_rounded(value, 2) for value in drift],
@@ -294,6 +363,8 @@ class LiveReading:
         Whether wood-stove mode is active.
     local_hour
         Local hour of day (for the internal gains).
+    stove_tail
+        Whether a wood-stove episode ended less than :data:`STOVE_TAIL_S` ago.
     """
 
     at: datetime
@@ -304,6 +375,17 @@ class LiveReading:
     dhw: bool
     stove_active: bool
     local_hour: float
+    stove_tail: bool = False
+
+
+def stove_tail(history_path: Path, now_ts: float) -> bool:
+    """Whether the alarm journal records the end of a wood-stove episode in the last 12 h."""
+    try:
+        rows = alarms_since(history_path, STOVE_JOURNAL_CODE, now_ts - STOVE_TAIL_S)
+    except sqlite3.Error as exc:
+        LOGGER.warning("balance: the alarm journal cannot be read: %s", exc)
+        return False
+    return any(row.event in STOVE_END_EVENTS and row.ts <= now_ts for row in rows)
 
 
 def read_live(
@@ -335,6 +417,7 @@ def read_live(
         dhw=dhw,
         stove_active=stove_active,
         local_hour=local.hour + local.minute / 60.0,
+        stove_tail=not stove_active and stove_tail(settings.history_path, wall.timestamp()),
     )
 
 
@@ -360,14 +443,14 @@ def balance_payload(choice: ModelChoice, live: LiveReading) -> Json:
     -------
     dict
         See ``docs/api-v1.md``. ``storage_w`` is the heat pump plus the sun plus the
-        internal gains minus the loss; ``null`` when one of them is unknown or a wood
-        stove burns (its heat is not measured).
+        internal gains minus the loss; ``null`` when one of them is unknown, a wood
+        stove burns or burned less than 12 h ago (its heat is not measured).
     """
     model = choice.model
     notes: list[str] = []
     if choice.source == "estimate":
         notes.append("estimate")
-    elif not choice.credible:
+    elif not choice.gate("heat_loss"):
         notes.append("not_credible")
     loss = (
         None
@@ -391,16 +474,18 @@ def balance_payload(choice: ModelChoice, live: LiveReading) -> Json:
         notes.append("defrost")
     if live.stove_active:
         notes.append("stove_active")
+    elif live.stove_tail:
+        notes.append("stove_tail")
     parts = (heat, sun_w, loss)
     storage = (
         None
-        if live.stove_active or any(part is None for part in parts)
+        if live.stove_active or live.stove_tail or any(part is None for part in parts)
         else (heat or 0.0) + (sun_w or 0.0) + internal - (loss or 0.0)
     )
     return {
         "at": iso_z(live.at),
         "source": choice.source,
-        "credible": choice.credible,
+        "credible": choice.gate("heat_loss"),
         "room_c": None if live.room_c is None else _rounded(live.room_c),
         "outside_c": None if live.outside_c is None else _rounded(live.outside_c),
         "sun_wm2": None if live.sun_wm2 is None else _rounded(live.sun_wm2, 0),
@@ -438,6 +523,36 @@ def _series_value(value: object) -> float | None:
     return round(number, 2)
 
 
+def _series_error(value: object, what: str, *, signed: bool) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{what} is not a number")
+    number = float(value)
+    low = -SERIES_ERROR_MAX_K if signed else 0.0
+    if not math.isfinite(number) or not low <= number <= SERIES_ERROR_MAX_K:
+        raise ValueError(f"{what} is outside the plausible range")
+    return round(number, 3)
+
+
+def _series_events(value: object) -> list[Json]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or len(value) > SERIES_MAX_EVENTS:
+        raise ValueError(f"events is not a list of at most {SERIES_MAX_EVENTS} events")
+    out: list[Json] = []
+    for item in value:
+        if not isinstance(item, dict) or item.get("kind") not in SERIES_EVENT_KINDS:
+            raise ValueError("an event has no known kind")
+        start, end, tail = (_series_time(item.get(key)) for key in ("from", "to", "tail_to"))
+        if not start <= end <= tail:
+            raise ValueError("an event's times are out of order")
+        out.append(
+            {"kind": item["kind"], "from": iso_z(start), "to": iso_z(end), "tail_to": iso_z(tail)}
+        )
+    return out
+
+
 def checked_series(raw: Any, model: str) -> Json:
     """Return the body of ``GET insight/house/series`` from a learner series file.
 
@@ -446,7 +561,9 @@ def checked_series(raw: Any, model: str) -> Json:
     ValueError
         When the file is not a series of ``model``: other schema or columns, too many
         rows, a row that is not ``[time, number|null, number|null]`` within the
-        plausible range, or times that do not increase.
+        plausible range, times that do not increase, more than
+        :data:`SERIES_MAX_EVENTS` events or one of unknown kind or with times out of
+        order, or an error summary outside +-20 K.
     """
     if not isinstance(raw, dict) or raw.get("schema") != SERIES_SCHEMA:
         raise ValueError("not a house series")
@@ -472,12 +589,21 @@ def checked_series(raw: Any, model: str) -> Json:
             raise ValueError("row times do not increase")
         previous = moment
         points.append([iso_z(moment), _series_value(row[1]), _series_value(row[2])])
+    unseen = raw.get("out_of_sample_from")
+    count = raw.get("points", 0)
+    if isinstance(count, bool) or not isinstance(count, int) or not 0 <= count <= len(rows):
+        raise ValueError("points is not a row count")
     return {
         "model": model,
         "step_s": step,
         "from": points[0][0],
         "to": points[-1][0],
         "points": points,
+        "events": _series_events(raw.get("events")),
+        "out_of_sample_from": None if unseen is None else iso_z(_series_time(unseen)),
+        "rmse_k": _series_error(raw.get("rmse_k"), "rmse_k", signed=False),
+        "bias_k": _series_error(raw.get("bias_k"), "bias_k", signed=True),
+        "compared_points": count,
     }
 
 

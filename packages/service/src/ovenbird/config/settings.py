@@ -269,11 +269,12 @@ class Settings(
     house_floor_area_m2
         Heated floor area for the house model's indicative insulation score (W/m²
         at design conditions); unset leaves the score without W/m² and band.
-    house_volume_m3, house_build_period, house_floor_heating_share, house_window_area_m2
+    house_volume_m3, house_build_period, house_window_area_m2
         Facts about the house the learner starts from (weak priors the measurements may
         overrule); unset leaves them out. ``house_build_period`` is one of ``before_1945``,
-        ``1945_1974``, ``1975_1991``, ``1992_2005``, ``2006_2014``, ``2015_later``;
-        ``house_floor_heating_share`` is a fraction from 0 to 1.
+        ``1945_1974``, ``1975_1991``, ``1992_2005``, ``2006_2014``, ``2015_later``. The
+        former ``house_floor_heating_share`` is gone (the model cannot use it); a stored
+        value of it is ignored with a logged warning.
     house_window_orientation, house_occupants
         Main window orientation (``north``, ``east``, ``south``, ``west``, ``mixed``) and
         the number of occupants (0 to 12).

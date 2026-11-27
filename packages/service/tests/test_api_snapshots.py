@@ -61,21 +61,167 @@ BUILDING = {
     "c_mass": 4.0e7,
     "c_air": 1.0e7,
     "h_water_mass": 400.0,
-    "h_water_air": 150.0,
+    "h_water_air": 5.0,
     "h_mass_air": 800.0,
     "h_air_out": 145.0,
     "solar_aperture_m2": 3.0,
-    "solar_mass_fraction": 0.5,
+    "solar_mass_fraction": 0.0,
     "q_int_w": 300.0,
     "q_int_modulation": 0.0,
     "q_int_peak_hour": 19.0,
 }
+GATES = {
+    "heat_loss": {
+        "ok": True,
+        "uses": ["insulation_score", "curve_proposal", "whatif_steady_state", "balance"],
+        "checks": {
+            "signature": {
+                "ok": True,
+                "value": 40.0,
+                "limit": 30,
+                "outside_span_k": 14.0,
+                "outside_span_limit_k": 10.0,
+            },
+            "excitation": {
+                "ok": True,
+                "value": 32.0,
+                "limit": 20,
+                "outside_range_k": 12.5,
+                "outside_range_limit_k": 10.0,
+            },
+            "ua_interval": {"ok": True, "value": 0.152, "limit": 0.3},
+            "ua_agreement": {"ok": True, "value": 0.034, "limit": 0.2},
+            "ua_stability": {
+                "ok": True,
+                "value": 0.028,
+                "limit": 0.15,
+                "folds": 2,
+                "fold_ua_w_per_k": [141.0, 149.0],
+            },
+        },
+        "needed": [],
+        "reasons": [],
+        "message": None,
+        "shortfall": {"heating_days": 0, "outside_span_k": 0.0},
+    },
+    "dynamics": {
+        "ok": True,
+        "uses": ["whatif_cool_down", "room_target_planner"],
+        "checks": {"skill_6h": {"ok": True, "value": 0.12, "limit": 0.0}},
+        "needed": [],
+        "reasons": [],
+        "message": None,
+        "diagnostics": {
+            "skill_24h": -0.05,
+            "note": "reported, not gated: in a room the controller holds at a "
+            "flat temperature, 'no change' is hard to beat a day ahead",
+        },
+    },
+    "sun": {
+        "ok": False,
+        "uses": ["water_planner"],
+        "checks": {
+            "sunny_days": {"ok": False, "value": 3.0, "limit": 5, "days": 14},
+            "sun_skill": {"ok": True, "value": 0.21, "limit": 0.0},
+            "sun_response": {
+                "ok": True,
+                "value": 0.92,
+                "limit": [0.67, 1.5],
+                "interval": [0.7, 1.2],
+                "origins": 14,
+            },
+        },
+        "needed": ["more_sunny_days"],
+        "reasons": ["3 sunny held-out days < 5"],
+        "message": "2 more sunny days needed to check the model's sun response",
+    },
+}
 INSIGHT = {
     "schema": "ovenbird.house-insight/1",
     "model": "house-20261101",
-    "ua": {"w_per_k": 145.0, "interval_90": [136.0, 156.0], "source": "rc_model"},
+    "ua": {
+        "w_per_k": 145.0,
+        "interval_90": [136.0, 156.0],
+        "interval_source": "bootstrap_and_folds",
+        "bootstrap_interval_90": [137.0, 154.0],
+        "fold_w_per_k": [141.0, 149.0],
+        "source": "rc_model",
+    },
     "time_constant_h": {"value": 50.0, "interval_90": [45.0, 60.0]},
-    "credibility": {"credible": True, "message": None},
+    "heat_capacity_kwh_per_k": 14.6,
+    "capacities_kwh_per_k": {"loop": 0.69, "emitter": 11.11, "building": 2.78},
+    "emitter_time_constant_h": {"value": 9.26, "interval_90": [7.5, 11.0]},
+    "structure": {
+        "name": "chain",
+        "fixed": {
+            "h_water_air": 5.0,
+            "solar_mass_fraction": 0.0,
+            "q_int_modulation": 0.0,
+            "q_int_peak_hour": 19.0,
+        },
+        "free": [
+            "c_water",
+            "c_mass",
+            "c_air",
+            "h_water_mass",
+            "h_mass_air",
+            "h_air_out",
+            "solar_aperture_m2",
+            "q_int_w",
+        ],
+        "nodes": {"c_water": "loop", "c_mass": "emitter", "c_air": "building"},
+    },
+    "internal_gains_w": {
+        "value": 300.0,
+        "interval_90": [120.0, 480.0],
+        "identified": False,
+        "label": "net_free_heat",
+        "note": "net free heat, not separable from the heat loss",
+        "at_zero": False,
+        "ua_w_per_k_per_100_w": 6.7,
+    },
+    "excitation": {
+        "excited": True,
+        "days": 40,
+        "heating_days": 32,
+        "outside_range_k": 12.5,
+        "ua_relative_width": 0.14,
+        "ua_tight": True,
+        "rules": {"heating_days": 20, "outside_range_k": 10.0, "ua_relative_width": 0.3},
+        "needed": {"heating_days": 0, "outside_range_k": 0.0},
+        "reasons": [],
+    },
+    "credibility": {
+        "credible": True,
+        "gates": GATES,
+        "checks": {
+            "signature": True,
+            "excitation": True,
+            "ua_consistent": True,
+            "ua_stable": True,
+            "predictive": True,
+            "sun": False,
+        },
+        "needed": {"heating_days": 0, "outside_span_k": 0.0},
+        "message": None,
+    },
+    "validation": {
+        "held_out_room_rmse_k": 0.4,
+        "persistence_room_rmse_k": 0.45,
+        "skill_horizon_h": 6.0,
+        "skill_at_horizon": 0.12,
+        "series_rmse_k": 0.41,
+        "series_bias_k": -0.1,
+    },
+    "at_bound": [
+        {
+            "parameter": "solar_aperture_m2",
+            "value": 6.0,
+            "side": "upper",
+            "limit": 6.0,
+            "kind": "owner",
+        }
+    ],
     "score": {"state": "stale value from the learner"},
     "proposal": {
         "based_on_curve": [[-10.0, 39.0], [0.0, 34.0], [15.0, 25.0]],
@@ -275,6 +421,18 @@ def write_models(root: Path) -> None:
         "step_s": 900,
         "columns": ["ts", "room_measured", "room_predicted_24h"],
         "rows": rows,
+        "out_of_sample_from": datetime.fromtimestamp(T0, UTC).isoformat(timespec="seconds"),
+        "events": [
+            {
+                "kind": "stove_mode",
+                "from": datetime.fromtimestamp(T0 + 3600, UTC).isoformat(timespec="seconds"),
+                "to": datetime.fromtimestamp(T0 + 5400, UTC).isoformat(timespec="seconds"),
+                "tail_to": datetime.fromtimestamp(T0 + 7200, UTC).isoformat(timespec="seconds"),
+            }
+        ],
+        "rmse_k": 0.1,
+        "bias_k": -0.1,
+        "points": 8,
     }
     (models / "series-20261101.json").write_text(json.dumps(series), encoding="utf-8")
     (models / "insight-20261101.json").write_text(json.dumps(INSIGHT), encoding="utf-8")
@@ -297,7 +455,30 @@ def write_models(root: Path) -> None:
         }
     ]
     (models / "index.json").write_text(json.dumps({"runs": runs}), encoding="utf-8")
-    status = {"outcome": "promoted"}
+    status = {
+        "outcome": "kept_champion",
+        "warnings": [],
+        "champion_revalidation": {
+            "model": "house-20261101",
+            "at": "2026-11-02T03:00:00+00:00",
+            "source": "revalidated",
+            "data_to": "2026-11-02T03:00:00+00:00",
+            "fitted_to": "2026-11-01T18:00:00+00:00",
+            "from": "2026-11-01T18:00:00+00:00",
+            "to": "2026-11-02T00:00:00+00:00",
+            "origins": 20,
+            "in_sample": False,
+            "room_rmse_k": 0.35,
+            "persistence_room_rmse_k": 0.4,
+            "skill_horizon_h": 6.0,
+            "skill": 0.1,
+            "series_rmse_k": 0.38,
+            "series_bias_k": -0.12,
+            "credible": True,
+            "reasons": [],
+            "gates": GATES,
+        },
+    }
     (models / "status.json").write_text(json.dumps(status), encoding="utf-8")
 
 

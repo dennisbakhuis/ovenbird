@@ -13,19 +13,20 @@ from ovenbird_core.derived import WATER_CP_J_PER_KG_K, WATER_DENSITY_KG_PER_L
 from ovenbird_core.housemodel import (
     DEFAULTS,
     NOMINAL_FLOW_LPM,
-    SHARE_LIMITS,
     W_PER_LPM_K,
     HouseModel,
     supply_c,
 )
-from ovenbird_sim.identify.building import PRIOR_MEAN
-from ovenbird_sim.learn.priors import SHARE_LIMITS as SIM_SHARE_LIMITS
+from ovenbird_sim.identify.building import CHAIN_FIXED, PRIOR_MEAN
 from ovenbird_sim.learn.proposal import DEFAULT_FLOW_LPM, steady_state
 from ovenbird_sim.learn.proposal import W_PER_LPM_K as SIM_W_PER_LPM_K
 from ovenbird_sim.model.building import BuildingParams, continuous, discretise
 
 PARAMETER_SETS = (
     BuildingParams(),
+    BuildingParams(
+        **dict(CHAIN_FIXED), c_air=1.4e8, c_mass=6.7e6, h_water_mass=2100.0, h_mass_air=1000.0
+    ),
     BuildingParams(h_air_out=90.0, c_air=2.5e7, c_mass=1.2e8, solar_aperture_m2=6.0),
     BuildingParams(
         c_water=1.0e6,
@@ -47,12 +48,11 @@ def model_of(p: BuildingParams) -> HouseModel:
     return HouseModel.from_json(asdict(p))
 
 
-def test_defaults_equal_the_learners_prior_means() -> None:
-    assert dict(DEFAULTS) == PRIOR_MEAN
+def test_defaults_equal_the_learners_prior_means_with_the_held_values() -> None:
+    assert dict(DEFAULTS) == PRIOR_MEAN | dict(CHAIN_FIXED)
 
 
 def test_constants_equal_the_learners() -> None:
-    assert SHARE_LIMITS == SIM_SHARE_LIMITS
     assert NOMINAL_FLOW_LPM == DEFAULT_FLOW_LPM
     assert W_PER_LPM_K == SIM_W_PER_LPM_K
     assert W_PER_LPM_K == WATER_DENSITY_KG_PER_L * WATER_CP_J_PER_KG_K / 60.0

@@ -4,6 +4,7 @@ import json
 import math
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -19,8 +20,10 @@ from ovenbird_sim.data.historydb import (
 )
 from ovenbird_sim.heishamon.reference import REFERENCE_BUILDING
 from ovenbird_sim.identify.validate import HORIZONS_H, HorizonErrors
+from ovenbird_sim.learn import checks, run
 from ovenbird_sim.learn import models as store
-from ovenbird_sim.learn import run
+from ovenbird_sim.learn.checks import at_bound
+from ovenbird_sim.learn.priors import house_settings
 from ovenbird_sim.learn.proposal import CurveLimits, propose_curve, steady_state
 from ovenbird_sim.learn.score import band, score
 from ovenbird_sim.model.building import BuildingParams
@@ -30,7 +33,7 @@ from ovenbird.history import HistoryDatabase, Sample, SampleKind, open_history  
 from ovenbird.history.database import HEAT_SIGNAL  # noqa: E402
 from ovenbird.history.forecast import ForecastRow, write_forecast  # noqa: E402
 from ovenbird.history.journal import AlarmRow, write_journal  # noqa: E402
-from ovenbird.insight.house import checked_insight  # noqa: E402
+from ovenbird.insight.house import checked_insight, checked_revalidation  # noqa: E402
 
 T0 = datetime(2026, 11, 10, tzinfo=UTC).timestamp()
 ROOM = "ha/sensor.living_temperature"
@@ -66,7 +69,15 @@ def plant(ts: float) -> dict[str, float | None]:
     }
 
 
-def write_history(path: Path, days: float = 2.0) -> Path:
+STOVE_ROWS = (
+    AlarmRow(T0 + 30 * 3600.0, "stove_mode", "info", "started", "on", "{}"),
+    AlarmRow(T0 + 34 * 3600.0, "stove_mode", "info", "expired", "off", "{}"),
+)
+
+
+def write_history(
+    path: Path, days: float = 2.0, journal: tuple[AlarmRow, ...] = STOVE_ROWS
+) -> Path:
     db = HistoryDatabase(open_history(path))
     samples: list[Sample] = []
     for ts in np.arange(T0, T0 + days * 86400.0, 30.0):
@@ -82,15 +93,7 @@ def write_history(path: Path, days: float = 2.0) -> Path:
             for h in range(int(days * 24) + 1)
         ],
     )
-    write_journal(
-        db.conn,
-        [],
-        [],
-        [
-            AlarmRow(T0 + 30 * 3600.0, "stove_mode", "info", "started", "on", "{}"),
-            AlarmRow(T0 + 34 * 3600.0, "stove_mode", "info", "expired", "off", "{}"),
-        ],
-    )
+    write_journal(db.conn, [], [], list(journal))
     db.close()
     return path
 
@@ -311,9 +314,10 @@ def iso_of(ts: float) -> str:
     return run.iso(ts)
 
 
-def errors(room_24h: float) -> HorizonErrors:
+def errors(room_24h: float, persistence: float | None = None) -> HorizonErrors:
     room = tuple(room_24h if h == 24.0 else 0.1 for h in HORIZONS_H)
-    return HorizonErrors(HORIZONS_H, room, room, room, 5)
+    reference = room if persistence is None else tuple(persistence for _ in HORIZONS_H)
+    return HorizonErrors(HORIZONS_H, room, room, reference, 5)
 
 
 def test_champion_challenger_files(
@@ -326,7 +330,9 @@ def test_champion_challenger_files(
     challenger_errors = iter([errors(0.40), errors(0.50), errors(0.45)])
     champion_errors = iter([errors(0.45)])
 
-    def horizons(coarse: Any, p: BuildingParams, start: float, stop: float) -> HorizonErrors:
+    def horizons(
+        coarse: Any, p: BuildingParams, start: float, stop: float, **kwargs: Any
+    ) -> HorizonErrors:
         if (start, stop) != (split, end):
             return errors(0.3)
         return next(challenger_errors) if p is PARAMS else next(champion_errors)
@@ -382,6 +388,38 @@ def test_champion_challenger_files(
     assert kept["validation"]["promoted"] is True
     trend = json.loads((models / "insight-20261111-2.json").read_text())["error_trend"]
     assert [t["model"] for t in trend] == ["house-20261111", "house-20261111-2"]
+    promoted_check = first["champion_revalidation"]
+    assert (promoted_check["model"], promoted_check["source"]) == ("house-20261111", "held_out")
+    assert promoted_check["room_rmse_k"] == 0.40
+    check = second["champion_revalidation"]
+    assert (check["model"], check["source"]) == ("house-20261111", "revalidated")
+    assert check["room_rmse_k"] == 0.40
+    assert check["in_sample"] is True
+    assert check["credible"] is False
+    assert check["fitted_to"] == insight["data"]["to"]
+    assert set(check["gates"]) == {"heat_loss", "dynamics", "sun"}
+    assert check["gates"]["heat_loss"]["ok"] is False
+    assert check["gates"]["heat_loss"]["checks"]["signature"]["ok"] is False
+    assert set(promoted_check["gates"]) == {"heat_loss", "dynamics", "sun"}
+    assert set(insight["credibility"]["gates"]) == {"heat_loss", "dynamics", "sun"}
+    assert insight["internal_gains_w"]["identified"] is False
+    assert insight["internal_gains_w"]["label"] == "net_free_heat"
+    assert insight["structure"]["name"] == "chain"
+    assert set(insight["capacities_kwh_per_k"]) == {"loop", "emitter", "building"}
+    assert insight["ua"]["interval_source"] == "bootstrap_and_folds"
+    second_insight = json.loads((models / "insight-20261111-2.json").read_text())
+    assert second_insight["validation"]["champion_gates"] == {
+        name: check["gates"][name]["ok"] for name in ("heat_loss", "dynamics", "sun")
+    }
+    status = json.loads((models / store.STATUS).read_text())
+    assert status["champion_revalidation"] == check
+    assert set(status["gates"]) == {"heat_loss", "dynamics", "sun"}
+    served = checked_revalidation(status["champion_revalidation"])
+    assert served["model"] == "house-20261111"
+    rewritten = json.loads((models / "series-20261111.json").read_text())
+    assert rewritten["model"] == "house-20261111"
+    assert rewritten["out_of_sample_from"] == insight["data"]["to"]
+    assert rewritten["rows"][0][2] is not None
 
 
 def test_owner_excluded_days_are_masked_and_listed(history_db: Path) -> None:
@@ -460,7 +498,9 @@ def test_changed_house_settings_promote_a_worse_model(
     challenger_errors = iter([errors(0.40), errors(0.50), errors(0.50)])
     champion_errors = iter([errors(0.40), errors(0.40)])
 
-    def horizons(coarse: Any, p: BuildingParams, start: float, stop: float) -> HorizonErrors:
+    def horizons(
+        coarse: Any, p: BuildingParams, start: float, stop: float, **kwargs: Any
+    ) -> HorizonErrors:
         if (start, stop) != (split, end):
             return errors(0.3)
         return next(challenger_errors) if p is PARAMS else next(champion_errors)
@@ -530,3 +570,154 @@ def test_constraint_promotion_rule() -> None:
     assert run.decide_promotion(0.9, 0.4)[0] is False
     assert run.champion_constraints(None) is None
     assert run.champion_constraints({"house_payload": {"provenance": {}}}) == {}
+
+
+def credibility_queue(monkeypatch: pytest.MonkeyPatch, flags: list[bool]) -> None:
+    real = checks.model_credibility
+    queue = iter(flags)
+
+    def fake(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        credible = next(queue, flags[-1])
+        body = real(*args, **kwargs)
+        gates = dict(body["gates"])
+        gates["heat_loss"] = gates["heat_loss"] | {
+            "ok": credible,
+            "checks": {"scripted": {"ok": credible, "value": None, "limit": None}},
+            "needed": [] if credible else ["more_heating_days"],
+            "reasons": [] if credible else ["thin"],
+            "message": None if credible else "thin",
+        }
+        return body | {
+            "credible": credible,
+            "message": None if credible else "thin",
+            "gates": gates,
+        }
+
+    monkeypatch.setattr(run, "model_credibility", fake)
+
+
+def scripted(
+    monkeypatch: pytest.MonkeyPatch, challenger: list[float], champion: list[float]
+) -> tuple[float, float]:
+    split, end = T0 + 86400.0, T0 + 2 * 86400.0
+    monkeypatch.setattr(run, "_readiness", lambda ds, options: [])
+    monkeypatch.setattr(run, "_fit", lambda ds, data, options, full: fake_fit(split, end))
+    ours = iter(challenger)
+    theirs = iter(champion)
+    last = (challenger[-1], champion[-1] if champion else 0.3)
+
+    def horizons(
+        coarse: Any, p: BuildingParams, start: float, stop: float, **kwargs: Any
+    ) -> HorizonErrors:
+        if (start, stop) != (split, end):
+            return errors(0.3)
+        return errors(next(ours, last[0]) if p is PARAMS else next(theirs, last[1]), 0.2)
+
+    monkeypatch.setattr(run, "horizon_errors", horizons)
+    return split, end
+
+
+def test_a_credible_model_replaces_one_that_is_not(
+    history_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    models = tmp_path / "models"
+    scripted(monkeypatch, [0.40, 0.90], [0.40])
+    credibility_queue(monkeypatch, [False, True])
+    first = run.learn(history_db, CONFIG, models)
+    assert (first["outcome"], first["credible"]) == ("promoted", False)
+    second = run.learn(history_db, CONFIG, models)
+    assert second["outcome"] == "promoted", second
+    assert second["validation"]["rule"].startswith("a credible model replaces")
+    assert second["champion_revalidation"]["source"] == "held_out"
+    assert second["champion_revalidation"]["credible"] is True
+
+
+def test_a_model_that_is_not_credible_never_replaces_a_credible_one(
+    history_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    models = tmp_path / "models"
+    scripted(monkeypatch, [0.40, 0.10, 0.10], [0.40, 0.40])
+    credibility_queue(monkeypatch, [True, False, False])
+    assert run.learn(history_db, CONFIG, models)["outcome"] == "promoted"
+    better = run.learn(history_db, CONFIG, models)
+    assert better["outcome"] == "kept_champion", better
+    assert "not credible" in better["validation"]["rule"]
+    assert better["champion_revalidation"]["credible"] is True
+    changed = run.learn(history_db, CONFIG | {"house_ua_max_w_per_k": 400.0}, models)
+    assert changed["outcome"] == "kept_champion", changed
+    assert changed["validation"]["settings_changed"] is True
+    assert "although the house settings changed" in changed["validation"]["rule"]
+    assert json.loads((models / store.CURRENT).read_text())["model"] == "house-20261111"
+
+
+def test_a_capped_stove_episode_reaches_the_status_and_the_insight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    orphan = (
+        AlarmRow(T0 + 10 * 3600.0, "stove_mode", "info", "started", "on", "{}"),
+        *STOVE_ROWS,
+    )
+    db = write_history(tmp_path / "history.db", journal=orphan)
+    scripted(monkeypatch, [0.40], [])
+    status = run.learn(db, CONFIG, tmp_path / "models")
+    assert status["outcome"] == "promoted", status
+    assert len(status["warnings"]) == 1
+    assert "capped" in status["warnings"][0]
+    insight = json.loads((tmp_path / "models" / "insight-20261111.json").read_text())
+    assert insight["data"]["warnings"] == status["warnings"]
+    written = json.loads((tmp_path / "models" / store.STATUS).read_text())
+    assert written["warnings"] == status["warnings"]
+
+
+def test_the_insight_carries_skill_excitation_bounds_and_the_series_summary(
+    history_db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scripted(monkeypatch, [0.40], [])
+    status = run.learn(history_db, CONFIG, tmp_path / "models")
+    assert status["warnings"] == []
+    insight = json.loads((tmp_path / "models" / "insight-20261111.json").read_text())
+    validation = insight["validation"]
+    assert validation["held_out_room_rmse_k"] == 0.40
+    assert validation["persistence_room_rmse_k"] == 0.2
+    assert validation["skill_at_horizon"] == pytest.approx(0.5)
+    assert validation["skill"]["horizons_h"] == list(HORIZONS_H)
+    assert validation["compared"]["champion_in_sample"] is False
+    assert validation["unconstrained_room_rmse_k"] is None
+    assert validation["constraint_cost"] is None
+    assert insight["excitation"]["excited"] is False
+    assert insight["credibility"]["checks"]["predictive"] is True
+    assert insight["credibility"]["checks"]["excitation"] is False
+    assert insight["at_bound"] == at_bound(PARAMS, house_settings(CONFIG).priors)
+    assert insight["heat_capacity_kwh_per_k"] > 0
+    series = json.loads((tmp_path / "models" / "series-20261111.json").read_text())
+    assert validation["series_points"] == series["points"]
+    assert checked_insight(insight)["excitation"]["excited"] is False
+
+
+def test_the_unconstrained_reference_runs_only_with_owner_limits(
+    history_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ds = history_dataset(history_db, ROLES, step=60).dataset
+    fit = fake_fit(T0 + 86400.0, T0 + 2 * 86400.0)
+    fitted: list[Any] = []
+
+    def fit_building(windows: Any, config: Any, priors: Any = None) -> Any:
+        fitted.append(priors)
+        return SimpleNamespace(params=PARAMS)
+
+    monkeypatch.setattr(run, "fit_building", fit_building)
+    monkeypatch.setattr(run, "make_windows", lambda *args, **kwargs: None)
+    monkeypatch.setattr(run, "horizon_errors", lambda *args, **kwargs: errors(0.33))
+    plain = house_settings(CONFIG)
+    assert run._reference(ds, fit, plain, ds) is None
+    assert fitted == []
+    pinned = house_settings(CONFIG | {"house_ua_min_w_per_k": 150.0, "house_ua_max_w_per_k": 150.0})
+    assert "h_air_out" in pinned.priors.pinned
+    assert run._reference(ds, fit, pinned, ds) == 0.33
+    assert fitted[0].pinned == {}
+
+    def broken(*args: Any, **kwargs: Any) -> Any:
+        raise ValueError("no usable windows to fit")
+
+    monkeypatch.setattr(run, "fit_building", broken)
+    assert run._reference(ds, fit, pinned, ds) is None

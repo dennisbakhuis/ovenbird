@@ -5,8 +5,12 @@
   the service every 5 s until the learner is idle again, then tells the page to reload. Without the
   endpoint (an older service) the card is not shown.
 
+  With a model it also says how the model fared at the last check against newer data ("still
+  good" or "no longer trusted because …") and lists the data notes of the run.
+
   Props: credibility (what a "not enough data yet" run still misses), waiting (the page has no
-  model yet), onsettled (called when a run finished).
+  model yet), revalidation (the latest check of the model in use), warnings (data notes),
+  onsettled (called when a run finished).
 -->
 <script lang="ts">
   import ActionRow from '$ui/ActionRow.svelte';
@@ -16,7 +20,8 @@
   import Pill from '$ui/Pill.svelte';
   import { clockNow, formatDateTime, formatDuration } from '$lib/core/format';
   import { buildHash } from '$lib/core/router.svelte';
-  import { learningNeeds, needsText, type Credibility } from '$lib/house/house';
+  import { learningNeeds, needsText, type Credibility, type Revalidation } from '$lib/house/house';
+  import { failingGates, revalidationErrors, revalidationSentence } from '$lib/house/trust';
   import {
     FAILURE_KEYS,
     OUTCOME_KEYS,
@@ -34,10 +39,18 @@
   interface Props {
     credibility?: Credibility | null;
     waiting?: boolean;
+    revalidation?: Revalidation | null;
+    warnings?: string[];
     onsettled?: () => void;
   }
 
-  let { credibility = null, waiting = false, onsettled }: Props = $props();
+  let {
+    credibility = null,
+    waiting = false,
+    revalidation = null,
+    warnings = [],
+    onsettled,
+  }: Props = $props();
 
   const lang = $derived(settings.language);
   let run = $state<HouseRun | null>(null);
@@ -50,6 +63,16 @@
   const last = $derived(run?.last ?? null);
   const outcome = $derived(last ? outcomeKind(last.outcome) : null);
   const needs = $derived(outcome === 'learning' ? learningNeeds(credibility) : []);
+  const revalTrusted = $derived(
+    revalidation !== null && revalidation.credible && failingGates(revalidation).length === 0,
+  );
+  const revalErrors = $derived(
+    revalidation
+      ? revalidationErrors(revalidation, t, (value, digits = 1) =>
+          formatNumber(value, digits, lang),
+        )
+      : null,
+  );
   const interval = $derived(run ? formatDuration(run.interval_h * 3600, lang) : '');
   const when = (iso: string | null | undefined) => formatDateTime(iso ?? null, lang);
 
@@ -154,13 +177,34 @@
       {#if outcome === 'learning'}
         <p class="note" data-testid="run-learning">
           {#if credibility}
-            {needsText(needs, credibility, t, (value, digits) =>
-              formatNumber(value, digits ?? 0, lang),
-            )}
+            {needsText(needs, t, (value, digits) => formatNumber(value, digits ?? 0, lang))}
           {:else}
             {t('houseRunLearning')}
           {/if}
         </p>
+      {/if}
+
+      {#if revalidation}
+        <div class="reval" data-testid="house-revalidation" data-credible={revalidation.credible}>
+          <p>
+            <Pill tone={revalTrusted ? 'good' : 'warn'} testid="house-revalidation-pill"
+              >{revalTrusted ? t('houseStatusTrusted') : t('houseStatusLearning')}</Pill
+            >
+            <span data-testid="house-revalidation-text"
+              >{revalidationSentence(revalidation, t, when(revalidation.at))}</span
+            >
+          </p>
+          {#if revalErrors}
+            <p class="caption">{revalErrors} {t(`houseRevalSource_${revalidation.source}`)}</p>
+          {/if}
+        </div>
+      {/if}
+
+      {#if warnings.length > 0}
+        <InlineMessage tone="warn" icon size="md" testid="house-data-warnings">
+          <strong>{t('houseWarningsTitle')}</strong>
+          {#each warnings as warning (warning)}<span class="detail">{warning}</span>{/each}
+        </InlineMessage>
       {/if}
 
       {#if waiting && kind !== 'unavailable'}
@@ -207,6 +251,16 @@
     margin: 0;
   }
   .state {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .reval {
+    display: grid;
+    gap: var(--space-1);
+  }
+  .reval p {
     display: flex;
     flex-wrap: wrap;
     align-items: center;

@@ -34,16 +34,25 @@ issued no slice; a gap while a guard blocks or the planner failed) and
 ``derived/model_plan_applied`` (``1`` only when the controller really applied a model
 offset this tick). They go to the history writer only and never into the state store,
 so the controller cannot read them. Changes of the guard verdict are journalled as
-informational ``model_plan`` events without raising an alarm or a notification.
+informational ``model_plan`` events without raising an alarm or a notification, and
+without entering the alarm board's in-memory history. The journal is debounced on the
+loop's monotonic clock: a verdict is written once it has been stable for
+:data:`JOURNAL_WINDOW_S`; a change from pass to blocked is written at once but at most
+once per window; changes inside a window are counted into the next row
+(``detail.flaps``). The last journalled verdict is read back at start, so a restart
+with an unchanged verdict writes nothing. The evaluation itself stays immediate.
 
 After a restart no plan is in force until the next evaluation (the first tick) and the
 previous offset the rate limit starts from is 0, so the offset ramps from 0 again.
 The end of the last wood-stove episode survives a restart: it is read back from the
-journalled ``stove_mode`` events.
+journalled ``stove_mode`` events; an episode whose end was lost with the restart is
+closed at the first tick (:func:`ovenbird.stove.session.close_orphan_episode`) and the
+tail starts then.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 from collections.abc import Callable
@@ -70,6 +79,7 @@ from ovenbird.history.query import query_series
 from ovenbird.insight import house
 from ovenbird.insight.whatif import ModelChoice, champion_model
 from ovenbird.runtime import HistorySink
+from ovenbird.stove.session import close_orphan_episode
 from ovenbird.weather.service import STALE_AFTER_S
 from ovenbird_core import Instant
 from ovenbird_core.control import DecisionRecord, OvenbirdConfig, PlanSlice
@@ -89,6 +99,7 @@ OFFSET_UNIT: Final = "K"
 APPLIED_UNIT: Final = "1"
 PLANNER_ERROR: Final = "planner_error"
 SLOT_S: Final = 900.0
+JOURNAL_WINDOW_S: Final = 900.0
 STOVE_TAIL_S: Final = 12 * HOUR_S
 FORECAST_STALE_S: Final = STALE_AFTER_S
 FORECAST_MARGIN_S: Final = 2 * HOUR_S
@@ -256,6 +267,18 @@ def load_stove_end(path: Path, now_ts: float) -> float | None:
     return max(ends, default=None)
 
 
+def load_last_verdict(path: Path) -> tuple[str, tuple[Guard, ...]] | None:
+    """Return the switch and guard verdict of the newest ``model_plan`` journal row."""
+    rows = alarms_since(path, MODEL_PLAN_JOURNAL_CODE, 0.0)
+    if not rows:
+        return None
+    try:
+        detail = json.loads(rows[-1].detail)
+        return str(detail["use"]), tuple(Guard(name) for name in detail["blocks"])
+    except ValueError, KeyError, TypeError:
+        return None
+
+
 def _iso(ts: float | None) -> str | None:
     return None if ts is None else iso_z(datetime.fromtimestamp(ts, UTC))
 
@@ -279,7 +302,7 @@ class ModelPlanRunner:
         History writer for the derived signals; ``None`` records nothing.
     alarms
         Alarm board whose journal receives the verdict events (never its listeners).
-    load_champion, load_forecast, load_stove_end
+    load_champion, load_forecast, load_stove_end, load_last_verdict
         Readers of the learner's files, the stored forecast and the journal (tests
         replace them).
     """
@@ -293,6 +316,7 @@ class ModelPlanRunner:
     load_champion: Callable[[Path], ModelChoice | None] = champion_model
     load_forecast: Callable[[Path, float, float], ForecastWindow] = load_forecast
     load_stove_end: Callable[[Path, float], float | None] = load_stove_end
+    load_last_verdict: Callable[[Path], tuple[str, tuple[Guard, ...]] | None] = load_last_verdict
     evaluation: Evaluation | None = field(default=None, init=False)
     facts: Facts | None = field(default=None, init=False)
     calls: int = field(default=0, init=False)
@@ -305,7 +329,12 @@ class ModelPlanRunner:
     _was_stove: bool = field(default=False, init=False, repr=False)
     _stove_end: float | None = field(default=None, init=False, repr=False)
     _blocks: tuple[Guard, ...] = field(default=(), init=False, repr=False)
-    _last_blocks: tuple[Guard, ...] | None = field(default=None, init=False, repr=False)
+    _verdicts: dict[str, tuple[Guard, ...]] = field(default_factory=dict, init=False, repr=False)
+    _observed: tuple[Guard, ...] | None = field(default=None, init=False, repr=False)
+    _observed_at: float = field(default=0.0, init=False, repr=False)
+    _changes: int = field(default=0, init=False, repr=False)
+    _last_write: float | None = field(default=None, init=False, repr=False)
+    _booted: bool = field(default=False, init=False, repr=False)
     _seen_use: str = field(default="off", init=False, repr=False)
     _offered: PlanSlice | None = field(default=None, init=False, repr=False)
     _applied: bool = field(default=False, init=False, repr=False)
@@ -438,13 +467,16 @@ class ModelPlanRunner:
     def _step(self, ctx: PlanContext) -> PlanSlice | None:
         use = self.use
         self._interval_s = self.settings.control_interval_s
+        if not self._booted:
+            self._boot(ctx)
         self._track_stove(ctx)
         if use == "off":
             self._idle()
             return None
         if use != self._seen_use:
             self._seen_use = use
-            self._last_blocks = None
+            self._observed = None
+            self._changes = 0
         moment = ctx.now
         slot = math.floor(moment.wall.timestamp() / SLOT_S)
         if slot != self._slot and ctx.outside_filtered_c is not None:
@@ -473,8 +505,23 @@ class ModelPlanRunner:
         self._issued = None
         self._slot = None
         self._blocks = ()
-        self._last_blocks = None
+        self._observed = None
+        self._changes = 0
         self._seen_use = "off"
+
+    def _boot(self, ctx: PlanContext) -> None:
+        self._booted = True
+        path = self.settings.history_path
+        try:
+            last = self.load_last_verdict(path)
+            if last is not None:
+                self._verdicts[last[0]] = last[1]
+            if self.alarms is not None:
+                end = close_orphan_episode(path, self.alarms, ctx.now, ctx.stove_active)
+                if end is not None:
+                    self._stove_end = end
+        except Exception:
+            LOGGER.exception("the model plan runner could not read the journal at start")
 
     def _track_stove(self, ctx: PlanContext) -> None:
         if self._was_stove and not ctx.stove_active:
@@ -554,10 +601,29 @@ class ModelPlanRunner:
         )
 
     def _journal(self, moment: Instant, blocks: tuple[Guard, ...], use: str) -> None:
-        if blocks == self._last_blocks or self.alarms is None:
-            self._last_blocks = blocks
+        if self.alarms is None:
             return
-        self._last_blocks = blocks
+        now = moment.monotonic
+        if blocks != self._observed:
+            if self._observed is not None:
+                self._changes += 1
+            self._observed = blocks
+            self._observed_at = now
+        journaled = self._verdicts.get(use)
+        changed = blocks != journaled
+        since_write = math.inf if self._last_write is None else now - self._last_write
+        flaps = max(0, self._changes - (1 if changed and self._changes else 0))
+        stable = now - self._observed_at >= JOURNAL_WINDOW_S
+        due = (
+            (bool(blocks) and not journaled and since_write >= JOURNAL_WINDOW_S)
+            or (changed and stable)
+            or (flaps > 0 and since_write >= JOURNAL_WINDOW_S)
+        )
+        if not due:
+            return
+        self._verdicts[use] = blocks
+        self._last_write = now
+        self._changes = 0
         names = [guard.value for guard in blocks]
         if blocks:
             message = f"model plan ({use}): no plan, blocked by {', '.join(names)}"
@@ -572,7 +638,7 @@ class ModelPlanRunner:
                 Severity.INFO,
                 kind,
                 message,
-                {"use": use, "blocks": names},
+                {"use": use, "blocks": names, "flaps": flaps},
             )
         )
 

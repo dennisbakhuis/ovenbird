@@ -17,7 +17,7 @@ export const topic: HelpTopic = {
       id: 'enable',
       kind: 'do',
       title: 'Weather forecast',
-      body: 'Switch it on to see the [[forecast]] on the [Weather](#/weather) page and as a blue bar on the heating curve chart. The controller uses it only when the [[model-plan|model plan]] is switched on; otherwise it is for display.',
+      body: 'Switch it on to see the [[forecast]] on the [Weather](#/weather) page and as a blue bar on the heating curve chart. Only the [[model-plan|model plan]] works with it, and until that is On it changes nothing in the control.',
       target: 'settings/weather.enable',
     },
     {

@@ -115,7 +115,7 @@ export const fields = {
   'cfg.control_emitter.opt.radiators': 'Radiators',
   'cfg.weather_enabled.label': 'Weather forecast',
   'cfg.weather_enabled.help':
-    'Fetch an outside temperature forecast for the weather page. The controller uses it only when the model plan is switched on (House → Control); otherwise it is for display.',
+    'Fetch an outside temperature forecast for the weather page. Only the model plan (House → Control) uses it, and while that plan is Off or in Shadow the forecast changes nothing in the control.',
   'cfg.weather_latitude.label': 'Latitude',
   'cfg.weather_latitude.help': 'Degrees north, rounded to 0.01°.',
   'cfg.weather_longitude.label': 'Longitude',
@@ -285,7 +285,7 @@ export const fields = {
     'Lets ovenbird fit the house model itself, on its own history. Switch it off to stop new runs; the model in use stays.',
   'cfg.house_learn_interval_h.label': 'Learning interval',
   'cfg.house_learn_interval_h.help':
-    'Hours between two learning runs, from 24 (daily) to 720 (monthly). The default is 168, once a week.',
+    'Hours between two learning runs, from 24 (daily) to 720 (monthly). The default is 168, once a week. A run starts at night, between 02:00 and 05:00.',
   'cfg.house_volume_m3.label': 'Heated volume',
   'cfg.house_volume_m3.help':
     'The heated volume of the house in m³, roughly the floor area times the room height. A starting point for the model: the measurements overrule it when they disagree.',
@@ -298,9 +298,6 @@ export const fields = {
   'cfg.house_build_period.opt.1992_2005': '1992–2005',
   'cfg.house_build_period.opt.2006_2014': '2006–2014',
   'cfg.house_build_period.opt.2015_later': '2015 or later',
-  'cfg.house_floor_heating_share.label': 'Share of floor heating',
-  'cfg.house_floor_heating_share.help':
-    'The share of the heated area that has floor heating, from 0 % (radiators only) to 100 %. Floor heating reacts slowly, which the model takes as a starting point.',
   'cfg.house_window_area_m2.label': 'Window area',
   'cfg.house_window_area_m2.help':
     'The total glass area in m². It tells the model how much sun can come in; the measurements overrule it.',
@@ -314,7 +311,7 @@ export const fields = {
   'cfg.house_window_orientation.opt.mixed': 'Mixed',
   'cfg.house_occupants.label': 'Occupants',
   'cfg.house_occupants.help':
-    'How many people live in the house. People give off heat, which the model counts as a starting point for the internal gains.',
+    'How many people live in the house. People give off heat, which the model counts as a starting point for the net free heat.',
   'cfg.house_ua_min_w_per_k.label': 'Heat loss, at least',
   'cfg.house_ua_min_w_per_k.help':
     'The learned heat loss will not go below this value (30 to 1500 W/K). Set minimum and maximum equal to pin it. Applies at the next learner run.',
@@ -333,12 +330,12 @@ export const fields = {
   'cfg.house_solar_aperture_max_m2.label': 'Solar aperture, at most',
   'cfg.house_solar_aperture_max_m2.help':
     'The learned solar aperture will not go above this value (0 to 40 m²). Equal minimum and maximum pin it. Applies at the next learner run.',
-  'cfg.house_internal_gain_min_w.label': 'Internal gains, at least',
+  'cfg.house_internal_gain_min_w.label': 'Net free heat, at least',
   'cfg.house_internal_gain_min_w.help':
-    'The learned heat from people and appliances will not go below this value (0 to 2000 W). Applies at the next learner run.',
-  'cfg.house_internal_gain_max_w.label': 'Internal gains, at most',
+    'The learned net free heat (people, appliances and other sources) will not go below this value (0 to 2000 W). Applies at the next learner run.',
+  'cfg.house_internal_gain_max_w.label': 'Net free heat, at most',
   'cfg.house_internal_gain_max_w.help':
-    'The learned heat from people and appliances will not go above this value (0 to 2000 W). Equal minimum and maximum pin it. Applies at the next learner run.',
+    'The learned net free heat (people, appliances and other sources) will not go above this value (0 to 2000 W). Equal minimum and maximum pin it. Applies at the next learner run.',
   'cfg.house_learn_fit_days.label': 'Days to learn from',
   'cfg.house_learn_fit_days.help':
     'How many days of history the learner fits on, from 21 to 90. The default is 60. It must be at least 8 days more than the days kept for testing.',

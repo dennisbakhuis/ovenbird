@@ -154,7 +154,7 @@ export const glossary: GlossaryEntry[] = [
     term: 'Weersverwachting',
     short:
       'De verwachte buitentemperatuur, zon, bewolking en wind voor de komende dagen, van een online aanbieder.',
-    body: 'Opt-in: alleen je locatie, afgerond op ongeveer 1 km, wordt verstuurd. Ze is er om te bekijken en de regelaar gebruikt haar alleen als het modelplan aan staat.',
+    body: 'Opt-in: alleen je locatie, afgerond op ongeveer 1 km, wordt verstuurd. De verwachting is er om te bekijken; alleen het [[model-plan|modelplan]] rekent ermee, en zolang dat niet op Aan staat, verandert ze niets aan de regeling.',
     related: ['lead-time', 'forecast-bias', 'mae'],
   },
   {
@@ -193,7 +193,7 @@ export const glossary: GlossaryEntry[] = [
     term: 'Warmteverlies (UA)',
     short:
       'Hoeveel watt het huis verliest voor elke graad dat het binnen warmer is dan buiten, in W/K.',
-    body: 'Een huis met een UA van 300 W/K verliest bij 20 °C binnen en 0 °C buiten ongeveer 6 kW. ovenbird leert het uit je eigen geschiedenis; met één kamersensor is het een **schijnbaar** getal: ventilatie en de andere kamers zitten er ook in. Je ziet het met een bereik: de echte waarde ligt daar met 90 % zekerheid in. Gedeeld door het vloeroppervlak geeft het de [indicatieve isolatiescore](#/house).',
+    body: 'Een huis met een UA van 300 W/K verliest bij 20 °C binnen en 0 °C buiten ongeveer 6 kW. ovenbird leert het uit je eigen geschiedenis; met één kamersensor is het een **schijnbaar** getal: ventilatie en de andere kamers zitten er ook in. Je ziet het met een bewust ruim bereik, dat steekproeven uit de dagen en losse leerperiodes combineert. Gedeeld door het vloeroppervlak geeft het de [indicatieve isolatiescore](#/house).',
     related: ['balance-temperature', 'time-constant', 'energy-signature'],
     aliases: ['UA', 'warmteverliescoëfficiënt', 'HLC', 'isolatie', 'heat loss'],
   },
@@ -211,17 +211,17 @@ export const glossary: GlossaryEntry[] = [
     term: 'Tijdconstante',
     short:
       'Hoe langzaam het huis afkoelt: de uren waarin het zonder verwarming ongeveer twee derde van een temperatuurverschil verliest.',
-    body: 'Een zwaar, goed geïsoleerd huis heeft een lange tijdconstante (vaak 100 uur of meer): een nacht zonder verwarming kost weinig. Een licht huis koelt snel af. Daarom kan ovenbird de watertemperatuur een tijdje verlagen zonder dat de kamer het meteen merkt.',
+    body: 'Een zwaar, goed geïsoleerd huis heeft als geheel een lange tijdconstante (vaak 100 uur of meer), terwijl de vloer zelf al binnen ongeveer een uur reageert: een nacht zonder verwarming kost weinig. Een licht huis koelt snel af. Daarom kan ovenbird de watertemperatuur een tijdje verlagen zonder dat de kamer het meteen merkt.',
     related: ['ua'],
     aliases: ['tau', 'thermische massa', 'time constant'],
   },
   {
-    id: 'building-mass',
-    term: 'Gebouwmassa',
-    short: 'De vloer, muren en meubels die warmte opslaan en langzaam weer afgeven.',
-    body: 'Het huismodel heeft drie delen: het water in de verwarmingskring, de **gebouwmassa** en de lucht in de kamer. De warmtepomp verwarmt het water, het water verwarmt de massa en de massa verwarmt de kamer. Een zware massa is waarom een huis langzaam afkoelt: de [[time-constant|tijdconstante]] is lang. In het plaatje op de [Huispagina](#/house) slaat de massa warmte op of geeft ze terug.',
+    id: 'heat-capacity',
+    term: 'Warmtecapaciteit',
+    short: 'Hoeveel warmte de vloer en het huis per graad opslaan, en hoe snel elk deel reageert.',
+    body: 'Het huismodel is een keten van drie delen: de **kring** (het water in de verwarmingskring), de **afgifte** (de vloer met dekvloer, snel) en het **gebouw** (het hele huis, traag). De warmtepomp verwarmt het water, het water verwarmt de vloer en de vloer verwarmt het huis. De afgifte reageert binnen uren, het gebouw pas na dagen: daarom koelt een huis langzaam af en is de [[time-constant|tijdconstante]] lang. De [pagina Huis](#/house) toont de **totale warmtecapaciteit** in kWh per K en beide reactietijden, bijvoorbeeld "de vloer reageert in ongeveer 0,6 uur, het huis in ongeveer 130 uur". In het plaatje slaan de vloer en het huis samen warmte op of geven ze die terug.',
     related: ['time-constant', 'ua'],
-    aliases: ['thermal mass', 'opslag', 'building mass'],
+    aliases: ['thermal mass', 'opslag', 'building mass', 'gebouwmassa', 'heat capacity'],
   },
   {
     id: 'energy-signature',

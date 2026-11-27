@@ -63,7 +63,7 @@ from ovenbird_core.control.types import IntentKind, RoomInput
 from ovenbird_core.heishamon import MqttMessage
 from ovenbird_core.inputs import HA_SIGNAL_PREFIX, InputRouter, MqttSignal
 from ovenbird_core.readings import ParseError, Reading, SignalId
-from ovenbird_core.store import HA_MAX_AGE_S, StateStore
+from ovenbird_core.store import StateStore
 from ovenbird_sim.evaluate.openloop import (
     OpenLoopOptions,
     Tick,
@@ -130,6 +130,7 @@ class ConvertOptions:
         Room input source of the open-loop run.
     room_max_age_s
         Maximum age of the recorded room signals (the open-loop run's staleness policy).
+        ``None`` takes the seed's room profile limit, as the live service does.
     config_version
         Configuration version stored with every decision. ``None`` is the version
         before the configuration store existed; a local instance started with the seed
@@ -146,7 +147,7 @@ class ConvertOptions:
     datalake: Path | None = None
     config: Path | None = None
     room: RoomSource = RoomSource.AUTO
-    room_max_age_s: float = HA_MAX_AGE_S
+    room_max_age_s: float | None = None
     config_version: int | None = None
     force: bool = False
 
@@ -527,6 +528,11 @@ def convert(options: ConvertOptions, settings: Settings, values: dict[str, Any])
     if history_path.exists():
         _remove_database(history_path)
     started = time.perf_counter()
+    room_max_age_s = (
+        settings.room_profile().max_age_s
+        if options.room_max_age_s is None
+        else options.room_max_age_s
+    )
     start, end = _span(options)
     controller = RoomRelabelled(
         OvenbirdController(settings.controller_config()), settings.control_room_signal
@@ -534,7 +540,7 @@ def convert(options: ConvertOptions, settings: Settings, values: dict[str, Any])
     stove = controller.config.stove
     drive_options = OpenLoopOptions(
         room=options.room,
-        room_max_age_s=options.room_max_age_s,
+        room_max_age_s=room_max_age_s,
         tick_s=TICK_S,
         start=start,
         end=end,
@@ -615,7 +621,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", type=Path, required=True, help="output directory")
     parser.add_argument("--room", choices=[r.value for r in RoomSource], default="auto")
     parser.add_argument(
-        "--room-max-age", type=float, default=HA_MAX_AGE_S, metavar="S", help="room staleness limit"
+        "--room-max-age",
+        type=float,
+        metavar="S",
+        help="room staleness limit (default: the seed's room profile limit)",
     )
     parser.add_argument(
         "--config-version",

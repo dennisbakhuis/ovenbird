@@ -102,6 +102,7 @@ export function balanceSentence(balance: HouseBalance, tr: Translate, lang: Lang
   const kind = storageKind(flows.storage_w);
   let tail: string;
   if (flows.stove_active) tail = tr('houseBalTailStove');
+  else if (balance.notes.includes('stove_tail')) tail = tr('houseBalTailStoveTail');
   else if (kind === 'unknown') tail = tr('houseBalTailUnknown');
   else if (kind === 'steady') tail = tr('houseBalTailSteady');
   else

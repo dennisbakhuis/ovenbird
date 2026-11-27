@@ -17,7 +17,6 @@ export const MAX_EXCLUDED_DAYS = 60;
 /** Facts the learner starts from; the floor area only feeds the insulation score. */
 export const FACT_FIELDS = [
   'house_build_period',
-  'house_floor_heating_share',
   'house_occupants',
   'house_volume_m3',
   'house_window_area_m2',

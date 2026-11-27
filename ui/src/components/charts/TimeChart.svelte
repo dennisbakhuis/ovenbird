@@ -10,7 +10,9 @@
     or point bounds, rules = horizontal reference lines with a label at the left end, drawn above
     the lines, min/max/zero/snap, height in px) or is a
     lane panel (`lanes`: state lanes). Prefer one panel per unit instead of a right axis.
-  - spans: SpanSpec[] shaded time ranges across all panels; night: Interval[] (see
+  - spans: SpanSpec[] shaded time ranges across all panels (`pattern` 'hatch' or 'dots' fills them
+    with a pattern instead of a flat tint; labelled spans are listed under the table with
+    `spansTitle`); night: Interval[] (see
     nightIntervals/nightByHours in lib/chart).
   - markers: MarkerSpec[] with optional `icon` (24-grid path); labels are laid out left to right
     (right-aligned near the edge); a label that would overlap drops to icon-only on a second row
@@ -83,6 +85,7 @@
     panels?: PanelSpec[];
     markers?: MarkerSpec[];
     spans?: SpanSpec[];
+    spansTitle?: string;
     night?: Interval[];
     now?: number | null;
     nowLabel?: string;
@@ -110,6 +113,7 @@
     panels,
     markers = [],
     spans = [],
+    spansTitle = '',
     night = [],
     now = null,
     nowLabel = '',
@@ -543,6 +547,18 @@
         data-testid="time-chart"
       >
         <defs>
+          <pattern
+            id="{uid}-hatch"
+            width="6"
+            height="6"
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <line x1="0" y1="0" x2="0" y2="6" stroke="var(--muted)" stroke-width="1.5" />
+          </pattern>
+          <pattern id="{uid}-dots" width="6" height="6" patternUnits="userSpaceOnUse">
+            <circle cx="3" cy="3" r="1.3" fill="var(--muted)" />
+          </pattern>
           {#each built as panel, i (panel.spec.id)}
             <clipPath id="{uid}-clip-{i}">
               <rect x="0" y={panel.top - 2} width={innerW} height={panel.height + 4} />
@@ -566,8 +582,10 @@
               y="0"
               width={Math.max(sx(Math.min(span.to, to)) - sx(Math.max(span.from, from)), 0)}
               height={plotH}
-              fill={span.color ?? 'var(--muted)'}
-              fill-opacity={span.opacity ?? 0.12}
+              fill={span.pattern ? `url(#${uid}-${span.pattern})` : (span.color ?? 'var(--muted)')}
+              fill-opacity={span.opacity ?? (span.pattern ? 0.6 : 0.12)}
+              data-testid="chart-span"
+              data-pattern={span.pattern}
             >
               {#if span.label}<title>{span.label}</title>{/if}
             </rect>
@@ -797,6 +815,14 @@
               {/each}
             </tbody>
           </table>
+        {/if}
+        {#if spansTitle && spans.some((span) => span.label)}
+          <h4>{spansTitle}</h4>
+          <ul class="segments" data-testid="chart-table-spans">
+            {#each spans.filter((span) => span.label) as span, i (`${span.from}-${i}`)}
+              <li>{span.label}</li>
+            {/each}
+          </ul>
         {/if}
         {#each allLanes as lane (lane.id)}
           <h4>{lane.label}</h4>

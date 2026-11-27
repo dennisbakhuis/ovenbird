@@ -13,12 +13,20 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Protocol
+from pathlib import Path
+from typing import Any, Final, Protocol
 
-from ovenbird.control.alarms import AlarmBoard, AlarmCode
-from ovenbird.history.journal import StateRow
+from ovenbird.control.alarms import (
+    AlarmBoard,
+    AlarmCode,
+    AlarmEvent,
+    AlarmEventKind,
+    Severity,
+)
+from ovenbird.history.journal import StateRow, alarms_since
 from ovenbird.stove.request import (
     MANUAL_DEFAULT_S,
+    STOVE_JOURNAL_CODE,
     STOVE_KEY,
     StoveRequest,
     StoveRequestError,
@@ -30,6 +38,54 @@ from ovenbird_core import Instant
 from ovenbird_core.control import DecisionRecord, OvenbirdState, StoveConfig
 
 LOGGER = logging.getLogger("ovenbird.control")
+SERVICE_RESTART_EXIT: Final = "service_restart"
+
+
+def close_orphan_episode(
+    path: Path, alarms: AlarmBoard, moment: Instant, restored_active: bool
+) -> float | None:
+    """Close a journalled wood-stove episode the restarted controller no longer knows.
+
+    Controller state older than ``control_state_max_age_s`` is dropped at start, so an
+    episode that was running when the service went down has a ``started`` row and no
+    end. When the newest ``stove_mode`` row is ``started`` and the restored controller
+    is not in wood-stove mode, an ``expired`` row with ``exit: service_restart`` is
+    written through the journal-only path; a later restart finds that row and writes
+    nothing more.
+
+    Parameters
+    ----------
+    path
+        History database holding the journal.
+    alarms
+        Alarm board whose journal receives the closing row.
+    moment
+        The instant the episode is closed at (the first tick after the start).
+    restored_active
+        The restored controller state is in wood-stove mode.
+
+    Returns
+    -------
+    float or None
+        Unix time of the closing row, ``None`` when nothing was closed.
+    """
+    if restored_active:
+        return None
+    rows = alarms_since(path, STOVE_JOURNAL_CODE, 0.0)
+    if not rows or rows[-1].event != AlarmEventKind.STARTED.value:
+        return None
+    LOGGER.warning("wood-stove episode of %s has no end in the journal; closing it", rows[-1].ts)
+    alarms.journal_only(
+        AlarmEvent(
+            moment,
+            STOVE_JOURNAL_CODE,
+            Severity.INFO,
+            AlarmEventKind.EXPIRED,
+            "wood-stove mode off (service_restart); the episode's end was lost with the restart",
+            {"exit": SERVICE_RESTART_EXIT},
+        )
+    )
+    return moment.wall.timestamp()
 
 
 class StoveHost(Protocol):

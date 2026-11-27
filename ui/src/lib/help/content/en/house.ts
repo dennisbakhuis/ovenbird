@@ -10,22 +10,29 @@ export const topic: HelpTopic = {
       id: 'balance',
       kind: 'see',
       title: 'The house right now',
-      body: 'The picture shows where the heat of this moment comes from and where it goes: the heat pump through the heating loop, the sun, and people and appliances (plus a wood stove while it burns) go in; the heat loss through walls, roof and windows goes out. The building mass (floor and walls) either **stores** the difference or **gives heat back**.\n\nThe outside and room temperatures and the heat pump output are measured; the sun and the loss are modelled from the learned heat loss and the solar aperture. The arrows get thicker with more heat; an arrow that is dashed says **unknown**, it does not mean zero. While a wood stove burns, its heat is not measured, so the storage is unknown. Before a model is learned the picture is an **estimate from your answers**, and says so.',
+      body: 'The picture shows where the heat of this moment comes from and where it goes: the heat pump through the heating loop, the sun, and free heat from people and appliances (plus a wood stove while it burns) go in; the heat loss through walls, roof and windows goes out. The floor and the house together (their total heat capacity is named in the picture, in kWh per K) either **store** the difference or **give heat back**.\n\nThe outside and room temperatures and the heat pump output are measured; the sun and the loss are modelled from the learned heat loss and the solar aperture. The arrows get thicker with more heat; an arrow that is dashed says **unknown**, it does not mean zero. While a wood stove burns, its heat is not measured, so the storage is unknown. Before a model is learned the picture is an **estimate from your answers**, and says so.',
       target: 'house.balance',
     },
     {
       id: 'score',
       kind: 'see',
       title: 'Insulation score',
-      body: 'The big number is the [[ua|heat loss]] in W/K, with the range the true value lies in. With your floor area it becomes watts per m² at 20 °C inside and −10 °C outside, and a band from A to G.\n\nThe band is **indicative, not the official energielabel**: one room sensor sees ventilation and the other rooms too. While the model still needs cold days, the card says how many.',
+      body: 'The big number is the [[ua|heat loss]] in W/K, with the range the true value lies in. With your floor area it becomes watts per m² at 20 °C inside and −10 °C outside, and a band from A to G.\n\nThe band is **indicative, not the official energielabel**: one room sensor sees ventilation and the other rooms too. The range shown is the wide, honest one: it combines resampling of the days and separate training periods. While the heat-loss check does not pass yet, the card says why: not enough heating weather yet (with what is still needed and a small progress bar), a heat-loss figure that is too uncertain, two estimates that disagree or a figure that changes between training periods.',
       target: 'house.score',
     },
     {
       id: 'facts',
       kind: 'see',
       title: 'What the model learned',
-      body: 'The [[time-constant]] says how slowly the house cools; the [[balance-temperature]] above which outside temperature it needs no heating. The solar aperture is how much a sunny hour warms the house, the internal gains what people and appliances add. Each comes with its range and one plain sentence. Where you filled in facts about the house, the card also shows what you told next to what was measured; when they differ by a factor of about 1.5 or more, the model follows the measurements.',
+      body: 'The [[time-constant]] says how slowly the house cools; the [[balance-temperature]] above which outside temperature it needs no heating. The **solar aperture** is the effective glass area, in m², through which the sun heats the house: it sets how much a sunny hour warms it. The **net free heat** is what people, appliances and other sources add; with this data it cannot be separated from the heat loss, so a value of 0 is not a fault. Each comes with its range and one plain sentence. Where you filled in facts about the house, the card also shows what you told next to what was measured; when they differ by a factor of about 1.5 or more, the model follows the measurements.',
       target: 'house.facts',
+    },
+    {
+      id: 'trust',
+      kind: 'know',
+      title: 'What the model can be trusted for',
+      body: "The model is judged for three uses, each with its own check. **Heat loss** guards the insulation score, the curve suggestion and the what-if: it needs enough heating weather, a narrow heat-loss range and two estimates that agree and hold between training periods. **Room dynamics** guards the cool-down prediction: the model must predict the room over the next hours better than \"the room stays as it is\". **Sun response** is not used yet: it is kept for a later version of the model plan. It needs enough sunny days, and the room's reaction to the sun must match the model's. The controller's model plan needs the heat-loss and the room-dynamics checks. A use that is not trusted yet says why, in plain words. A model made by an older version says so; the next run checks it.\n\nThe collapsed list shows how each check came out. The 24 hour skill is shown for information only: a house held at a steady temperature is hard to out-predict.",
+      target: 'house.trust',
     },
     {
       id: 'signature',
@@ -38,7 +45,7 @@ export const topic: HelpTopic = {
       id: 'prediction',
       kind: 'see',
       title: 'Measured against predicted',
-      body: 'The solid line is the room temperature your sensor measured. The dashed line is what the model had predicted for that moment **24 hours earlier**. The closer they are, the better the model knows your house. The sentence under the chart gives the typical and the largest difference. A gap in a line means there was no value then. Switch the period between 3, 7 and 14 days; **Show as table** lists every point.',
+      body: 'The solid line is the room temperature your sensor measured. The dashed line is what the model had predicted for that moment **24 hours earlier**. The closer they are, the better the model knows your house. The sentence under the chart says how far off the model is **on days it had not seen** (typically, and whether it leans too cold or too warm) and the largest difference in the period. Hatched areas are wood-stove periods with their recovery (lighter), dotted areas are days you left out: the predicted line is broken there and for the 24 hours after, and they do not count. A quiet marker shows where the days the model had already seen end. A gap in a line means there was no value then. Switch the period between 3, 7 and 14 days; **Show as table** lists every point.',
       target: 'house.prediction',
     },
     {
@@ -57,7 +64,7 @@ export const topic: HelpTopic = {
       id: 'quality',
       kind: 'know',
       title: 'How far to trust it',
-      body: 'Regularly (by default once a week) a new model is fitted on the latest history. It is only used when it predicted the room on the last 14 days at least as well as the model in use. The card shows both errors, the heat loss of every model so far and the data it used. Its limits are listed under **Limits of this model**.',
+      body: 'By default once a week, at night, a new model is fitted on the latest history. It is only used when it predicted the room on the last 14 days at least as well as the model in use. The card shows both errors, the heat loss of every model so far and the data it used. Trust is given per use (see **What the model can be trusted for** on the Overview tab): heat loss, room dynamics and sun response each have their own checks. The model plan of the controller needs the heat-loss and room-dynamics checks; the sun response is not used yet. The Learning tab says when the model was last checked against newer data and whether it still passes. Its limits are listed under **Limits of this model**.',
       target: 'house.quality',
     },
     {
@@ -88,7 +95,7 @@ export const topic: HelpTopic = {
       id: 'run',
       kind: 'do',
       title: 'Start a learning run',
-      body: 'The learner fits a new model on your history by itself, by default once a week. The **Learning** tab shows its state: waiting with the next run, running, switched off or not built into this install. After a run it says what came out: a new model in use, the previous model kept, or not enough data yet.',
+      body: 'The learner fits a new model on your history by itself, by default once a week at night. The **Learning** tab shows its state: waiting with the next run, running, switched off or not built into this install. After a run it says what came out: a new model in use, the previous model kept, or not enough data yet.',
       steps: [
         'Open the **Learning** tab.',
         'Press **Run now**. The card shows that it is running and updates by itself every few seconds.',
@@ -107,7 +114,7 @@ export const topic: HelpTopic = {
       id: 'inputs',
       kind: 'do',
       title: 'Tell it what you know about the house',
-      body: 'Build period, share of floor heating, number of occupants, volume and windows are **starting points** for the model, not facts it must keep. The learner begins from them, and when the measurements disagree the measurements win. Fill in what you know, leave out what you do not. While the model is still learning, this is the card to fill in.\n\nChanges go through the bar at the bottom like any setting and are used at the next learner run.',
+      body: 'Build period, number of occupants, volume and windows are **starting points** for the model, not facts it must keep. The learner begins from them, and when the measurements disagree the measurements win. Fill in what you know, leave out what you do not. While the model is still learning, this is the card to fill in.\n\nChanges go through the bar at the bottom like any setting and are used at the next learner run.',
       steps: [
         'Open **What you know about the house** on the Overview tab.',
         'Fill in a few fields.',
@@ -119,7 +126,7 @@ export const topic: HelpTopic = {
       id: 'bounds',
       kind: 'do',
       title: 'Pin or limit what is learned',
-      body: 'For the heat loss, the time constant, the solar aperture and the internal gains you can set a minimum and a maximum. The card shows what was learned with its 90 % range next to them.\n\n**Pinning** is setting both to the same number: the model then uses exactly that value and you **overrule the measurements**. Use it when you know better, for instance a heat loss from an energy audit. A single side only limits. The next learner run applies it.',
+      body: "For the heat loss, the time constant, the solar aperture and the net free heat you can set a minimum and a maximum. The card shows what was learned with its 90 % range next to them.\n\n**Pinning** is setting both to the same number: the model then uses exactly that value and you **overrule the measurements**. Use it when you know better, for instance a heat loss from an energy audit. A single side only limits. Net free heat is tied to the heat loss: pinning 100 W more free heat raises the heat-loss figure by about 9 W/K (the card shows the figure of your model). When your limits make the model clearly less accurate, the card says so with both errors, and a value that ended at one of your limits is marked **At your limit**: a limit may be wrong. Values at the edge of the model's own range are listed under a separate, neutral heading. The next learner run applies it.",
       steps: [
         'Open **Pin or limit what is learned** on the Model tab.',
         'Fill in a minimum, a maximum or both. Equal values pin.',
@@ -138,7 +145,7 @@ export const topic: HelpTopic = {
       id: 'leave-out',
       kind: 'do',
       title: 'Leave a day out',
-      body: 'Leave a day out when the house was not lived in as usual: a holiday, windows open all day, visitors. Such a day would only mislead the model. In the chart of the room error per day, press a bar to leave that day out; press it again to take it back in. **Show as table** has the same buttons, and the learning settings hold the full list.',
+      body: 'Leave a day out when the house was not lived in as usual: a holiday, windows open all day, visitors. Such a day would only mislead the model. If the house was still off the next morning, leave that day out too. In the chart of the room error per day, press a bar to leave that day out; press it again to take it back in. **Show as table** has the same buttons, and the learning settings hold the full list.',
       steps: [
         'Open the **Learning** tab and find the room error per day.',
         'Press the bar of the day, or its button in the table.',
@@ -150,7 +157,7 @@ export const topic: HelpTopic = {
     {
       id: 'empty',
       q: 'The page says "Still learning". Why?',
-      a: 'A model needs about 30 days of heating with enough cold days (daily mean below 5 °C) and a spread of at least 10 K in outside temperature. The card says what is still missing. The learner runs by itself, by default once a week; the **Learning** tab says when the next run is and lets you start one.',
+      a: 'A model needs enough heating weather: about 30 days of heating and a spread of at least 10 K in outside temperature, and at least 20 heating days among the days it learns from. The card says what is still missing, or which other check fails. The learner runs by itself, by default once a week; the **Learning** tab says when the next run is and lets you start one.',
     },
     {
       id: 'label',

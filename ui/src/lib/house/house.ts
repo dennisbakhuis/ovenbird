@@ -18,6 +18,52 @@ export type LearnerAge = Schemas['LearnerHealth'];
 export type HouseLearning = Schemas['HouseWaiting'];
 export type HouseHistoryModel = Schemas['HouseHistoryModel'];
 export type HouseHistory = Schemas['HouseHistory'];
+export type GateNeed = Schemas['GateNeed'];
+export type GateSource = Schemas['GateSource'];
+export type ModelGate = Schemas['ModelGate'];
+export type HouseGates = Schemas['HouseGates'];
+export type GateName = keyof HouseGates;
+export type LearnedGate = Schemas['LearnedGate'];
+export type LearnedGates = Schemas['LearnedGates'];
+
+export interface GateCheck {
+  ok: boolean;
+  value?: number | null;
+  limit?: number | null;
+  [key: string]: unknown;
+}
+
+export interface GateDetail extends Omit<LearnedGate, 'checks'> {
+  checks: Record<string, GateCheck>;
+  diagnostics?: { skill_24h?: number | null; note?: string };
+}
+
+export interface GateDetails {
+  heat_loss: GateDetail;
+  dynamics: GateDetail;
+  sun: GateDetail;
+}
+
+export interface GainsEstimate extends Estimate {
+  identified?: boolean;
+  label?: string;
+  note?: string;
+  at_zero?: boolean;
+  ua_w_per_k_per_100_w?: number | null;
+}
+
+export interface Capacities {
+  loop: number;
+  emitter: number;
+  building: number;
+}
+
+export interface ModelStructure {
+  name: string;
+  fixed: Record<string, number>;
+  free: string[];
+  nodes: Record<string, string>;
+}
 
 export interface SignaturePoint {
   date: string;
@@ -40,23 +86,68 @@ export interface SignatureFit {
   model?: string;
 }
 
+export interface CredibilityChecks {
+  signature: boolean;
+  excitation: boolean;
+  ua_consistent: boolean;
+  ua_stable?: boolean;
+  predictive: boolean;
+  sun?: boolean;
+}
+
 export interface Credibility {
   credible: boolean;
+  gates?: GateDetails;
+  checks?: CredibilityChecks;
   days: number;
   heating_days: number;
-  cold_days: number;
   outside_span_k: number;
+  agreement?: number | null;
+  skill?: number | null;
   rules: {
     heating_days: number;
     heating_day_w: number;
-    cold_days: number;
-    cold_day_below_c: number;
     outside_span_k: number;
+    ua_agreement?: number;
+    skill_horizon_h?: number;
+    min_skill?: number;
   };
-  needed: { heating_days: number; cold_days: number; outside_span_k: number };
+  needed: { heating_days: number; outside_span_k: number };
   reasons: string[];
   low_confidence: boolean;
   message: string | null;
+}
+
+export interface Excitation {
+  excited: boolean;
+  days: number;
+  heating_days: number;
+  outside_range_k: number;
+  ua_relative_width?: number | null;
+  ua_tight?: boolean;
+  rules: {
+    heating_days: number;
+    outside_range_k: number;
+    ua_relative_width?: number;
+  };
+  needed: { heating_days: number; outside_range_k: number };
+  reasons: string[];
+}
+
+export type Revalidation = Schemas['ChampionRevalidation'];
+
+export interface AtBound {
+  parameter: string;
+  value: number;
+  side: 'lower' | 'upper' | 'pinned';
+  limit: number;
+  kind: 'owner' | 'structural';
+}
+
+export interface ConstraintCost {
+  excess_k: number | null;
+  limit_k: number | null;
+  worse: boolean;
 }
 
 export interface Validation {
@@ -64,11 +155,22 @@ export interface Validation {
   test_to: string;
   score_horizon_h: number;
   challenger_room_rmse_k: number | null;
+  held_out_room_rmse_k?: number | null;
   champion_room_rmse_k: number | null;
   champion: string | null;
   promoted: boolean;
   rule: string;
   settings_changed?: boolean;
+  persistence_room_rmse_k?: number | null;
+  skill_horizon_h?: number | null;
+  skill_at_horizon?: number | null;
+  series_rmse_k?: number | null;
+  series_bias_k?: number | null;
+  same_house?: boolean | null;
+  unconstrained_room_rmse_k?: number | null;
+  constraint_cost?: ConstraintCost | null;
+  challenger_gates?: Record<GateName, boolean> | null;
+  champion_gates?: Record<GateName, boolean> | null;
 }
 
 export interface ErrorTrendEntry {
@@ -119,10 +221,14 @@ export interface HouseInsight {
     fit_days: number;
     signature_days: number;
     excluded_days: string[];
+    warnings?: string[];
   };
   ua: {
     w_per_k: number;
     interval_90: Interval | null;
+    interval_source?: string;
+    bootstrap_interval_90?: Interval | null;
+    fold_w_per_k?: number[] | null;
     source: string;
     signature_w_per_k: number | null;
     signature_interval_90: Interval | null;
@@ -130,9 +236,18 @@ export interface HouseInsight {
   };
   time_constant_h: Estimate | null;
   solar_aperture_m2: Estimate | null;
-  internal_gains_w: Estimate | null;
+  internal_gains_w: GainsEstimate | null;
   balance_temperature_c: Estimate | null;
   signature: { indoor: string; points: SignaturePoint[]; fit: SignatureFit | null } | null;
+  credible: boolean;
+  gates: HouseGates;
+  revalidation: Revalidation | null;
+  heat_capacity_kwh_per_k?: number | null;
+  capacities_kwh_per_k?: Capacities | null;
+  emitter_time_constant_h?: Estimate | null;
+  structure?: ModelStructure | null;
+  excitation?: Excitation | null;
+  at_bound?: AtBound[];
   credibility: Credibility;
   score: HouseScore;
   validation: Validation | null;
@@ -214,7 +329,7 @@ export function bandPosition(wPerM2: number, bands: ScoreBand[]): number {
   return (index + share) / count;
 }
 
-export type NeedKind = 'heating_days' | 'cold_days' | 'outside_span_k';
+export type NeedKind = 'heating_days' | 'outside_span_k';
 
 export interface Need {
   kind: NeedKind;
@@ -231,7 +346,6 @@ export function learningNeeds(credibility: Credibility | null | undefined): Need
   const out: Need[] = [];
   if (needed.heating_days > 0)
     out.push({ kind: 'heating_days', amount: Math.ceil(needed.heating_days) });
-  if (needed.cold_days > 0) out.push({ kind: 'cold_days', amount: Math.ceil(needed.cold_days) });
   if (needed.outside_span_k > 0)
     out.push({ kind: 'outside_span_k', amount: Math.round(needed.outside_span_k * 10) / 10 });
   return out;
@@ -265,29 +379,41 @@ export function curveDiffers(a: Curve | null | undefined, b: Curve | null | unde
 export type Translate = (key: MessageKey, params?: Params) => string;
 
 /**
- * "Still learning: 4 more cold days (daily mean below 5 °C) needed", built from the numbers of
- * the credibility rules (not from the service's English message).
+ * The data notes of the model and of the last run, each once.
+ */
+export function dataWarnings(house: HouseInsight): string[] {
+  return [...new Set([...(house.data.warnings ?? []), ...(house.last_run?.warnings ?? [])])];
+}
+
+/**
+ * The missing amounts as a list: "6 more heating days, 1.4 K more spread in outside temperature".
+ */
+export function needsList(
+  needs: Need[],
+  tr: Translate,
+  format: (value: number, digits?: number) => string,
+): string {
+  return needs
+    .map((need) => {
+      if (need.kind === 'outside_span_k')
+        return tr('houseNeed_outside_span_k', { n: format(need.amount, 1) });
+      const one = need.amount === 1;
+      return tr(one ? 'houseNeedOne_heating_days' : 'houseNeed_heating_days', { n: need.amount });
+    })
+    .join(', ');
+}
+
+/**
+ * "Still learning: 6 more heating days needed", built from the numbers of the credibility rules
+ * (not from the service's English message).
  */
 export function needsText(
   needs: Need[],
-  credibility: Credibility | null | undefined,
   tr: Translate,
   format: (value: number, digits?: number) => string,
 ): string {
   if (needs.length === 0) return tr('houseStillLearningPlain');
-  const below = format(credibility?.rules.cold_day_below_c ?? 5, 0);
-  const parts = needs.map((need) => {
-    if (need.kind === 'outside_span_k')
-      return tr('houseNeed_outside_span_k', { n: format(need.amount, 1) });
-    const one = need.amount === 1;
-    if (need.kind === 'cold_days')
-      return tr(one ? 'houseNeedOne_cold_days' : 'houseNeed_cold_days', {
-        n: need.amount,
-        below,
-      });
-    return tr(one ? 'houseNeedOne_heating_days' : 'houseNeed_heating_days', { n: need.amount });
-  });
-  return tr('houseStillLearning', { list: parts.join(', ') });
+  return tr('houseStillLearning', { list: needsList(needs, tr, format) });
 }
 
 /**

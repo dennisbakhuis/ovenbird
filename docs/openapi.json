@@ -784,7 +784,8 @@
           "dhw_active",
           "heat_unknown",
           "defrost",
-          "stove_active"
+          "stove_active",
+          "stove_tail"
         ],
         "type": "string"
       },
@@ -854,6 +855,177 @@
         "required": [
           "model",
           "promoted_at"
+        ],
+        "type": "object"
+      },
+      "ChampionRevalidation": {
+        "description": "The latest run's check of the model ``current.json`` names (``status.json``).\n\n``source`` is ``held_out`` when that run promoted the model (its own held-out\nvalidation) and ``revalidated`` when the run kept it and scored it again on the\nnewest held-out days (``from`` to ``to``; ``in_sample`` when the model had seen\npart of them). ``gates`` are the model's three gates as of that run (``null`` from\na learner before the gates); ``credible`` is its heat-loss gate and ``reasons``\nsay what fails there. Errors are room RMSE in K over the first 24 h, ``skill`` is\n``1 - model / persistence`` over ``skill_horizon_h``, ``series_*`` the 24 h-ahead\nerror and bias of the model's room series.",
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "credible": {
+            "type": "boolean"
+          },
+          "data_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fitted_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gates": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LearnedGates"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "in_sample": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": "string"
+          },
+          "origins": {
+            "type": "integer"
+          },
+          "persistence_room_rmse_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "room_rmse_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "series_bias_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "series_rmse_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skill": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skill_horizon_h": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "enum": [
+              "held_out",
+              "revalidated"
+            ],
+            "type": "string"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "model",
+          "at",
+          "source",
+          "data_to",
+          "fitted_to",
+          "from",
+          "to",
+          "origins",
+          "in_sample",
+          "room_rmse_k",
+          "persistence_room_rmse_k",
+          "skill_horizon_h",
+          "skill",
+          "series_rmse_k",
+          "series_bias_k",
+          "credible",
+          "reasons",
+          "gates"
         ],
         "type": "object"
       },
@@ -3507,6 +3679,30 @@
         ],
         "type": "string"
       },
+      "GateNeed": {
+        "enum": [
+          "no_signature",
+          "more_heating_days",
+          "more_outside_spread",
+          "ua_interval_wide",
+          "ua_disagrees",
+          "ua_unstable",
+          "no_dynamics_skill",
+          "more_sunny_days",
+          "no_sun_skill",
+          "sun_response_off",
+          "legacy_model"
+        ],
+        "type": "string"
+      },
+      "GateSource": {
+        "enum": [
+          "fitted",
+          "revalidated",
+          "legacy"
+        ],
+        "type": "string"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -4110,7 +4306,7 @@
         "type": "object"
       },
       "HouseBalance": {
-        "description": "``GET insight/house/balance``: the heat balance of the house right now.",
+        "description": "``GET insight/house/balance``: the heat balance of the house right now.\n\n``credible`` is the model's heat-loss gate.",
         "properties": {
           "at": {
             "type": "string"
@@ -4231,6 +4427,26 @@
           "bounds",
           "now",
           "history"
+        ],
+        "type": "object"
+      },
+      "HouseGates": {
+        "description": "The champion's gates now, one per use.\n\n``heat_loss`` (U) guards the insulation score, the curve proposal, the what-if\nsteady state and the live balance; ``dynamics`` (D) the what-if cool-down and the\nroom-target planner; ``sun`` (S) the water planner.",
+        "properties": {
+          "dynamics": {
+            "$ref": "#/components/schemas/ModelGate"
+          },
+          "heat_loss": {
+            "$ref": "#/components/schemas/ModelGate"
+          },
+          "sun": {
+            "$ref": "#/components/schemas/ModelGate"
+          }
+        },
+        "required": [
+          "heat_loss",
+          "dynamics",
+          "sun"
         ],
         "type": "object"
       },
@@ -4375,9 +4591,11 @@
         "type": "object"
       },
       "HouseReady": {
-        "description": "``GET insight/house`` with a promoted model: the learner's insight and the score.\n\nThe learner's keys are passed through; ``proposal`` gains ``current_curve`` and\n``stale`` (whether the curve changed since the run).",
+        "description": "``GET insight/house`` with a promoted model: the learner's insight and the score.\n\nThe learner's keys are passed through; ``proposal`` gains ``current_curve`` and\n``stale`` (whether the curve changed since the run). ``revalidation`` is the last\nrun's check of this model (``null`` when the last run checked another or none).\n``gates`` are the model's three gates now (:class:`HouseGates`): the\nre-validation's when there is one, else the insight's frozen\n``credibility.gates``. ``credible`` is the heat-loss gate; the score and the\nproposal follow it. The learner's ``credibility`` holds ``credible`` (the heat-loss\ngate as fitted), ``gates`` (:class:`LearnedGates`) and the detail.",
         "properties": {
+          "at_bound": {},
           "balance_temperature_c": {},
+          "capacities_kwh_per_k": {},
           "champion": {
             "$ref": "#/components/schemas/Champion"
           },
@@ -4385,10 +4603,22 @@
             "additionalProperties": true,
             "type": "object"
           },
+          "credible": {
+            "type": "boolean"
+          },
           "daily_error": {},
           "data": {},
+          "emitter_time_constant_h": {},
           "error_trend": {},
           "events": {},
+          "excitation": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "gates": {
+            "$ref": "#/components/schemas/HouseGates"
+          },
+          "heat_capacity_kwh_per_k": {},
           "internal_gains_w": {},
           "last_run": {
             "anyOf": [
@@ -4410,6 +4640,16 @@
             "type": "object"
           },
           "provenance": {},
+          "revalidation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChampionRevalidation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "schema": {},
           "score": {
             "$ref": "#/components/schemas/HouseScore"
@@ -4420,6 +4660,7 @@
             "const": "ready",
             "type": "string"
           },
+          "structure": {},
           "time_constant_h": {},
           "ua": {
             "additionalProperties": true,
@@ -4430,6 +4671,9 @@
         "required": [
           "score",
           "state",
+          "credible",
+          "gates",
+          "revalidation",
           "champion",
           "last_run",
           "learner"
@@ -4664,13 +4908,42 @@
         "type": "object"
       },
       "HouseSeries": {
-        "description": "``GET insight/house/series``: the room, measured and as predicted 24 h earlier.\n\n``points`` are ``[time, measured, predicted]`` rows, oldest first; either value is\n``null`` where it is unknown (the prediction exists only inside the learner's\nheld-out block).",
+        "description": "``GET insight/house/series``: the room, measured and as predicted 24 h earlier.\n\n``points`` are ``[time, measured, predicted]`` rows, oldest first, starting at the\nfirst prediction; either value is ``null`` where it is unknown. The prediction is\nalso ``null`` where its 24 h path touches an event of ``events`` (shade them).\nPredictions from origins before ``out_of_sample_from`` are in-sample (the model had\nseen those days). ``rmse_k`` and ``bias_k`` (predicted minus measured) summarise\nthe ``compared_points`` out-of-sample points with both values; ``null`` without any\n(and for files of older learners).",
         "properties": {
+          "bias_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "compared_points": {
+            "type": "integer"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesEvent"
+            },
+            "type": "array"
+          },
           "from": {
             "type": "string"
           },
           "model": {
             "type": "string"
+          },
+          "out_of_sample_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "points": {
             "items": {
@@ -4705,6 +4978,16 @@
             },
             "type": "array"
           },
+          "rmse_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "step_s": {
             "type": "integer"
           },
@@ -4717,7 +5000,12 @@
           "step_s",
           "from",
           "to",
-          "points"
+          "points",
+          "events",
+          "out_of_sample_from",
+          "rmse_k",
+          "bias_k",
+          "compared_points"
         ],
         "type": "object"
       },
@@ -4767,7 +5055,7 @@
         "type": "object"
       },
       "HouseWhatIf": {
-        "description": "``GET insight/house/whatif``: what the house needs to hold comfort in a scenario.",
+        "description": "``GET insight/house/whatif``: what the house needs to hold comfort in a scenario.\n\n``credible`` is the model's heat-loss gate (the steady state);\n``drift.credible`` its dynamics gate (the cool-down).",
         "properties": {
           "balance_outside_c": {
             "type": "number"
@@ -5269,7 +5557,7 @@
         "type": "object"
       },
       "LastRun": {
-        "description": "The allow-listed essentials of the learner's last run (``status.json``).",
+        "description": "The allow-listed essentials of the learner's last run (``status.json``).\n\n``warnings`` are data notes the owner should see (a wood-stove episode without a\nrecorded end that was capped); ``champion_revalidation`` is ``null`` when the run\nhad no champion or the learner wrote none that the service accepts.",
         "properties": {
           "at": {
             "anyOf": [
@@ -5285,6 +5573,16 @@
             "anyOf": [
               {
                 "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "champion_revalidation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChampionRevalidation"
               },
               {
                 "type": "null"
@@ -5363,6 +5661,19 @@
                 "type": "null"
               }
             ]
+          },
+          "warnings": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object"
@@ -5373,6 +5684,75 @@
           "wide"
         ],
         "type": "string"
+      },
+      "LearnedGate": {
+        "description": "One credibility gate as the learner wrote it (checked by the service).\n\n``checks`` maps each check to ``{ok, value, limit, ...}`` (the learner's format);\n``needed`` holds the codes of what fails (codes the service does not know are\ndropped); ``uses`` names what the gate guards.",
+        "properties": {
+          "checks": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "needed": {
+            "items": {
+              "$ref": "#/components/schemas/GateNeed"
+            },
+            "type": "array"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "uses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ok",
+          "needed",
+          "message",
+          "reasons",
+          "uses",
+          "checks"
+        ],
+        "type": "object"
+      },
+      "LearnedGates": {
+        "description": "The three credibility gates of a model as the learner judged it.",
+        "properties": {
+          "dynamics": {
+            "$ref": "#/components/schemas/LearnedGate"
+          },
+          "heat_loss": {
+            "$ref": "#/components/schemas/LearnedGate"
+          },
+          "sun": {
+            "$ref": "#/components/schemas/LearnedGate"
+          }
+        },
+        "required": [
+          "heat_loss",
+          "dynamics",
+          "sun"
+        ],
+        "type": "object"
       },
       "LearnerHealth": {
         "description": "When the learner last ran and whether that is too long ago.",
@@ -5463,6 +5843,40 @@
           "manual"
         ],
         "type": "string"
+      },
+      "ModelGate": {
+        "description": "One gate of the champion now.\n\n``source`` is ``revalidated`` (the last run's check of this model), ``fitted``\n(its own gates when it was fitted) or ``legacy`` (a model fitted before the gates:\nits old credibility as the heat-loss gate, its old prediction check as the dynamics\ngate, the sun gate not judged until the next run). ``message`` says what fails\n(``null`` when ``ok``).",
+        "properties": {
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "needed": {
+            "items": {
+              "$ref": "#/components/schemas/GateNeed"
+            },
+            "type": "array"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "source": {
+            "$ref": "#/components/schemas/GateSource"
+          }
+        },
+        "required": [
+          "ok",
+          "needed",
+          "message",
+          "source"
+        ],
+        "type": "object"
       },
       "ModelGuard": {
         "enum": [
@@ -8681,6 +9095,38 @@
         ],
         "type": "string"
       },
+      "SeriesEvent": {
+        "description": "A known event in reach of the series: the anomaly ``from``-``to`` and its tail.",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SeriesEventKind"
+          },
+          "tail_to": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "from",
+          "to",
+          "tail_to"
+        ],
+        "type": "object"
+      },
+      "SeriesEventKind": {
+        "enum": [
+          "stove",
+          "stove_mode",
+          "excluded_day"
+        ],
+        "type": "string"
+      },
       "ServerMessage": {
         "discriminator": {
           "mapping": {
@@ -10386,8 +10832,11 @@
         ]
       },
       "WhatIfDrift": {
-        "description": "The room temperature with the heating off, from the comfort steady state.",
+        "description": "The room temperature with the heating off, from the comfort steady state.\n\n``credible`` is the model's dynamics gate (always ``false`` for an estimate).",
         "properties": {
+          "credible": {
+            "type": "boolean"
+          },
           "hours": {
             "type": "integer"
           },
@@ -10402,6 +10851,7 @@
           }
         },
         "required": [
+          "credible",
           "hours",
           "step_s",
           "room_c"

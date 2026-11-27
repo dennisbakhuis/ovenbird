@@ -141,11 +141,17 @@ export function houseFactsStored(now = Date.now()): Values {
   return {
     house_build_period: '1975_1991',
     house_occupants: 3,
-    house_floor_heating_share: 0.6,
     house_ua_min_w_per_k: 200,
     house_ua_max_w_per_k: 300,
     house_learn_excluded_days: [new Date(now - 9 * DAY_MS).toISOString().slice(0, 10)],
   };
+}
+
+/**
+ * Stored house settings of the `house:pin-cost` scenario: the heat loss pinned to one value.
+ */
+export function housePinStored(): Values {
+  return { house_ua_min_w_per_k: 300, house_ua_max_w_per_k: 300 };
 }
 
 export function initialConfigState(now = Date.now(), extra: Values = {}): ConfigState {

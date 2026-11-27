@@ -177,8 +177,115 @@ class HouseScore(ApiModel):
     message: str = absent()
 
 
+type GateNeed = Literal[
+    "no_signature",
+    "more_heating_days",
+    "more_outside_spread",
+    "ua_interval_wide",
+    "ua_disagrees",
+    "ua_unstable",
+    "no_dynamics_skill",
+    "more_sunny_days",
+    "no_sun_skill",
+    "sun_response_off",
+    "legacy_model",
+]
+type GateSource = Literal["fitted", "revalidated", "legacy"]
+
+
+class LearnedGate(ApiModel):
+    """One credibility gate as the learner wrote it (checked by the service).
+
+    ``checks`` maps each check to ``{ok, value, limit, ...}`` (the learner's format);
+    ``needed`` holds the codes of what fails (codes the service does not know are
+    dropped); ``uses`` names what the gate guards.
+    """
+
+    ok: bool
+    needed: list[GateNeed]
+    message: str | None
+    reasons: list[str]
+    uses: list[str]
+    checks: JsonObject
+
+
+class LearnedGates(ApiModel):
+    """The three credibility gates of a model as the learner judged it."""
+
+    heat_loss: LearnedGate
+    dynamics: LearnedGate
+    sun: LearnedGate
+
+
+class ModelGate(ApiModel):
+    """One gate of the champion now.
+
+    ``source`` is ``revalidated`` (the last run's check of this model), ``fitted``
+    (its own gates when it was fitted) or ``legacy`` (a model fitted before the gates:
+    its old credibility as the heat-loss gate, its old prediction check as the dynamics
+    gate, the sun gate not judged until the next run). ``message`` says what fails
+    (``null`` when ``ok``).
+    """
+
+    ok: bool
+    needed: list[GateNeed]
+    message: str | None
+    source: GateSource
+
+
+class HouseGates(ApiModel):
+    """The champion's gates now, one per use.
+
+    ``heat_loss`` (U) guards the insulation score, the curve proposal, the what-if
+    steady state and the live balance; ``dynamics`` (D) the what-if cool-down and the
+    room-target planner; ``sun`` (S) the water planner.
+    """
+
+    heat_loss: ModelGate
+    dynamics: ModelGate
+    sun: ModelGate
+
+
+class ChampionRevalidation(ApiModel):
+    """The latest run's check of the model ``current.json`` names (``status.json``).
+
+    ``source`` is ``held_out`` when that run promoted the model (its own held-out
+    validation) and ``revalidated`` when the run kept it and scored it again on the
+    newest held-out days (``from`` to ``to``; ``in_sample`` when the model had seen
+    part of them). ``gates`` are the model's three gates as of that run (``null`` from
+    a learner before the gates); ``credible`` is its heat-loss gate and ``reasons``
+    say what fails there. Errors are room RMSE in K over the first 24 h, ``skill`` is
+    ``1 - model / persistence`` over ``skill_horizon_h``, ``series_*`` the 24 h-ahead
+    error and bias of the model's room series.
+    """
+
+    model: str
+    at: str | None
+    source: Literal["held_out", "revalidated"]
+    data_to: str | None
+    fitted_to: str | None
+    from_: str | None = Field(alias="from")
+    to: str | None
+    origins: int
+    in_sample: bool
+    room_rmse_k: Number | None
+    persistence_room_rmse_k: Number | None
+    skill_horizon_h: Number | None
+    skill: Number | None
+    series_rmse_k: Number | None
+    series_bias_k: Number | None
+    credible: bool
+    reasons: list[str]
+    gates: LearnedGates | None
+
+
 class LastRun(ApiModel):
-    """The allow-listed essentials of the learner's last run (``status.json``)."""
+    """The allow-listed essentials of the learner's last run (``status.json``).
+
+    ``warnings`` are data notes the owner should see (a wood-stove episode without a
+    recorded end that was capped); ``champion_revalidation`` is ``null`` when the run
+    had no champion or the learner wrote none that the service accepts.
+    """
 
     at: str | None = absent()
     outcome: str | None = absent()
@@ -189,6 +296,8 @@ class LastRun(ApiModel):
     error: str | None = absent()
     runtime_s: Number | None = absent()
     interval_h: Number | None = absent()
+    warnings: list[str] | None = absent()
+    champion_revalidation: ChampionRevalidation | None = absent()
 
 
 class LearnerHealth(ApiModel):
@@ -221,7 +330,13 @@ class HouseReady(ApiModel):
     """``GET insight/house`` with a promoted model: the learner's insight and the score.
 
     The learner's keys are passed through; ``proposal`` gains ``current_curve`` and
-    ``stale`` (whether the curve changed since the run).
+    ``stale`` (whether the curve changed since the run). ``revalidation`` is the last
+    run's check of this model (``null`` when the last run checked another or none).
+    ``gates`` are the model's three gates now (:class:`HouseGates`): the
+    re-validation's when there is one, else the insight's frozen
+    ``credibility.gates``. ``credible`` is the heat-loss gate; the score and the
+    proposal follow it. The learner's ``credibility`` holds ``credible`` (the heat-loss
+    gate as fitted), ``gates`` (:class:`LearnedGates`) and the detail.
     """
 
     schema_: Any = absent("schema")
@@ -233,8 +348,14 @@ class HouseReady(ApiModel):
     internal_gains_w: Any = absent()
     balance_temperature_c: Any = absent()
     signature: Any = absent()
+    heat_capacity_kwh_per_k: Any = absent()
+    capacities_kwh_per_k: Any = absent()
+    emitter_time_constant_h: Any = absent()
+    structure: Any = absent()
+    excitation: JsonObject = absent()
     credibility: JsonObject = absent()
     validation: Any = absent()
+    at_bound: Any = absent()
     error_trend: Any = absent()
     daily_error: Any = absent()
     proposal: JsonObject = absent()
@@ -243,6 +364,9 @@ class HouseReady(ApiModel):
     provenance: Any = absent()
     score: HouseScore
     state: Literal["ready"]
+    credible: bool
+    gates: HouseGates
+    revalidation: ChampionRevalidation | None
     champion: Champion
     last_run: LastRun | None
     learner: LearnerHealth
@@ -342,15 +466,30 @@ type BalanceNote = Literal[
     "heat_unknown",
     "defrost",
     "stove_active",
+    "stove_tail",
 ]
+type SeriesEventKind = Literal["stove", "stove_mode", "excluded_day"]
+
+
+class SeriesEvent(ApiModel):
+    """A known event in reach of the series: the anomaly ``from``-``to`` and its tail."""
+
+    kind: SeriesEventKind
+    from_: str = Field(alias="from")
+    to: str
+    tail_to: str
 
 
 class HouseSeries(ApiModel):
     """``GET insight/house/series``: the room, measured and as predicted 24 h earlier.
 
-    ``points`` are ``[time, measured, predicted]`` rows, oldest first; either value is
-    ``null`` where it is unknown (the prediction exists only inside the learner's
-    held-out block).
+    ``points`` are ``[time, measured, predicted]`` rows, oldest first, starting at the
+    first prediction; either value is ``null`` where it is unknown. The prediction is
+    also ``null`` where its 24 h path touches an event of ``events`` (shade them).
+    Predictions from origins before ``out_of_sample_from`` are in-sample (the model had
+    seen those days). ``rmse_k`` and ``bias_k`` (predicted minus measured) summarise
+    the ``compared_points`` out-of-sample points with both values; ``null`` without any
+    (and for files of older learners).
     """
 
     model: str
@@ -358,6 +497,11 @@ class HouseSeries(ApiModel):
     from_: str = Field(alias="from")
     to: str
     points: list[tuple[str, Number | None, Number | None]]
+    events: list[SeriesEvent]
+    out_of_sample_from: str | None
+    rmse_k: Number | None
+    bias_k: Number | None
+    compared_points: int
 
 
 class WhatIfInputs(ApiModel):
@@ -370,15 +514,23 @@ class WhatIfInputs(ApiModel):
 
 
 class WhatIfDrift(ApiModel):
-    """The room temperature with the heating off, from the comfort steady state."""
+    """The room temperature with the heating off, from the comfort steady state.
 
+    ``credible`` is the model's dynamics gate (always ``false`` for an estimate).
+    """
+
+    credible: bool
     hours: int
     step_s: int
     room_c: list[Number]
 
 
 class HouseWhatIf(ApiModel):
-    """``GET insight/house/whatif``: what the house needs to hold comfort in a scenario."""
+    """``GET insight/house/whatif``: what the house needs to hold comfort in a scenario.
+
+    ``credible`` is the model's heat-loss gate (the steady state);
+    ``drift.credible`` its dynamics gate (the cool-down).
+    """
 
     source: HouseSource
     model: str | None
@@ -409,7 +561,10 @@ class BalanceFlows(ApiModel):
 
 
 class HouseBalance(ApiModel):
-    """``GET insight/house/balance``: the heat balance of the house right now."""
+    """``GET insight/house/balance``: the heat balance of the house right now.
+
+    ``credible`` is the model's heat-loss gate.
+    """
 
     at: str
     source: HouseSource

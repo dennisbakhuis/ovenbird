@@ -9,14 +9,18 @@ import pytest
 from ovenbird_core.housefacts import HouseFacts, estimate
 from ovenbird_sim.data.dataset import Dataset
 from ovenbird_sim.data.synthetic import simulated_dataset
+from ovenbird_sim.heishamon.reference import REFERENCE_BUILDING
 from ovenbird_sim.identify import io
 from ovenbird_sim.identify.building import (
     BOUNDS,
+    CHAIN_FIXED,
+    DEFAULT_PRIORS,
     LIN_FIELDS,
     LOG_FIELDS,
     PRIOR_MEAN,
     PRIOR_SD,
     BuildingFit,
+    ConstraintError,
     FitConfig,
     ParamPrior,
     Priors,
@@ -459,3 +463,104 @@ def test_wrong_facts_by_a_factor_two_are_overruled(
     assert p.solar_aperture_m2 == pytest.approx(TRUE_BUILDING.solar_aperture_m2, rel=0.1)
     assert p.q_int_w == pytest.approx(free_fit.params.q_int_w, rel=0.25)
     assert fit.rmse_room < 0.05
+
+
+def _cloudy_windows(p: BuildingParams, days: int, seed: int = 3) -> Windows:
+    rng = np.random.default_rng(seed)
+    n = days * STEPS
+    t = np.arange(n, dtype=np.float64) * DT
+    hour = (t / 3600.0) % 24.0
+    period = rng.integers(18, 48, size=n // 18 + 1).repeat(18)[:n]
+    phase = (np.arange(n) % period) < (period * rng.uniform(0.3, 0.7))
+    level = rng.uniform(1500.0, 4500.0, size=n // 36 + 1).repeat(36)[:n]
+    heat = np.where(phase, level, 0.0)
+    outside = 5.0 + 4.0 * np.sin(2 * np.pi * (hour - 9.0) / 24.0) + 4.0 * np.sin(t / 86400.0 / 3.0)
+    clear = rng.uniform(0.05, 1.0, days).repeat(STEPS)
+    ghi = clear * np.clip(450.0 * np.sin(np.pi * (hour - 8.0) / 8.5), 0.0, None)
+    u = np.column_stack([heat, outside, ghi, internal_gains(p, hour)])[None]
+    x = simulate_batch(p, DT, np.array([[28.0, 24.0, 21.0]]), u)[0]
+    y_w = x[:, 0] + rng.normal(0.0, 0.05, x.shape[0])
+    y_a = x[:, 2] + rng.normal(0.0, 0.05 / 3.0, x.shape[0])
+    idx = np.arange(days)[:, None] * STEPS
+    steps = idx + np.arange(STEPS)[None]
+    obs = idx + np.arange(STEPS + 1)[None]
+    return Windows(
+        DT,
+        (idx[:, 0] * DT).astype(np.float64),
+        np.stack([heat[steps], outside[steps], ghi[steps]], axis=-1),
+        hour[steps],
+        y_w[obs],
+        y_a[obs],
+        np.full(steps.shape, 25.0),
+    )
+
+
+def test_the_chain_recovers_a_chain_house() -> None:
+    truth = replace(REFERENCE_BUILDING, **dict(CHAIN_FIXED))
+    fit = fit_building(_cloudy_windows(truth, 14), FitConfig())
+    p = fit.params
+    assert {n: getattr(p, n) for n in CHAIN_FIXED} == dict(CHAIN_FIXED)
+    assert p.h_air_out == pytest.approx(truth.h_air_out, rel=0.02)
+    assert p.solar_aperture_m2 == pytest.approx(truth.solar_aperture_m2, rel=0.02)
+    assert p.time_constant_h == pytest.approx(truth.time_constant_h, rel=0.02)
+    assert p.q_int_w == pytest.approx(truth.q_int_w, rel=0.05)
+
+
+def test_the_chain_on_the_reference_house_stays_close() -> None:
+    win = _cloudy_windows(REFERENCE_BUILDING, 14)
+    chain = fit_building(win, FitConfig()).params
+    assert chain.h_air_out / REFERENCE_BUILDING.h_air_out - 1.0 == pytest.approx(0.0, abs=0.07)
+    assert chain.solar_aperture_m2 / REFERENCE_BUILDING.solar_aperture_m2 - 1.0 == pytest.approx(
+        0.0, abs=0.15
+    )
+    assert chain.time_constant_h / REFERENCE_BUILDING.time_constant_h - 1.0 == pytest.approx(
+        0.0, abs=0.08
+    )
+    free = fit_building(win, FitConfig(), priors=DEFAULT_PRIORS.with_free()).params
+    assert free.h_air_out == pytest.approx(REFERENCE_BUILDING.h_air_out, rel=0.01)
+    assert free.solar_aperture_m2 == pytest.approx(REFERENCE_BUILDING.solar_aperture_m2, rel=0.02)
+    assert free.solar_mass_fraction == pytest.approx(
+        REFERENCE_BUILDING.solar_mass_fraction, abs=0.03
+    )
+
+
+def test_freeing_the_held_parameters_reproduces_the_free_fit(windows: Windows) -> None:
+    free = DEFAULT_PRIORS.with_free()
+    assert free.fixed == {}
+    assert free.params == DEFAULT_PRIORS.params
+    rebuilt = Priors(
+        {
+            n: ParamPrior(PRIOR_MEAN[n], PRIOR_SD[n], BOUNDS[n][0], BOUNDS[n][1])
+            for n in (*LOG_FIELDS, *LIN_FIELDS)
+        },
+        fixed={},
+    )
+    a = fit_building(windows, FitConfig(), priors=free)
+    b = fit_building(windows, FitConfig(), priors=rebuilt)
+    assert asdict(a.params) == asdict(b.params)
+    assert a.params.h_water_air != CHAIN_FIXED["h_water_air"]
+    assert DEFAULT_PRIORS.with_free("solar_mass_fraction").fixed.keys() == {
+        "h_water_air",
+        "q_int_modulation",
+        "q_int_peak_hour",
+    }
+
+
+def test_held_parameters_cannot_be_pinned_or_bounded() -> None:
+    for name in CHAIN_FIXED:
+        with pytest.raises(ConstraintError, match="held by the model structure"):
+            DEFAULT_PRIORS.pin(name, CHAIN_FIXED[name])
+    with pytest.raises(ConstraintError):
+        DEFAULT_PRIORS.restricted("h_water_air", 10.0, 50.0)
+    assert DEFAULT_PRIORS.with_free("h_water_air").pin("h_water_air", 40.0).pinned == {
+        "h_water_air": 40.0
+    }
+
+
+def test_a_model_file_from_before_the_chain_loads_unchanged(tmp_path: Path) -> None:
+    old = PlantParams(HeatPumpParams(), TRUE_BUILDING)
+    path = io.save(tmp_path / "old.json", old)
+    loaded = io.load(path)
+    assert loaded.building == TRUE_BUILDING
+    assert loaded.building.h_water_air == 60.0
+    assert loaded.building.solar_mass_fraction == 0.3
