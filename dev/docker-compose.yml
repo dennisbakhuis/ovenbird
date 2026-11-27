@@ -134,8 +134,10 @@ services:
       - mosquitto
       - heishamon-sim
 
-  # Optional house-model learner (COMPOSE_PROFILES=learner): refits the house model on
-  # ovenbird's history snapshot every LEARNER_EVERY_H hours (weekly by default; the first
+  # Optional house-model learner (COMPOSE_PROFILES=learner). The ovenbird service runs the
+  # learner itself by default (house_learn_enabled); use this container instead of that,
+  # with house_learn_enabled set to false, not next to it: both write models/.
+  # It refits the house model on ovenbird's history snapshot every LEARNER_EVERY_H hours (weekly by default; the first
   # run after LEARNER_DELAY_S) and writes models/*.json, which ovenbird serves under
   # api/v1/insight/house. It sees two sub-directories of the data volume only (both
   # created by ovenbird at start): learner/ read-only (learner-config.json and the

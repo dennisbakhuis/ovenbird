@@ -288,6 +288,12 @@ export const fields: Record<keyof typeof en, string> = {
   'cfg.house_floor_area_m2.label': 'Verwarmd vloeroppervlak',
   'cfg.house_floor_area_m2.help':
     'Het verwarmde vloeroppervlak van het huis in m², voor de indicatieve isolatiescore op de pagina Huis (warmteverlies per m²). Laat leeg om alleen het warmteverlies in W/K te zien.',
+  'cfg.house_learn_enabled.label': 'Huismodel leren',
+  'cfg.house_learn_enabled.help':
+    'Laat ovenbird het huismodel zelf leren uit zijn eigen geschiedenis. Zet het uit om nieuwe runs te stoppen; het model dat in gebruik is blijft.',
+  'cfg.house_learn_interval_h.label': 'Leerinterval',
+  'cfg.house_learn_interval_h.help':
+    'Uren tussen twee leerrondes, van 24 (dagelijks) tot 720 (maandelijks). Standaard 168, eens per week.',
   'cfg.mqtt_host.help':
     'Hostnaam of IP-adres van de MQTT-broker waarop HeishaMon publiceert, zoals 192.0.2.20 of mosquitto.',
   'cfg.mqtt_port.help': 'De poort van de broker: meestal 1883, of 8883 met TLS.',

@@ -15,11 +15,15 @@ dependencies = [
     "websockets>=17.4",
 ]
 
+[project.optional-dependencies]
+learner = ["ovenbird-sim"]
+
 [project.scripts]
 ovenbird = "ovenbird.__main__:main"
 
 [tool.uv.sources]
 ovenbird-core = { workspace = true }
+ovenbird-sim = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

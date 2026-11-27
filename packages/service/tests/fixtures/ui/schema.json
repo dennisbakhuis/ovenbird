@@ -2011,6 +2011,42 @@
       "type": "number",
       "unit": "m²"
     },
+    "house_learn_enabled": {
+      "display": null,
+      "editable": true,
+      "env": "OVENBIRD_HOUSE_LEARN_ENABLED",
+      "exclusive_max": false,
+      "exclusive_min": false,
+      "group": "house",
+      "max": null,
+      "min": null,
+      "nullable": false,
+      "preset_default": false,
+      "soft_max": null,
+      "soft_min": null,
+      "step": null,
+      "tier": "basic",
+      "type": "boolean",
+      "unit": null
+    },
+    "house_learn_interval_h": {
+      "display": "h",
+      "editable": true,
+      "env": "OVENBIRD_HOUSE_LEARN_INTERVAL_H",
+      "exclusive_max": false,
+      "exclusive_min": false,
+      "group": "house",
+      "max": 720.0,
+      "min": 24.0,
+      "nullable": false,
+      "preset_default": false,
+      "soft_max": 336.0,
+      "soft_min": 24.0,
+      "step": 24.0,
+      "tier": "advanced",
+      "type": "number",
+      "unit": "h"
+    },
     "http_allowed_origins": {
       "display": null,
       "editable": false,
@@ -2876,7 +2912,9 @@
     },
     {
       "fields": [
-        "house_floor_area_m2"
+        "house_floor_area_m2",
+        "house_learn_enabled",
+        "house_learn_interval_h"
       ],
       "id": "house"
     },

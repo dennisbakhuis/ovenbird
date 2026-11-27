@@ -11,7 +11,7 @@ WORKDIR /src
 COPY pyproject.toml uv.lock .python-version ./
 COPY capture/pyproject.toml capture/README.md ./capture/
 COPY packages/ ./packages/
-RUN uv sync --frozen --no-dev --no-editable --package ovenbird --python /usr/local/bin/python3
+RUN uv sync --frozen --no-dev --no-editable --package ovenbird --extra learner --python /usr/local/bin/python3
 
 # Simulated HeishaMon for the dev stack (target heishamon-sim). These stages are not
 # ancestors of the runtime stage, so the production image holds no simulator code or data.
@@ -23,7 +23,7 @@ COPY pyproject.toml uv.lock .python-version ./
 COPY capture/pyproject.toml capture/README.md ./capture/
 COPY capture/src/ ./capture/src/
 COPY packages/ ./packages/
-RUN uv sync --frozen --no-dev --no-editable --package ovenbird-sim --python /usr/local/bin/python3
+RUN uv sync --frozen --no-dev --no-editable --package ovenbird-sim --extra tools --python /usr/local/bin/python3
 
 FROM python:3.14-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS heishamon-sim
 ENV PATH=/opt/venv/bin:$PATH \
@@ -36,13 +36,16 @@ ENTRYPOINT ["python", "-m", "ovenbird_sim.heishamon"]
 CMD ["--host", "mosquitto", "--port", "1883", "--scenario", "cold-week", "--speed", "60"]
 
 # House-model learner (target learner): refits the house model on the service's history
-# snapshot and writes JSON into the models directory the service reads. It carries the
-# scientific stack (numpy, scipy), so it is its own image; the runtime stage below stays
-# without it. It runs as its own user (uid 10003) in the service's group (gid 10001) and
-# needs two sub-directories of the data volume only: learner/ read-only (the service
-# writes learner-config.json and history.snapshot.db there, mode 0750/0640) at /learner,
-# and models/ (mode 2770, its output) at /models. Never mount the whole data volume: it
-# holds options.json, config.db and the live history. See packages/service/README.md.
+# snapshot and writes JSON into the models directory the service reads. The runtime stage
+# below carries the same learner (numpy, scipy, ovenbird_sim without the tools extra,
+# through the service's learner extra) and the service starts it itself as a child
+# process; this image is for running it standalone, in isolation, when house_learn_enabled
+# is off or the runtime image lacks the extra. Run one of the two, not both. It runs as its
+# own user (uid 10003) in the service's group (gid 10001) and needs two sub-directories of
+# the data volume only: learner/ read-only (the service writes learner-config.json and
+# history.snapshot.db there, mode 0750/0640) at /learner, and models/ (mode 2770, its
+# output) at /models. Never mount the whole data volume: it holds options.json, config.db
+# and the live history. See packages/service/README.md.
 FROM python:3.14-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS learner
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \

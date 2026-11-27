@@ -280,6 +280,12 @@ export const fields = {
   'cfg.house_floor_area_m2.label': 'Heated floor area',
   'cfg.house_floor_area_m2.help':
     'The heated floor area of the house in m², for the indicative insulation score on the House page (heat loss per m²). Leave empty to see only the heat loss in W/K.',
+  'cfg.house_learn_enabled.label': 'Learn the house model',
+  'cfg.house_learn_enabled.help':
+    'Lets ovenbird fit the house model itself, on its own history. Switch it off to stop new runs; the model in use stays.',
+  'cfg.house_learn_interval_h.label': 'Learning interval',
+  'cfg.house_learn_interval_h.help':
+    'Hours between two learning runs, from 24 (daily) to 720 (monthly). The default is 168, once a week.',
   'cfg.mqtt_host.help':
     'Host name or IP address of the MQTT broker HeishaMon publishes to, such as 192.0.2.20 or mosquitto.',
   'cfg.mqtt_port.help': "The broker's port: usually 1883, or 8883 with TLS.",

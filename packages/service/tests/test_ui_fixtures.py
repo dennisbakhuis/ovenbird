@@ -33,6 +33,8 @@ from ovenbird.control.alarms import (
 from ovenbird.control.envelope import STATES as ENVELOPE_STATES
 from ovenbird.control.monitors import MonitorStatus
 from ovenbird.hacheck import ERROR_CODES
+from ovenbird.insight.learnrun import FAILURE_REASONS, STATES
+from ovenbird.insight.learnrun import REFUSAL_CODES as LEARNER_REFUSALS
 from ovenbird.mqttcheck import ERROR_CODES as MQTT_ERROR_CODES
 from ovenbird.notify.notifier import HEALTH_STATES
 from ovenbird.pump.settings import OWNERS, REFUSAL_CODES, SETTING_IDS
@@ -72,6 +74,7 @@ AUDIT_ACTIONS = (
     "mqtt_connection",
     "mqtt_connection_reverted",
     "archive_delete",
+    "house_learn_run",
 )
 
 
@@ -173,6 +176,9 @@ def codes() -> dict[str, list[str]]:
         "envelope_rule_state": list(ENVELOPE_STATES),
         "ha_test_error": list(ERROR_CODES),
         "mqtt_test_error": list(MQTT_ERROR_CODES),
+        "learner_refusal": list(LEARNER_REFUSALS),
+        "learner_state": list(STATES),
+        "learner_failure": list(FAILURE_REASONS),
     }
 
 

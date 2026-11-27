@@ -4246,6 +4246,139 @@
           }
         ]
       },
+      "HouseRun": {
+        "description": "``GET`` and ``POST insight/house/run``: the embedded learner's state and schedule.",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HouseRunFailure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "interval_h": {
+            "type": "number"
+          },
+          "last": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HouseRunLast"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_due_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/RunState"
+          }
+        },
+        "required": [
+          "state",
+          "enabled",
+          "started_at",
+          "next_due_at",
+          "interval_h",
+          "last",
+          "failure"
+        ],
+        "type": "object"
+      },
+      "HouseRunFailure": {
+        "description": "The service's last failed attempt to run the learner.",
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/RunFailureReason"
+          }
+        },
+        "required": [
+          "at",
+          "reason",
+          "detail"
+        ],
+        "type": "object"
+      },
+      "HouseRunLast": {
+        "description": "The learner's last run as ``status.json`` reports it.",
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "runtime_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "at",
+          "outcome",
+          "message",
+          "runtime_s",
+          "model"
+        ],
+        "type": "object"
+      },
       "HouseScore": {
         "description": "The indicative insulation score, recomputed for the current floor area.",
         "properties": {
@@ -7726,6 +7859,23 @@
         ],
         "type": "object"
       },
+      "RunFailureReason": {
+        "enum": [
+          "timeout",
+          "memory",
+          "exit",
+          "spawn"
+        ],
+        "type": "string"
+      },
+      "RunState": {
+        "enum": [
+          "idle",
+          "running",
+          "unavailable"
+        ],
+        "type": "string"
+      },
       "RunStats": {
         "description": "Compressor run statistics of a span.",
         "properties": {
@@ -11199,6 +11349,40 @@
           }
         },
         "summary": "Proposal Draft"
+      }
+    },
+    "/api/v1/insight/house/run": {
+      "get": {
+        "operationId": "house_run_api_v1_insight_house_run_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HouseRun"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "House Run"
+      },
+      "post": {
+        "operationId": "start_house_run_api_v1_insight_house_run_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HouseRun"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Start House Run"
       }
     },
     "/api/v1/insight/runs": {

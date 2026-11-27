@@ -37,11 +37,11 @@
     activity: { key: 'navActivity', icon: 'bell' },
     system: { key: 'navSystem', icon: 'cpu' },
     more: { key: 'navMore', icon: 'more' },
-    house: { key: 'navHouse', icon: 'home' },
+    house: { key: 'navHouse', icon: 'house' },
   };
 
   const LANGUAGE_OPTIONS: LanguagePreference[] = ['auto', ...LANGUAGES];
-  const TOP: NavRoute[] = ['home', 'setpoint', 'weather', 'pump', 'settings'];
+  const TOP: NavRoute[] = ['home', 'setpoint', 'weather', 'pump', 'house'];
   const BOTTOM: NavRoute[] = ['home', 'setpoint', 'weather', 'pump', 'more'];
   const MORE_GROUP: Route[] = ['more', 'settings', 'activity', 'system', 'house'];
   const isCurrent = (route: Route, bottom = false) =>
@@ -172,6 +172,16 @@
           <span class="sim-short" aria-hidden="true">{t('simBadgeShort')}</span>
         </span>
       {/if}
+      <a
+        class="tool desk"
+        href="#/settings"
+        aria-current={isCurrent('settings') ? 'page' : undefined}
+        aria-label={t('navSettings')}
+        title={t('navSettings')}
+        data-testid="nav-settings"
+      >
+        <Icon name="settings" size={20} />
+      </a>
       <a
         class="tool desk"
         href="#/activity"

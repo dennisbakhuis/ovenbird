@@ -177,9 +177,13 @@ stream, so they are not stored.
 ## House-model learner
 
 The learner refits the house model on ovenbird's history and writes JSON that ovenbird
-serves under `api/v1/insight/house` (see `docs/design.md`, House insight). It is the
-optional compose service `learner` (root `Dockerfile` target `learner`, with numpy and
-scipy; the ovenbird image stays without them):
+serves under `api/v1/insight/house` (see `docs/design.md`, House insight). The ovenbird
+service runs it itself by default (the image carries numpy and scipy through the `learner`
+extra; weekly at night and on request, see `packages/service/README.md`), so the simulated
+stack needs nothing extra. The optional compose service `learner` (root `Dockerfile`
+target `learner`) is only for running it in isolation: use it instead of the built-in
+learner, with `house_learn_enabled` set to false, never next to it, because both write
+`models/`:
 
 ```fish
 COMPOSE_PROFILES=learner docker compose -f dev/docker-compose.yml up -d learner

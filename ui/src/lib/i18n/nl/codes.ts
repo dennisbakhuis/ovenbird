@@ -269,6 +269,7 @@ export const codes: Record<keyof typeof en, string> = {
   alarmText_room_unit_refused:
     'De kamersensor meldt geen temperatuureenheid en Home Assistant gebruikt geen °C, dus de waarde wordt niet gebruikt.',
   audit_archive_delete: 'Verwijderd uit het jaararchief',
+  audit_house_learn_run: 'Leerprogramma van het huismodel met de hand gestart',
   audit_ha_connection: 'Verbinding met Home Assistant gewijzigd',
   alarm_outside_sensor_stale: 'Buitensensor niet vers',
   alarmText_outside_sensor_stale:

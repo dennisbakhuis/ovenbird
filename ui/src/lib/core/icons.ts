@@ -68,6 +68,8 @@ function octagon(r: number): string {
  */
 export const ICONS = {
   home: 'M3.5 11 12 4l8.5 7M5.5 9.5V20h13V9.5M10 20v-5.5h4V20',
+  house:
+    'M2.5 12 12 3.5l9.5 8.5M16 7.2V4.5h2.5v5.3M5.5 10.5v10h13v-10M9 13.5h2.5V16H9zM14 20.5V16.5h2.5v4',
   target: circle(12, 12, 8.5) + circle(12, 12, 4.5) + 'M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3',
   weather:
     'M8.5 3v1.5M3.5 8.5H5M5 5l1 1M12 5l-1 1' +

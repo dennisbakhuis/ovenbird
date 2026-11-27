@@ -41,6 +41,11 @@ export type PumpPhase = 'idle' | 'heating' | 'defrost' | 'dhw';
  * - `house`: learning (no model promoted yet: 200 with `state: learning`) | notrun (the learner
  *   never ran) | noarea (no floor area: no band) | uncredible (a model, but too few cold days for a
  *   score and a credible proposal); default: a ready, credible model
+ * - `learner`: running (a learner run is going and never finishes) | unavailable (no built-in
+ *   learner: state `unavailable`, `POST insight/house/run` answers 409 `learner_unavailable`) |
+ *   failed (the last run failed with a timeout; a manual run clears it) | disabled (automatic
+ *   learning off: `enabled` false, no next run); default: idle, last run promoted 2 h ago. A
+ *   manual run (`POST insight/house/run`) runs for four seconds, then ends `kept`, per cookie
  * - `notify`: off (ntfy not configured) | failing (the last test failed, dead-man unhealthy);
  *   default: configured, tested, dead-man alive
  * - `snapshot`: none (no go-live snapshot recorded yet)
@@ -81,6 +86,7 @@ export interface Scenario {
   simulation?: 'on';
   stove?: 'active' | 'manual' | 'waiting' | 'disabled';
   house?: 'learning' | 'notrun' | 'noarea' | 'uncredible';
+  learner?: 'running' | 'unavailable' | 'failed' | 'disabled';
   notify?: 'off' | 'failing';
   snapshot?: 'none';
   envelope?: 'proven' | 'none';
@@ -110,6 +116,7 @@ export const SCENARIO_OPTIONS: {
   simulation: ['on'],
   stove: ['active', 'manual', 'waiting', 'disabled'],
   house: ['learning', 'notrun', 'noarea', 'uncredible'],
+  learner: ['running', 'unavailable', 'failed', 'disabled'],
   notify: ['off', 'failing'],
   snapshot: ['none'],
   envelope: ['proven', 'none'],

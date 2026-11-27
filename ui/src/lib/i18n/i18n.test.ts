@@ -40,6 +40,9 @@ const PREFIXES: Record<string, string[]> = {
   notify_health: ['notifyHealth_'],
   ha_test_error: ['haTest_'],
   mqtt_test_error: ['mqttTest_'],
+  learner_failure: ['houseRunFailure_'],
+  learner_refusal: ['houseRunRefused_'],
+  learner_state: ['houseRunPill_'],
 };
 
 describe('i18n completeness', () => {

@@ -67,7 +67,8 @@
     "ha_connection",
     "mqtt_connection",
     "mqtt_connection_reverted",
-    "archive_delete"
+    "archive_delete",
+    "house_learn_run"
   ],
   "binding": [
     "cycling_floor",
@@ -160,6 +161,21 @@
     "curve_only",
     "hold",
     "refuse"
+  ],
+  "learner_failure": [
+    "timeout",
+    "memory",
+    "exit",
+    "spawn"
+  ],
+  "learner_refusal": [
+    "learner_running",
+    "learner_unavailable"
+  ],
+  "learner_state": [
+    "idle",
+    "running",
+    "unavailable"
   ],
   "mode": [
     "off",

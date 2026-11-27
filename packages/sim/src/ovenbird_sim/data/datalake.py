@@ -16,14 +16,15 @@ from __future__ import annotations
 import json
 import math
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 import numpy as np
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 from ovenbird_sim import local
 from ovenbird_sim.data.series import Series
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 STATES_DIR: Final = "states"
 
@@ -46,6 +47,9 @@ def entities(root: Path) -> list[str]:
 
 
 def _read_table(root: Path, entity_id: str) -> pa.Table | None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
     files = sorted(entity_dir(root, entity_id).rglob("*.parquet"))
     if not files:
         return None
@@ -54,6 +58,8 @@ def _read_table(root: Path, entity_id: str) -> pa.Table | None:
 
 
 def _unix_seconds(column: pa.ChunkedArray[Any]) -> np.ndarray:
+    import pyarrow as pa
+
     micros = column.cast(pa.timestamp("us", tz="UTC")).cast(pa.int64()).to_numpy()
     return np.asarray(micros, dtype=np.float64) / 1e6
 

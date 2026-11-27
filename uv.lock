@@ -494,15 +494,22 @@ dependencies = [
     { name = "websockets" },
 ]
 
+[package.optional-dependencies]
+learner = [
+    { name = "ovenbird-sim" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "aiomqtt", specifier = ">=2.5.1" },
     { name = "fastapi", specifier = ">=0.162.7" },
     { name = "ovenbird-core", editable = "packages/core" },
+    { name = "ovenbird-sim", marker = "extra == 'learner'", editable = "packages/sim" },
     { name = "pydantic-settings", specifier = ">=2.16.3" },
     { name = "uvicorn", specifier = ">=0.54.0" },
     { name = "websockets", specifier = ">=17.4" },
 ]
+provides-extras = ["learner"]
 
 [[package]]
 name = "ovenbird-core"
@@ -535,12 +542,16 @@ name = "ovenbird-sim"
 version = "0.4.1"
 source = { editable = "packages/sim" }
 dependencies = [
-    { name = "aiomqtt" },
-    { name = "climate-manager-capture" },
     { name = "numpy" },
     { name = "ovenbird-core" },
-    { name = "pyarrow" },
     { name = "scipy" },
+]
+
+[package.optional-dependencies]
+tools = [
+    { name = "aiomqtt" },
+    { name = "climate-manager-capture" },
+    { name = "pyarrow" },
 ]
 
 [package.dev-dependencies]
@@ -551,13 +562,14 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiomqtt", specifier = ">=2.5.1" },
-    { name = "climate-manager-capture", editable = "capture" },
+    { name = "aiomqtt", marker = "extra == 'tools'", specifier = ">=2.5.1" },
+    { name = "climate-manager-capture", marker = "extra == 'tools'", editable = "capture" },
     { name = "numpy", specifier = ">=2.3" },
     { name = "ovenbird-core", editable = "packages/core" },
-    { name = "pyarrow", specifier = ">=22" },
+    { name = "pyarrow", marker = "extra == 'tools'", specifier = ">=22" },
     { name = "scipy", specifier = ">=1.16" },
 ]
+provides-extras = ["tools"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -575,6 +587,7 @@ dev = [
     { name = "httpx2" },
     { name = "hypothesis" },
     { name = "mypy" },
+    { name = "ovenbird-sim", extra = ["tools"] },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -589,6 +602,7 @@ dev = [
     { name = "httpx2", specifier = ">=2.16.0" },
     { name = "hypothesis", specifier = ">=6" },
     { name = "mypy", specifier = ">=1.19" },
+    { name = "ovenbird-sim", extras = ["tools"], editable = "packages/sim" },
     { name = "pre-commit", specifier = ">=4.0" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-asyncio", specifier = ">=0.24" },

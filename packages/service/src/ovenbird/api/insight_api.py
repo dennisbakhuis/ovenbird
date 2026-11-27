@@ -11,13 +11,20 @@ says ``ready``, ``learning`` or ``not_run``); ``POST
 insight/house/proposal/draft`` (operate) turns its curve proposal into a validated
 configuration draft for the normal preview and apply flow. See
 :mod:`ovenbird.insight.house`.
+
+``GET insight/house/run`` (every role) reports the learner run the service itself
+starts (:mod:`ovenbird.insight.learnrun`); ``POST insight/house/run`` (operate, audited
+as ``house_learn_run``) starts one at once: ``202`` with the same body, ``409`` with
+``{"detail": {"code", "message", "params"}}`` and code ``learner_running`` or
+``learner_unavailable``.
 """
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Annotated
+from functools import partial
+from typing import TYPE_CHECKING, Annotated, Final
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
@@ -25,12 +32,29 @@ from fastapi.responses import JSONResponse
 from ovenbird.api.auth import Role
 from ovenbird.api.deps import RefusalAudit, read_json, require_role
 from ovenbird.api.models.base import returns
-from ovenbird.api.models.insight import HouseHistory, HouseReport, InsightDaily, ProposalDraft
+from ovenbird.api.models.insight import (
+    HouseHistory,
+    HouseReport,
+    HouseRun,
+    InsightDaily,
+    ProposalDraft,
+)
 from ovenbird.config import Settings
 from ovenbird.insight import house
 from ovenbird.insight.daily import MAX_DAYS, daily_payload
+from ovenbird.insight.learnrun import (
+    REFUSAL_CODES,
+    LearnerRunningError,
+    LearnerUnavailableError,
+    LearnRunner,
+)
 from ovenbird.payloads import Json
 from ovenbird.runtime import Runtime
+from ovenbird.system.facts import Facts
+
+RUN_AUDIT: Final = "house_learn_run"
+RUNNING: Final = REFUSAL_CODES[0]
+UNAVAILABLE: Final = REFUSAL_CODES[1]
 
 if TYPE_CHECKING:
     from ovenbird.configstore import ConfigManager
@@ -43,6 +67,7 @@ def build_insight_router(
     settings: Settings | None = None,
     config: ConfigManager | None = None,
     audit: RefusalAudit | None = None,
+    learn: LearnRunner | None = None,
 ) -> APIRouter:
     """Return the ``api/v1/insight`` routes.
 
@@ -61,6 +86,8 @@ def build_insight_router(
         configuration file is kept by :func:`ovenbird.insight.learner.keep_learner_config`).
     audit
         Records refused state-changing requests.
+    learn
+        The learner runner; without it the learner counts as unavailable.
 
     Returns
     -------
@@ -68,6 +95,7 @@ def build_insight_router(
         Routes without prefix (the caller adds ``/api/v1``).
     """
     router = APIRouter()
+    runner = learn or LearnRunner(current, Facts(), available=lambda: False)
 
     @router.get("/insight/daily", **returns(InsightDaily))
     async def daily(days: Annotated[int, Query(ge=1, le=MAX_DAYS)] = 7) -> Json:
@@ -88,7 +116,9 @@ def build_insight_router(
     async def house_model() -> JSONResponse:
         effective = current()
         status, body = await asyncio.to_thread(
-            house.house_payload, house.models_dir(effective), effective
+            partial(house.house_payload, embedded=runner.available),
+            house.models_dir(effective),
+            effective,
         )
         return JSONResponse(body, status_code=status)
 
@@ -113,4 +143,28 @@ def build_insight_router(
             )
         return JSONResponse(body, status_code=status)
 
+    @router.get("/insight/house/run", **returns(HouseRun))
+    async def house_run() -> Json:
+        return await asyncio.to_thread(runner.payload)
+
+    @router.post("/insight/house/run", status_code=202, **returns(HouseRun, encoder=True))
+    async def start_house_run(request: Request) -> JSONResponse:
+        who = require_role(request, settings or current(), Role.OPERATE, audit)
+        await read_json(request)
+        try:
+            runner.start()
+        except LearnerUnavailableError as exc:
+            return _refusal(UNAVAILABLE, str(exc))
+        except LearnerRunningError as exc:
+            return _refusal(RUNNING, str(exc))
+        if config is not None:
+            config.audit(who.actor, RUN_AUDIT, {})
+        return JSONResponse(await asyncio.to_thread(runner.payload), status_code=202)
+
     return router
+
+
+def _refusal(code: str, message: str) -> JSONResponse:
+    return JSONResponse(
+        {"detail": {"code": code, "message": message, "params": {}}}, status_code=409
+    )

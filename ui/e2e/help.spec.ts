@@ -22,6 +22,15 @@ const topics = await loadTopics();
 /** Guides have no page of their own: they open from the help index. */
 const GUIDES = new Set(['start', 'switching']);
 
+/** Targets that sit on a tab of their page rather than on its first one. */
+const TARGET_TAB: Record<string, string> = {
+  'house.signature': 'model',
+  'house.quality': 'model',
+  'house.run': 'learning',
+  'house.timeline': 'learning',
+  'house.proposal': 'learning',
+};
+
 const VIEWPORTS = [
   { label: 'desktop', width: 1400, height: 1000 },
   { label: 'phone', width: 400, height: 860 },
@@ -194,6 +203,9 @@ for (const viewport of VIEWPORTS) {
         await expect(drawer(page)).toHaveAttribute('data-topic', topic.id);
         await expect(drawer(page).getByTestId('help-title')).toHaveText(topic.title);
         for (const section of targets) {
+          const tab = TARGET_TAB[section.target!];
+          const hash = `#/${topic.id}${tab ? `/${tab}` : ''}`;
+          if ((await page.evaluate(() => window.location.hash)) !== hash) await goTo(page, hash);
           const element = page.locator(`[data-help="${section.target}"]`).first();
           await expect(element, `${section.target} on the page`).toBeAttached();
           await expect(element, `${section.target} visible`).toBeVisible();

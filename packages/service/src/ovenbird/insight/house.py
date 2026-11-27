@@ -1,8 +1,9 @@
 """House insight: what the learner wrote in ``<data_dir>/models``, read as plain JSON.
 
 The house model is fitted offline by the optional learner (``python -m
-ovenbird_sim.learn``, its own container with the scientific stack); the service only
-reads its files, so it never imports numpy or scipy. Two directories form the
+ovenbird_sim.learn``, with the scientific stack), which the service starts as a child
+process (:mod:`ovenbird.insight.learnrun`) or which runs in its own container; the
+service only reads its files, so it never imports numpy or scipy. Two directories form the
 hand-off, so the learner needs nothing else of ``<data_dir>``:
 
 * ``<data_dir>/learner`` is written *by the service* and only read by the learner:
@@ -120,8 +121,8 @@ NOTE: Final = (
     "apparent heat-loss coefficient (ventilation included). Not the official energielabel."
 )
 NOT_RUN: Final = (
-    "the house model learner has not run yet; it runs weekly in the optional learner "
-    "container (docs/design.md, House insight)"
+    "the house model learner has not run yet; it refits weekly by default, in the service "
+    "or in a separate learner container (docs/design.md, House insight)"
 )
 
 type Json = dict[str, Any]
@@ -431,7 +432,9 @@ def champion(models: Path) -> tuple[Json, Json] | None:
     return meta, insight
 
 
-def learner_health(run: Json | None, now: datetime | None = None) -> Json:
+def learner_health(
+    run: Json | None, now: datetime | None = None, default_interval_h: float = DEFAULT_INTERVAL_H
+) -> Json:
     """Return when the learner last ran and whether that is too long ago.
 
     Parameters
@@ -440,18 +443,22 @@ def learner_health(run: Json | None, now: datetime | None = None) -> Json:
         :func:`last_run`.
     now
         Wall time (the learner runs on the real clock); now when omitted.
+    default_interval_h
+        The interval when ``status.json`` names none: the configured
+        ``house_learn_interval_h`` when the service runs the learner itself, else
+        the weekly default. An interval an external learner wrote wins.
 
     Returns
     -------
     dict
-        ``last_run_at``, ``age_h``, ``interval_h`` (the learner's, or the weekly
-        default), ``stale_after_h`` (twice the interval) and ``stale``.
+        ``last_run_at``, ``age_h``, ``interval_h`` (the learner's, or the default),
+        ``stale_after_h`` (twice the interval) and ``stale``.
     """
     interval = run.get("interval_h") if run is not None else None
     interval_h = (
         float(interval)
         if isinstance(interval, int | float) and not isinstance(interval, bool) and interval > 0
-        else DEFAULT_INTERVAL_H
+        else default_interval_h
     )
     at = run.get("at") if run is not None else None
     age_h: float | None = None
@@ -490,7 +497,7 @@ def _float(value: Any) -> float | None:
 
 
 def house_payload(
-    models: Path, settings: Settings, now: datetime | None = None
+    models: Path, settings: Settings, now: datetime | None = None, *, embedded: bool = False
 ) -> tuple[int, Json]:
     """Return the status and body of ``GET api/v1/insight/house``.
 
@@ -502,6 +509,9 @@ def house_payload(
         Effective settings (floor area, current curve).
     now
         Wall time for the learner's age; now when omitted.
+    embedded
+        The service runs the learner itself, so its health uses the configured
+        ``house_learn_interval_h`` unless ``status.json`` names an interval.
 
     Returns
     -------
@@ -513,7 +523,9 @@ def house_payload(
         ``learner`` (:func:`learner_health`).
     """
     run = last_run(models)
-    health = learner_health(run, now)
+    health = learner_health(
+        run, now, settings.house_learn_interval_h if embedded else DEFAULT_INTERVAL_H
+    )
     try:
         found = champion(models)
     except LearnerFileError as exc:

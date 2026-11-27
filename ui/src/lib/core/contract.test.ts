@@ -87,6 +87,7 @@ const WRITES: [string, string, unknown][] = [
   ['POST', '/api/v1/shadow/episodes/explain', { start: '2026-11-15T10:00:00Z', note: 'x' }],
   ['POST', '/api/v1/notifications/test', {}],
   ['POST', '/api/v1/insight/house/proposal/draft', {}],
+  ['POST', '/api/v1/insight/house/run', {}],
   ['POST', '/api/v1/config/reset-ack', {}],
   ['POST', '/api/v1/history/compact', {}],
   ['POST', '/api/v1/replay', { from: '2026-11-14T00:00:00Z', to: '2026-11-15T00:00:00Z' }],

@@ -21,7 +21,7 @@ stack runs a scaled clock) and are `[from, to)`.
 | Role | How | May |
 |---|---|---|
 | read | any authenticated request; without `OVENBIRD_ADMIN_PASSWORD` a loopback-only service serves requests without credentials as read | every `GET` except `config/export`, `config/signals`, `audit` and `diagnostics` |
-| operate | `Authorization: Bearer <OVENBIRD_OPERATE_TOKEN>` (environment only, at least 32 characters, constant-time compare, same lockout as Basic) | read + `POST config/validate`, `POST config/preview`, `POST replay`, `POST replay/{id}/cancel`, `POST control/pause`, `POST control/stove`, `POST insight/house/proposal/draft`, `POST notifications/test` |
+| operate | `Authorization: Bearer <OVENBIRD_OPERATE_TOKEN>` (environment only, at least 32 characters, constant-time compare, same lockout as Basic) | read + `POST config/validate`, `POST config/preview`, `POST replay`, `POST replay/{id}/cancel`, `POST control/pause`, `POST control/stove`, `POST insight/house/proposal/draft`, `POST insight/house/run`, `POST notifications/test` |
 | admin | HTTP Basic admin credentials, or a request from the Home Assistant ingress proxy (the app panel is admin-only) | everything |
 
 Wrong credentials or a wrong token get `401` (`429` while locked out, see the service
@@ -603,7 +603,9 @@ dynamic bounds follow the current emitter and limits).
   installation"). `groups` are ordered: `curve`, `room`, `feedback`, `limits`,
   `behaviour`, `ramp`, `cycling`, `pump_duty`, `pump` (`hot_water`), `quiet`, `emitter`,
   `monitors`, `weather`, `house` (`house_floor_area_m2`, the heated floor area in m² for
-  the indicative insulation score of `insight/house`), `ha`, `mqtt` (the broker
+  the indicative insulation score of `insight/house`; `house_learn_enabled`, whether the
+  service refits the house model itself on a schedule, default on; `house_learn_interval_h`,
+  hours between those refits, 24 to 720, default 168), `ha`, `mqtt` (the broker
   connection of `config/mqtt` and `mqtt_inputs`), `controller`, `commands`, `safety`,
   `history` (the advanced retention fields `history_raw_days`, `history_1m_days`,
   `history_15m_days`, `history_1h_days`, `history_decision_days`; the rest of the group
@@ -1198,8 +1200,9 @@ its source signal has no data that day.
 ## `GET api/v1/insight/house` (read)
 
 The learned house model: the champion's insight written by the optional learner
-(`python -m ovenbird_sim.learn`, the `learner` container; see `docs/design.md`, House
-insight) into `<data_dir>/models`. The service only reads JSON, and treats it as
+(`python -m ovenbird_sim.learn`, run by the service itself or in the `learner` container;
+see `GET api/v1/insight/house/run` and `docs/design.md`, House insight) into
+`<data_dir>/models`. The service only reads JSON, and treats it as
 untrusted: no links, regular files up to 4 MB, strict JSON (no `NaN`), the top-level keys
 below only, bounded sizes, finite numbers and checked types; a refused file is answered
 as `state` `learning` with the reason in `missing`. Always `200`; with the champion:
@@ -1283,7 +1286,15 @@ as `state` `learning` with the reason in `missing`. Always `200`; with the champ
   per point; `stale` when the current curve (`current_curve`) differs from it.
   `credible` is false while the model is not promoted or not credible.
 - `events`: wood-stove periods (detected, or `stove_mode` from the service's journal)
-  left out of the fit and the scoring.
+  left out of the fit and the scoring. Each entry: `kind` (`stove` detected, or
+  `stove_mode`), `start_local`, `end_local` and `tail_end_local` (ISO local time to the
+  minute, in the install's time zone; the exclusion covers `start_local` to
+  `tail_end_local`, the recovery tail included), `hours` and `excluded_hours` (without and
+  with the tail), `peak_k` and `rise_k_per_h` (the living room's largest anomaly and
+  relative rise; `null` for `stove_mode`), `utc_days` (the UTC dates the period touches)
+  and `reason` (a sentence). The service passes the list on as the learner wrote it (only
+  the generic size and type checks of the file apply), so a client must tolerate other
+  fields.
 - `learner`: when the learner last ran (`status.json`, real time) and whether that is
   too long ago: `stale` when `age_h` exceeds `stale_after_h`, twice the learner's
   interval (`interval_h` from its `--every-h`, else 168 h). A stale model is still
@@ -1314,6 +1325,45 @@ One entry per promoted model, oldest first, with the score for the current floor
              "time_constant_h": 52.6, "credible": false, "room_rmse_24h_k": 0.093,
              "score": {"state": "learning", "...": "..."}}]}
 ```
+
+## `GET api/v1/insight/house/run` (read)
+
+The learner the service runs itself (`ovenbird.insight.learnrun`): its state, schedule
+and last result. Always `200`:
+
+```json
+{"state": "idle", "enabled": true, "started_at": null,
+ "next_due_at": "2026-02-26T01:00:00Z", "interval_h": 168.0,
+ "last": {"at": "2026-02-19T19:23:52+00:00", "outcome": "promoted", "message": null,
+          "runtime_s": 11.2, "model": "house-20260214"},
+ "failure": {"at": "2026-02-18T02:10:00Z", "reason": "timeout", "detail": "..."}}
+```
+
+- `state`: `idle`, `running` (`started_at` set) or `unavailable` (the image lacks the
+  `learner` extra; a separate learner container can still write the models).
+- `enabled`: `house_learn_enabled`; `interval_h`: `house_learn_interval_h`.
+- `next_due_at`: the earliest start of the next scheduled run, or `null` when the
+  schedule is off, the learner is unavailable or the clock is simulated.
+- `last`: the learner's last run as `status.json` reports it (`outcome` such as
+  `promoted`, `kept_champion`, `learning` or `failed`; `message` is its message or error), or `null`.
+- `failure`: the service's last failed attempt (`at`, `reason` and `detail`, the tail of
+  the child's output), or `null`. `reason` is `timeout` (30 minutes), `memory` (the child
+  exceeded 768 MB), `exit` (non-zero exit) or `spawn` (it could not start, or there is no
+  history snapshot yet). It is kept across restarts and cleared by the next successful run.
+
+Scheduling: with `house_learn_enabled` a run is due when `status.json` is older than
+`house_learn_interval_h` (or after a day when the last outcome was `learning`), and it
+starts only between 02:00 and 05:00 in `control_timezone`, never within ten minutes of the
+service start, never within a day of a failure and never on a simulated clock. A run
+started through the API starts at once, whatever the schedule.
+
+## `POST api/v1/insight/house/run` (operate)
+
+Body `{}`. Starts one learner run now (audited as `house_learn_run`). `202` with the body
+of `GET api/v1/insight/house/run` (`state` `running`); the result appears in
+`insight/house` when the run ends. `409` with
+`{"detail": {"code", "message", "params": {}}}` and `code` `learner_running` (a run is in
+progress) or `learner_unavailable` (the learner is not installed in this service).
 
 ## `POST api/v1/insight/house/proposal/draft` (operate)
 
