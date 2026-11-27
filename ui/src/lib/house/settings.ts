@@ -2,12 +2,13 @@ import { timeLocale } from '$lib/core/format';
 import type { ConfigDoc, ConfigVersion } from '$lib/core/types';
 import type { HouseInsight } from './house';
 
-export type Subset = 'facts' | 'bounds' | 'learning';
+export type Subset = 'facts' | 'bounds' | 'learning' | 'plan';
 
 export const SUBSET_GROUP: Record<Subset, string> = {
   facts: 'house',
   bounds: 'house_bounds',
   learning: 'house_learning',
+  plan: 'model_plan',
 };
 
 export const EXCLUDED_DAYS = 'house_learn_excluded_days';

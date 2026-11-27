@@ -811,6 +811,101 @@
       "type": "enum",
       "unit": null
     },
+    "control_model_horizon_h": {
+      "display": "h",
+      "editable": true,
+      "env": "OVENBIRD_CONTROL_MODEL_HORIZON_H",
+      "exclusive_max": false,
+      "exclusive_min": false,
+      "group": "model_plan",
+      "max": 12.0,
+      "min": 2.0,
+      "nullable": false,
+      "preset_default": false,
+      "soft_max": null,
+      "soft_min": null,
+      "step": 1.0,
+      "tier": "advanced",
+      "type": "number",
+      "unit": "h"
+    },
+    "control_model_max_preheat_k": {
+      "display": "K",
+      "editable": true,
+      "env": "OVENBIRD_CONTROL_MODEL_MAX_PREHEAT_K",
+      "exclusive_max": false,
+      "exclusive_min": false,
+      "group": "model_plan",
+      "max": 0.5,
+      "min": 0.0,
+      "nullable": false,
+      "preset_default": false,
+      "soft_max": null,
+      "soft_min": null,
+      "step": 0.1,
+      "tier": "advanced",
+      "type": "number",
+      "unit": "K"
+    },
+    "control_model_max_rmse_k": {
+      "display": "K",
+      "editable": true,
+      "env": "OVENBIRD_CONTROL_MODEL_MAX_RMSE_K",
+      "exclusive_max": false,
+      "exclusive_min": false,
+      "group": "model_plan",
+      "max": 1.5,
+      "min": 0.2,
+      "nullable": false,
+      "preset_default": false,
+      "soft_max": null,
+      "soft_min": null,
+      "step": 0.05,
+      "tier": "advanced",
+      "type": "number",
+      "unit": "K"
+    },
+    "control_model_max_setback_k": {
+      "display": "K",
+      "editable": true,
+      "env": "OVENBIRD_CONTROL_MODEL_MAX_SETBACK_K",
+      "exclusive_max": false,
+      "exclusive_min": false,
+      "group": "model_plan",
+      "max": 1.0,
+      "min": 0.1,
+      "nullable": false,
+      "preset_default": false,
+      "soft_max": null,
+      "soft_min": null,
+      "step": 0.1,
+      "tier": "advanced",
+      "type": "number",
+      "unit": "K"
+    },
+    "control_model_use": {
+      "display": null,
+      "editable": true,
+      "env": "OVENBIRD_CONTROL_MODEL_USE",
+      "exclusive_max": false,
+      "exclusive_min": false,
+      "group": "model_plan",
+      "max": null,
+      "min": null,
+      "nullable": false,
+      "options": [
+        "off",
+        "shadow",
+        "on"
+      ],
+      "preset_default": false,
+      "soft_max": null,
+      "soft_min": null,
+      "step": null,
+      "tier": "basic",
+      "type": "enum",
+      "unit": null
+    },
     "control_outside_filter_s": {
       "display": "h",
       "editable": true,
@@ -3285,6 +3380,16 @@
         "house_learn_excluded_days"
       ],
       "id": "house_learning"
+    },
+    {
+      "fields": [
+        "control_model_use",
+        "control_model_max_setback_k",
+        "control_model_max_preheat_k",
+        "control_model_horizon_h",
+        "control_model_max_rmse_k"
+      ],
+      "id": "model_plan"
     },
     {
       "fields": [

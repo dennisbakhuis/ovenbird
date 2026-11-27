@@ -10,6 +10,8 @@ from ovenbird_core.control import (
     IntentKind,
     LadderLevel,
     Mode,
+    ModelPlanBlock,
+    ModelPlanConfig,
     OvenbirdConfig,
     OvenbirdController,
     OvenbirdState,
@@ -23,6 +25,7 @@ from ovenbird_core.control import (
     RampPhase,
     ReasonCode,
     StepResult,
+    StoveConfig,
 )
 from ovenbird_core.control.synthetic import ROOM_SIGNAL, PlantView, synthetic_inputs
 from ovenbird_core.instant import Instant
@@ -295,6 +298,165 @@ class TestPlan:
         decision = tick(CTRL.initial_state(), 4000, plan=self.plan(1.0)).decision
         assert decision.ladder is LadderLevel.SCHEDULE_CURVE_FEEDBACK
         assert decision.setpoint == 31
+
+
+def model_plan(
+    offset: float, start: float = 0.0, length: float = 1200.0, reason: ReasonCode | None = None
+) -> PlanSlice:
+    if reason is None:
+        reason = ReasonCode.PLAN_PREHEAT if offset > 0 else ReasonCode.PLAN_SETBACK
+    return PlanSlice(offset, reason, at(start), at(start + length), PlanSource.MODEL)
+
+
+STOVE_CTRL = OvenbirdController(OvenbirdConfig.preset("mixed", stove=StoveConfig()))
+RECOVERY = {
+    "stove_blocked": replace(STOVE_CTRL.initial_state(), stove_blocked=True),
+    "stove_level_blocked": replace(STOVE_CTRL.initial_state(), stove_level_blocked=True),
+    "stove_fault": replace(STOVE_CTRL.initial_state(), stove_fault=True),
+    "stove_reentry_wait": replace(STOVE_CTRL.initial_state(), stove_reentry_wait=True),
+}
+
+
+class TestModelPlan:
+    def test_shifts_the_room_target_and_reports_the_model_ladder(self) -> None:
+        decision = tick(CTRL.initial_state(), 0, plan=model_plan(-0.4)).decision
+        assert decision.ladder is LadderLevel.MODEL_PLAN
+        assert decision.reason is ReasonCode.PLAN_SETBACK
+        assert decision.controller_state["room_target_c"] == pytest.approx(20.6)
+        assert decision.term("room_feedback").value == pytest.approx(-0.4 * KP)  # type: ignore[union-attr]
+        plan = decision.term("plan")
+        assert plan is not None
+        assert (plan.raw, plan.value) == (0.0, 0.0)
+        assert plan.note == "model plan shifts room target by -0.4 K"
+        assert decision.controller_state["model_plan_requested_k"] == -0.4
+        assert decision.controller_state["model_plan_applied_k"] == -0.4
+        assert decision.controller_state["model_plan_ignored"] is None
+        assert "model plan -0.4 K on the room target" in decision.note
+
+    @pytest.mark.parametrize(
+        ("offset", "target"), [(-2.0, 20.5), (-0.5, 20.5), (0.3, 21.3), (2.0, 21.3)]
+    )
+    def test_is_clamped_to_the_model_bounds(self, offset: float, target: float) -> None:
+        decision = tick(CTRL.initial_state(), 0, plan=model_plan(offset)).decision
+        assert decision.controller_state["room_target_c"] == pytest.approx(target)
+        assert decision.controller_state["model_plan_requested_k"] == offset
+        assert decision.controller_state["model_plan_applied_k"] == pytest.approx(target - 21.0)
+
+    def test_clamped_note_says_so(self) -> None:
+        plan = tick(CTRL.initial_state(), 0, plan=model_plan(-2.0)).decision.term("plan")
+        assert plan is not None
+        assert plan.note.endswith("(asked -2.00 K, cut to the model bounds)")
+
+    def test_configured_bounds_apply(self) -> None:
+        cfg = OvenbirdConfig.preset(
+            "mixed", model_plan=ModelPlanConfig(max_setback_k=0.2, max_preheat_k=0.1)
+        )
+        ctrl = OvenbirdController(cfg)
+        low = tick(ctrl.initial_state(), 0, controller=ctrl, plan=model_plan(-0.5)).decision
+        high = tick(ctrl.initial_state(), 0, controller=ctrl, plan=model_plan(0.3)).decision
+        assert low.controller_state["room_target_c"] == pytest.approx(20.8)
+        assert high.controller_state["room_target_c"] == pytest.approx(21.1)
+
+    @pytest.mark.parametrize(
+        "changes", [{"max_setback_k": 1.01}, {"max_preheat_k": 0.51}, {"max_setback_k": -0.1}]
+    )
+    def test_bounds_cannot_exceed_the_ceilings(self, changes: dict[str, float]) -> None:
+        with pytest.raises(ValueError, match="ModelPlanConfig"):
+            ModelPlanConfig(**changes)
+
+    def test_bounds_cut_to_zero_mean_no_plan(self) -> None:
+        cfg = OvenbirdConfig.preset("mixed", model_plan=ModelPlanConfig(max_preheat_k=0.0))
+        ctrl = OvenbirdController(cfg)
+        decision = tick(ctrl.initial_state(), 0, controller=ctrl, plan=model_plan(0.3)).decision
+        assert decision.ladder is LadderLevel.SCHEDULE_CURVE_FEEDBACK
+        assert decision.reason is ReasonCode.ROOM_FEEDBACK
+        assert decision.controller_state["room_target_c"] == pytest.approx(21.0)
+        assert decision.term("plan").note == "model plan +0.3 K cut to 0 by the model bounds"  # type: ignore[union-attr]
+
+    def test_reason_follows_the_sign_whatever_the_slice_says(self) -> None:
+        plan = model_plan(-0.3, reason=ReasonCode.PLAN_PREHEAT)
+        decision = tick(CTRL.initial_state(), 0, plan=plan).decision
+        assert decision.reason is ReasonCode.PLAN_SETBACK
+
+    def test_rule_plans_are_not_clamped(self) -> None:
+        rule = PlanSlice(2.0, ReasonCode.PLAN_PREHEAT, at(0), at(3600), PlanSource.RULE)
+        decision = tick(CTRL.initial_state(), 0, plan=rule).decision
+        assert decision.ladder is LadderLevel.RULE_PLAN
+        assert decision.controller_state["room_target_c"] == pytest.approx(23.0)
+        assert "model_plan_requested_k" not in decision.controller_state
+
+    def test_never_maps_to_water_without_a_room_sensor(self) -> None:
+        decision = tick(CTRL.initial_state(), 0, plan=model_plan(-0.5), room_signal=None).decision
+        assert decision.ladder is LadderLevel.CURVE_ONLY
+        assert decision.reason is ReasonCode.CURVE
+        assert decision.pre_round == pytest.approx(31.0)
+        plan = decision.term("plan")
+        assert plan is not None
+        assert (plan.raw, plan.value) == (0.0, 0.0)
+        assert plan.note == (
+            "model plan -0.5 K ignored: no trusted room value (a model plan never maps to water)"
+        )
+        assert decision.controller_state["model_plan_ignored"] == "room_untrusted"
+        assert decision.controller_state["model_plan_applied_k"] == 0.0
+        assert "model plan -0.5 K ignored" in decision.note
+
+    @pytest.mark.parametrize("stale", [True, False])
+    def test_has_no_effect_from_the_tick_the_room_value_is_lost(self, stale: bool) -> None:
+        plan = model_plan(-0.5)
+        fresh = replace(IDLE, room=21.0)
+        lost = (
+            replace(fresh, stale=frozenset({ROOM_SIGNAL})) if stale else replace(fresh, room=None)
+        )
+        planned = run([(0, fresh), (60, lost)], plan=plan)
+        plain = run([(0, fresh), (60, lost)])
+        decision = planned[-1].decision
+        assert planned[0].decision.ladder is LadderLevel.MODEL_PLAN
+        assert decision.ladder is plain[-1].decision.ladder
+        assert decision.binding == "dwell"
+        assert decision.term("plan").value == 0.0  # type: ignore[union-attr]
+        expected = ModelPlanBlock.ROOM_UNTRUSTED.value
+        assert decision.controller_state["model_plan_ignored"] == expected
+        assert planned[0].state.integral_k == plain[0].state.integral_k
+        assert decision.pre_round == pytest.approx(plain[-1].decision.pre_round)
+
+    def test_is_ignored_during_a_stove_episode(self) -> None:
+        hot = replace(IDLE, room=22.6)
+        decision = tick(STOVE_CTRL.initial_state(), 0, hot, STOVE_CTRL, plan=model_plan(0.3))
+        assert decision.state.stove_active
+        assert decision.decision.controller_state["model_plan_ignored"] == "stove_active"
+        assert decision.decision.ladder is LadderLevel.SCHEDULE_CURVE_FEEDBACK
+        assert decision.decision.reason is not ReasonCode.PLAN_PREHEAT
+
+    @pytest.mark.parametrize("flag", sorted(RECOVERY))
+    def test_is_ignored_while_the_stove_detection_recovers(self, flag: str) -> None:
+        state = RECOVERY[flag]
+        warm = replace(IDLE, room=22.2)
+        result = tick(state, 0, warm, STOVE_CTRL, plan=model_plan(-0.5))
+        assert not result.state.stove_active
+        assert result.decision.controller_state["model_plan_ignored"] == "stove_recovery"
+        assert result.decision.controller_state["room_target_c"] == pytest.approx(21.0)
+        assert result.decision.ladder is LadderLevel.SCHEDULE_CURVE_FEEDBACK
+
+    def test_applies_again_once_the_room_has_cooled(self) -> None:
+        state = replace(STOVE_CTRL.initial_state(), stove_blocked=True)
+        result = tick(state, 0, replace(IDLE, room=21.2), STOVE_CTRL, plan=model_plan(-0.5))
+        assert not result.state.stove_blocked
+        assert result.decision.ladder is LadderLevel.MODEL_PLAN
+        assert result.decision.controller_state["room_target_c"] == pytest.approx(20.5)
+
+    def test_a_slice_valid_for_too_long_is_ignored(self) -> None:
+        decision = tick(CTRL.initial_state(), 0, plan=model_plan(-0.5, length=7200.0)).decision
+        assert decision.controller_state["model_plan_ignored"] == "slice_too_long"
+        assert decision.ladder is LadderLevel.SCHEDULE_CURVE_FEEDBACK
+
+    def test_an_expired_slice_is_no_plan(self) -> None:
+        decision = tick(CTRL.initial_state(), 1300, plan=model_plan(-0.5)).decision
+        assert decision.ladder is LadderLevel.SCHEDULE_CURVE_FEEDBACK
+        assert "model_plan_requested_k" not in decision.controller_state
+
+    def test_no_plan_records_have_no_model_fields(self) -> None:
+        decision = tick(CTRL.initial_state(), 0).decision
+        assert not any(key.startswith("model_plan") for key in decision.controller_state)
 
 
 class TestStages:

@@ -154,7 +154,7 @@ export const glossary: GlossaryEntry[] = [
     term: 'Weersverwachting',
     short:
       'De verwachte buitentemperatuur, zon, bewolking en wind voor de komende dagen, van een online aanbieder.',
-    body: 'Opt-in: alleen je locatie, afgerond op ongeveer 1 km, wordt verstuurd. Voorlopig is ze er om te bekijken; ovenbird stuurt er nog niet op.',
+    body: 'Opt-in: alleen je locatie, afgerond op ongeveer 1 km, wordt verstuurd. Ze is er om te bekijken en de regelaar gebruikt haar alleen als het modelplan aan staat.',
     related: ['lead-time', 'forecast-bias', 'mae'],
   },
   {

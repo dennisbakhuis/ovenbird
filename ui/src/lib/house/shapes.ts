@@ -37,3 +37,17 @@ export interface HouseProvenance {
   learning?: LearningProvenance;
   [key: string]: unknown;
 }
+
+/**
+ * Response shapes of `GET insight/house/control` (how the controller uses the house model): the
+ * generated ones.
+ */
+
+export type ModelUse = Schemas['ModelUse'];
+export type PlanStatus = Schemas['ModelPlanStatus'];
+export type PlanBlock = Schemas['ModelGuard'];
+export type PlanBounds = Schemas['ModelPlanBounds'];
+export type PlanEvaluation = Schemas['ModelPlanNow'];
+export type PlanHistory = Schemas['ModelPlanHistory'];
+export type PlanHistoryPoint = PlanHistory['points'][number];
+export type HouseControl = Schemas['HouseControl'];

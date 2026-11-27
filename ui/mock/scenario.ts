@@ -49,6 +49,14 @@ export type PumpPhase = 'idle' | 'heating' | 'defrost' | 'dhw';
  *   the balance and the what-if, `house_series_missing` on the series) | absent (only those three
  *   endpoints answer 404, as an older service does); a wood-stove episode
  *   (`stove:active`) makes the storage unknown
+ * - `modelplan`: shadow (the switch is forced to shadow and the planner issued a set-back of 0.3 K
+ *   for the room target) | preheat (shadow, a pre-heat of 0.3 K) | dead (shadow, the expected change
+ *   stays inside the dead zone) | blocked (shadow, but the model is not credible and a wood stove
+ *   burned lately, so the planner may not act) | on (the switch is on and the set-back is applied; the
+ *   decisions carry the `model_plan` ladder) | missing (`GET insight/house/control` answers 404, as an
+ *   older service does); default: the switch is what the configuration says (`control_model_use`,
+ *   off at first; `on` is refused with `model_use_on_locked`) and, once it is shadow, a set-back is
+ *   issued. Combine with `clock` to pin the decision cycle: a model plan shows in the normal minutes
  * - `learner`: running (a learner run is going and never finishes) | unavailable (no built-in
  *   learner: state `unavailable`, `POST insight/house/run` answers 409 `learner_unavailable`) |
  *   failed (the last run failed with a timeout; a manual run clears it) | disabled (automatic
@@ -98,6 +106,7 @@ export interface Scenario {
   stove?: 'active' | 'manual' | 'waiting' | 'disabled';
   house?: 'learning' | 'notrun' | 'noarea' | 'uncredible' | 'facts' | 'changed';
   balance?: 'estimate' | 'nosun' | 'missing' | 'absent';
+  modelplan?: 'shadow' | 'preheat' | 'dead' | 'blocked' | 'on' | 'missing';
   learner?: 'running' | 'unavailable' | 'failed' | 'disabled';
   notify?: 'off' | 'failing';
   snapshot?: 'none';
@@ -129,6 +138,7 @@ export const SCENARIO_OPTIONS: {
   stove: ['active', 'manual', 'waiting', 'disabled'],
   house: ['learning', 'notrun', 'noarea', 'uncredible', 'facts', 'changed'],
   balance: ['estimate', 'nosun', 'missing', 'absent'],
+  modelplan: ['shadow', 'preheat', 'dead', 'blocked', 'on', 'missing'],
   learner: ['running', 'unavailable', 'failed', 'disabled'],
   notify: ['off', 'failing'],
   snapshot: ['none'],

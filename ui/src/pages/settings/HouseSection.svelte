@@ -14,7 +14,7 @@
 
   let { schema, config }: { schema: ConfigSchema; config: ConfigDoc } = $props();
 
-  const SUBSETS: Subset[] = ['facts', 'bounds', 'learning'];
+  const SUBSETS: Subset[] = ['facts', 'bounds', 'learning', 'plan'];
   const present = (subset: Subset) =>
     Object.values(schema.fields).some((def) => def.group === SUBSET_GROUP[subset]);
 </script>

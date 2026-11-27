@@ -89,6 +89,9 @@ __all__ = [
     "HEAT_OPERATING_MODE",
     "MAX_SILENCE_LIMIT_S",
     "MIN_DEADBAND_K",
+    "MODEL_PLAN_MAX_PREHEAT_K",
+    "MODEL_PLAN_MAX_SETBACK_K",
+    "MODEL_PLAN_MAX_SLICE_S",
     "ON_CHANGE_STEP_K",
     "PERIODIC_AGE_FACTOR",
     "PERIODIC_STEP_K",
@@ -106,6 +109,7 @@ __all__ = [
     "STOVE_MIN_RISE_WINDOW_S",
     "STOVE_REFERENCE_MISSING_SHARE",
     "CyclingConfig",
+    "ModelPlanConfig",
     "OvenbirdConfig",
     "PumpDutyConfig",
     "QuietModeConfig",
@@ -136,6 +140,9 @@ CROSSCHECK_SUSTAIN_S: Final = 2 * 3600.0
 CROSSCHECK_TAU_S: Final = 24 * 3600.0
 DIRECT_HEATING_MODE: Final = 1
 HEAT_OPERATING_MODE: Final = 0
+MODEL_PLAN_MAX_SETBACK_K: Final = 1.0
+MODEL_PLAN_MAX_PREHEAT_K: Final = 0.5
+MODEL_PLAN_MAX_SLICE_S: Final = 3600.0
 _WEEK_S: Final = 604_800.0
 _DAY_S: Final = 86_400.0
 _HOUR_S: Final = 3600.0
@@ -580,6 +587,45 @@ class QuietModeConfig:
         return next((w.level for w in self.windows if w.contains(local)), 0)
 
 
+@dataclass(frozen=True, slots=True)
+class ModelPlanConfig:
+    """Bounds of a plan slice from the learned house model (``PlanSource.MODEL``).
+
+    The controller clamps every model slice to ``[-max_setback_k, +max_preheat_k]``
+    before it shifts the room target, whatever the planner sent, so a faulty planner
+    cannot move the target further. The ranges stop at the absolute ceilings
+    :data:`MODEL_PLAN_MAX_SETBACK_K` (1.0 K) and :data:`MODEL_PLAN_MAX_PREHEAT_K`
+    (0.5 K), which no configuration can exceed. Rule and optimiser slices are not
+    clamped here (their water mapping without a room sensor keeps
+    ``plan_max_water_k``). A model slice valid for longer than
+    :data:`MODEL_PLAN_MAX_SLICE_S` is ignored, so a plan cannot outlive its planner by
+    more than that. The settings are described on the fields.
+    """
+
+    max_setback_k: float = setting(
+        0.5,
+        ge=0.0,
+        le=MODEL_PLAN_MAX_SETBACK_K,
+        unit="K",
+        doc="Largest room-target set-back a model plan may ask for.",
+    )
+    max_preheat_k: float = setting(
+        0.3,
+        ge=0.0,
+        le=MODEL_PLAN_MAX_PREHEAT_K,
+        unit="K",
+        doc="Largest room-target pre-heat a model plan may ask for.",
+    )
+
+    def __post_init__(self) -> None:
+        """Validate the bounds."""
+        check_settings(self)
+
+    def clamp(self, room_offset_k: float) -> float:
+        """Return ``room_offset_k`` clamped to ``[-max_setback_k, +max_preheat_k]``."""
+        return min(max(room_offset_k, -self.max_setback_k), self.max_preheat_k)
+
+
 def default_curve(emitter: EmitterType) -> HeatingCurve:
     """Return the preset heating curve for ``emitter``.
 
@@ -714,6 +760,8 @@ class OvenbirdConfig:
         Optional wood-stove mode; ``None`` disables it (manual requests included).
     outside
         Optional outside thermometer for the curve; ``None`` uses the pump's sensor.
+    model_plan
+        Bounds of a plan slice from the learned house model.
     """
 
     emitter: EmitterType
@@ -759,6 +807,7 @@ class OvenbirdConfig:
     room: RoomSensorProfile = field(default_factory=RoomSensorProfile)
     stove: StoveConfig | None = None
     outside: OutsideSource | None = None
+    model_plan: ModelPlanConfig = field(default_factory=ModelPlanConfig)
 
     def __post_init__(self) -> None:
         """Validate the settings and the cross-field constraints."""

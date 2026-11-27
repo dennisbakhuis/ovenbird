@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Final
 
 from ovenbird.config import Settings
@@ -32,6 +32,9 @@ from ovenbird_core.control import (
     OvenbirdConfig,
     OvenbirdController,
     OvenbirdState,
+    PlanSlice,
+    PlanSource,
+    ReasonCode,
     clock_offset,
     replay_inputs,
     shift_state,
@@ -41,6 +44,7 @@ from ovenbird_core.control.ovenbird import carry_state
 from ovenbird_core.control.safety import Bound
 
 DAY_S: Final = 86_400.0
+MODEL_SLICE_S: Final = 900.0
 RESTART_TOLERANCE_S: Final = 1.0
 EPSILON: Final = 1e-9
 SAFETY_BINDINGS: Final = frozenset(bound.value for bound in Bound)
@@ -114,18 +118,46 @@ def seed_state(seed: Tick | None, target: OvenbirdConfig, config_of: ConfigOf) -
     return state
 
 
+def recorded_model_plan(record: DecisionRecord) -> PlanSlice | None:
+    """Return the model plan slice a decision was made with, rebuilt from its record.
+
+    The controller records the offset the planner asked for
+    (``model_plan_requested_k``) only on ticks that were given a model slice; the slice
+    is rebuilt valid for that tick alone, and the controller decides again what became
+    of it (bounds, stove, untrusted room). ``None`` for every other record.
+    """
+    asked = record.controller_state.get("model_plan_requested_k")
+    if isinstance(asked, bool) or not isinstance(asked, int | float):
+        return None
+    reason = ReasonCode.PLAN_SETBACK if asked < 0.0 else ReasonCode.PLAN_PREHEAT
+    return PlanSlice(
+        room_offset_k=float(asked),
+        reason=reason,
+        valid_from=record.at,
+        valid_until=record.at.shifted(MODEL_SLICE_S),
+        source=PlanSource.MODEL,
+    )
+
+
 def step_tick(
     controller: OvenbirdController,
     state: OvenbirdState,
     record: DecisionRecord,
     settings: Settings,
 ) -> tuple[OvenbirdState, DecisionRecord]:
-    """Step ``controller`` once on the inputs rebuilt from ``record``."""
+    """Step ``controller`` once on the inputs rebuilt from ``record``.
+
+    A tick that was given a model plan slice gets it again (:func:`recorded_model_plan`),
+    so replaying with the recorded configuration reproduces the recorded setpoint.
+    """
     inputs = replay_inputs(
         record,
         room_signal=settings.control_room_signal,
         room_profile=controller.config.room,
     )
+    plan = recorded_model_plan(record)
+    if plan is not None:
+        inputs = replace(inputs, plan=plan)
     result = controller.step(state, inputs)
     return result.state, result.decision
 

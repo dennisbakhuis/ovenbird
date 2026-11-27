@@ -18,6 +18,10 @@ errors are ``404`` with ``{"detail": {"code", "message", "params"}}`` and code
 ``house_series_missing`` or ``house_model_missing``, out-of-range query values ``422``;
 see :mod:`ovenbird.insight.whatif`.
 
+``GET insight/house/control`` (every role) reports the model plan: the ``control_model_use``
+switch, the guard verdict, the latest planner evaluation and the computed offsets of the last
+7 days; see :mod:`ovenbird.control.modelplan`.
+
 ``GET insight/house/run`` (every role) reports the learner run the service itself
 starts (:mod:`ovenbird.insight.learnrun`); ``POST insight/house/run`` (operate, audited
 as ``house_learn_run``) starts one at once: ``202`` with the same body, ``409`` with
@@ -40,6 +44,7 @@ from ovenbird.api.deps import RefusalAudit, read_json, require_role
 from ovenbird.api.models.base import returns
 from ovenbird.api.models.insight import (
     HouseBalance,
+    HouseControl,
     HouseHistory,
     HouseReport,
     HouseRun,
@@ -50,6 +55,7 @@ from ovenbird.api.models.insight import (
 )
 from ovenbird.config import Settings
 from ovenbird.control.loop import ControlLoop
+from ovenbird.control.modelplan import ModelPlanRunner, PlanContext
 from ovenbird.insight import house, whatif
 from ovenbird.insight.daily import MAX_DAYS, daily_payload
 from ovenbird.insight.learnrun import (
@@ -114,6 +120,7 @@ def build_insight_router(
     """
     router = APIRouter()
     runner = learn or LearnRunner(current, Facts(), available=lambda: False)
+    runner_available = runner.available
 
     @router.get("/insight/daily", **returns(InsightDaily))
     async def daily(days: Annotated[int, Query(ge=1, le=MAX_DAYS)] = 7) -> Json:
@@ -210,6 +217,23 @@ def build_insight_router(
             return JSONResponse(await asyncio.to_thread(answer))
         except whatif.InsightError as exc:
             return JSONResponse(exc.to_json(), status_code=exc.status)
+
+    @router.get("/insight/house/control", **returns(HouseControl))
+    async def house_control() -> Json:
+        effective = current()
+        runner = control.model_plan if control is not None else None
+        if control is not None:
+            ctx = control.live_plan_context()
+        else:
+            ctx = PlanContext(runtime.clock(), False, False, None, effective.controller_config())
+        if runner is None:
+            runner = ModelPlanRunner(
+                effective,
+                lambda: house.models_dir(effective),
+                weather_enabled=lambda: weather is not None and weather.enabled,
+                embedded=lambda: runner_available,
+            )
+        return await asyncio.to_thread(runner.report, ctx)
 
     @router.get("/insight/house/run", **returns(HouseRun))
     async def house_run() -> Json:

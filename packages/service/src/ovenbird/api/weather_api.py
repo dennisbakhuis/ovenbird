@@ -1,7 +1,8 @@
 """Weather endpoint: measured, filtered and forecast outside temperature (``GET weather``).
 
-Open to every role. The forecast is display-only in v1; see
-:mod:`ovenbird.weather.report` for the fields.
+Open to every role. The forecast is a controller input only through the model plan
+(``control_model_use`` ``on``, see :mod:`ovenbird.control.modelplan`); otherwise it is shown
+only. See :mod:`ovenbird.weather.report` for the fields.
 """
 
 from __future__ import annotations

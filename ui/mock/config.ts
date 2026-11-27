@@ -384,6 +384,10 @@ export function validate(state: ConfigState, changes: Values): ValidateResult {
     warnings.push(
       issue('control_cycling_enabled', 'cycling_disabled', 'the pump may stop early in a run'),
     );
+  if (changes['control_model_use'] === 'on' && !errors.some((e) => e.field === 'control_model_use'))
+    errors.push(
+      issue('control_model_use', 'model_use_on_locked', 'control_model_use on is locked for now'),
+    );
   const emitter = changes['control_emitter'];
   if (
     emitter !== undefined &&

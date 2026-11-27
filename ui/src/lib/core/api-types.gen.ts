@@ -803,6 +803,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/insight/house/control': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** House Control */
+    get: operations['house_control_api_v1_insight_house_control_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/insight/house/history': {
     parameters: {
       query?: never;
@@ -2052,6 +2069,16 @@ export interface components {
       sun_wm2: number | null;
       ua_w_per_k: number;
     };
+    /** @description ``GET insight/house/control``: the model plan switch, its guards, latest result, history. */
+    HouseControl: {
+      bounds: components['schemas']['ModelPlanBounds'];
+      history: components['schemas']['ModelPlanHistory'];
+      model: string | null;
+      model_rmse_k: number | null;
+      now: components['schemas']['ModelPlanNow'] | null;
+      use: components['schemas']['ModelUse'];
+      verdict: components['schemas']['ModelPlanVerdict'];
+    };
     /** @description ``GET insight/house/history``: every promoted model. */
     HouseHistory: {
       floor_area_m2: number | null;
@@ -2292,6 +2319,78 @@ export interface components {
       control: components['schemas']['ControlStatus'] | null;
       mode: components['schemas']['ConfigMode'];
     };
+    /** @enum {string} */
+    ModelGuard:
+      | 'weather_off'
+      | 'model_missing'
+      | 'model_not_credible'
+      | 'model_stale'
+      | 'model_error_high'
+      | 'forecast_stale'
+      | 'room_untrusted'
+      | 'stove_active'
+      | 'stove_tail';
+    /** @description The model plan bounds, the planner horizon and the error limit of the model. */
+    ModelPlanBounds: {
+      horizon_h: number;
+      max_preheat_k: number;
+      max_rmse_k: number;
+      max_setback_k: number;
+    };
+    /**
+     * @description The computed offsets of the last 7 days from the 15 min rollups.
+     *
+     *     ``points`` are ``[time, offset_k, applied]`` rows, oldest first: ``offset_k`` is
+     *     ``null`` where a guard blocked or nothing was recorded, ``applied`` is ``1`` when the
+     *     controller applied the offset for most of the interval, else ``0``; empty when
+     *     nothing was recorded.
+     */
+    ModelPlanHistory: {
+      from: string;
+      points: [string, number | null, number | null][];
+      step_s: number;
+      to: string;
+    };
+    /**
+     * @description The latest planner evaluation.
+     *
+     *     ``offset_k`` is the offset the planner issued (``0`` without a slice); ``applied`` is
+     *     true only when the controller applied a model offset at its latest tick (never in
+     *     ``shadow``). ``rise_*``, ``fall_*``, ``solar_k`` and ``outside_k`` are the predicted
+     *     drift of the room (K) and when it peaks; ``null`` when the planner could not predict.
+     */
+    ModelPlanNow: {
+      applied: boolean;
+      at: string;
+      fall_at: string | null;
+      fall_k: number | null;
+      offset_k: number;
+      outside_k: number | null;
+      reason: components['schemas']['ModelPlanReason'] | null;
+      rise_at: string | null;
+      rise_k: number | null;
+      solar_k: number | null;
+      status: components['schemas']['ModelPlanStatus'];
+      valid_until: string | null;
+    };
+    /** @enum {string} */
+    ModelPlanReason: 'plan_setback' | 'plan_preheat';
+    /** @enum {string} */
+    ModelPlanStatus:
+      | 'issued'
+      | 'inside_dead_zone'
+      | 'crossing_zero'
+      | 'forecast_gap'
+      | 'forecast_mismatch'
+      | 'model_invalid'
+      | 'planner_error';
+    /** @description The guards of the model plan: ``ok`` when none blocks, else the failing ones in order. */
+    ModelPlanVerdict: {
+      blocks: components['schemas']['ModelGuard'][];
+      ok: boolean;
+    };
+    /** @enum {string} */
+    ModelUse: 'off' | 'shadow' | 'on';
     /** @enum {string} */
     ModeName: 'off' | 'shadow' | 'auto' | 'manual';
     /** @description The result of one safety monitor. */
@@ -4398,6 +4497,26 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['HouseBalance'];
+        };
+      };
+    };
+  };
+  house_control_api_v1_insight_house_control_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HouseControl'];
         };
       };
     };

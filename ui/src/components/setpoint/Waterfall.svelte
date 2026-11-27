@@ -10,7 +10,7 @@
   summary as its accessible name.
 -->
 <script lang="ts">
-  import { fixedBase, numberFormats } from '$lib/setpoint/explain';
+  import { fixedBase, modelPlanOf, numberFormats } from '$lib/setpoint/explain';
   import { settings, t, tc } from '$lib/core/settings.svelte';
   import type { Decision } from '$lib/core/types';
   import {
@@ -23,6 +23,10 @@
   let { decision, compact = false }: { decision: Decision; compact?: boolean } = $props();
 
   const fmt = $derived(numberFormats(settings.language));
+  const plan = $derived.by(() => {
+    const found = decision.record.ladder === 'model_plan' ? modelPlanOf(decision.record) : null;
+    return found && found.appliedK !== 0 ? found : null;
+  });
   const sends = $derived(decisionSends(decision));
   const model = $derived(
     buildWaterfall(decision.record, compact && sends ? null : reportedTarget(decision)),
@@ -159,6 +163,13 @@
         </li>
       {/each}
     </ol>
+    {#if plan}
+      <p class="muted plan" data-testid="waterfall-model-plan">
+        {t(plan.appliedK < 0 ? 'wfModelPlan_down' : 'wfModelPlan_up', {
+          k: `${fmt.plain(Math.abs(plan.appliedK), 1)} K`,
+        })}
+      </p>
+    {/if}
     {#if !compact}
       <div class="axis" aria-hidden="true">
         {#each ticks as tick (tick)}
@@ -309,6 +320,9 @@
     transform: translateX(-50%);
   }
   .collapsed,
+  .plan {
+    margin: var(--space-2) 0 0;
+  }
   .reason-only,
   .kept {
     margin: var(--space-2) 0 0;

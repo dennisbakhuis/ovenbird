@@ -100,15 +100,19 @@ class ModelChoice:
         The champion's name (``None`` for an estimate).
     credible
         Whether the learner's credibility rules pass (always ``False`` for an estimate).
+    rmse_k
+        The champion's held-out 24 h room error in K (``None`` when unknown or for an
+        estimate).
     """
 
     model: HouseModel
     source: str
     name: str | None
     credible: bool
+    rmse_k: float | None = None
 
 
-def _champion_model(models: Path) -> ModelChoice | None:
+def champion_model(models: Path) -> ModelChoice | None:
     """Return the champion, or ``None`` when there is none or its files are refused."""
     try:
         found = house.champion(models)
@@ -134,7 +138,15 @@ def _champion_model(models: Path) -> ModelChoice | None:
         return None
     credibility = insight.get("credibility")
     credible = isinstance(credibility, dict) and credibility.get("credible") is True
-    return ModelChoice(model, "model", name, credible)
+    return ModelChoice(model, "model", name, credible, _held_out_rmse(insight))
+
+
+def _held_out_rmse(insight: dict[str, Any]) -> float | None:
+    validation = insight.get("validation")
+    value = validation.get("challenger_room_rmse_k") if isinstance(validation, dict) else None
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        return None
+    return float(value)
 
 
 def _estimated_model(settings: Settings) -> ModelChoice | None:
@@ -159,7 +171,7 @@ def choose_model(models: Path, settings: Settings) -> ModelChoice:
     InsightError
         ``404`` ``house_model_missing`` when there is neither.
     """
-    choice = _champion_model(models) if house.models_ok(models) else None
+    choice = champion_model(models) if house.models_ok(models) else None
     if choice is None:
         choice = _estimated_model(settings)
     if choice is None:

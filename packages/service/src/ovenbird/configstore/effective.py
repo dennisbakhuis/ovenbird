@@ -121,6 +121,7 @@ VALIDATION_ERRORS: Final = (
     "min_above_max",
     "house_bounds_order",
     "house_fit_days_short",
+    "model_use_on_locked",
     "curve_range",
     "outside_envelope",
     "integral_above_output",

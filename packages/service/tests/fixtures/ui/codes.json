@@ -47,7 +47,8 @@
   "alarm_journal": [
     "command_hold",
     "stove_mode",
-    "envelope_correction"
+    "envelope_correction",
+    "model_plan"
   ],
   "audit_action": [
     "config_apply",
@@ -114,6 +115,7 @@
     "house",
     "house_bounds",
     "house_learning",
+    "model_plan",
     "ha",
     "mqtt",
     "controller",
@@ -162,6 +164,7 @@
   ],
   "ladder": [
     "optimiser_plan",
+    "model_plan",
     "rule_plan",
     "schedule_curve_feedback",
     "curve_only",
@@ -417,6 +420,7 @@
     "min_above_max",
     "house_bounds_order",
     "house_fit_days_short",
+    "model_use_on_locked",
     "curve_range",
     "outside_envelope",
     "integral_above_output",

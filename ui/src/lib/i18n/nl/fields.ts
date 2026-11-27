@@ -120,7 +120,7 @@ export const fields: Record<keyof typeof en, string> = {
   'cfg.control_emitter.opt.radiators': 'Radiatoren',
   'cfg.weather_enabled.label': 'Weersverwachting',
   'cfg.weather_enabled.help':
-    'Haal een verwachting van de buitentemperatuur op voor de weerpagina. Alleen ter weergave: de regelaar gebruikt haar niet.',
+    'Haal een verwachting van de buitentemperatuur op voor de weerpagina. De regelaar gebruikt haar alleen als het modelplan aan staat (Huis → Regeling); anders is ze alleen ter weergave.',
   'cfg.weather_latitude.label': 'Breedtegraad',
   'cfg.weather_latitude.help': 'Graden noord, afgerond op 0,01°.',
   'cfg.weather_longitude.label': 'Lengtegraad',
@@ -391,4 +391,22 @@ export const fields: Record<keyof typeof en, string> = {
   'cfg.control_outside_max_deviation_k.label': 'Buitensensor mag van de pomp afwijken met',
   'cfg.control_outside_max_deviation_k.help':
     'Hoe ver de gekozen sensor van de eigen buitensensor van de pomp mag liggen. Liggen ze verder uit elkaar, dan klopt een van beide niet en gebruikt de stooklijn de sensor van de pomp tot ze weer overeenkomen.',
+  'cfg.control_model_use.label': 'Gebruik van het huismodel door de regelaar',
+  'cfg.control_model_use.help':
+    'Uit: de regelaar negeert het model. Schaduw: hij berekent elke 15 minuten hoe zon en de verwachting de kamer zouden bewegen en legt vast wat hij zou doen, maar verandert niets. Aan: hij verschuift het kamerdoel een beetje binnen de grenzen. Aan is vergrendeld tot een beoordeling en een schaduwperiode klaar zijn.',
+  'cfg.control_model_use.opt.off': 'Uit',
+  'cfg.control_model_use.opt.shadow': 'Schaduw (rekent alleen mee)',
+  'cfg.control_model_use.opt.on': 'Aan (voorlopig vergrendeld)',
+  'cfg.control_model_max_setback_k.label': 'Grootste verschuiving omlaag',
+  'cfg.control_model_max_setback_k.help':
+    'Hoever het modelplan het kamerdoel mag verlagen voordat gratis warmte binnenkomt, in K.',
+  'cfg.control_model_max_preheat_k.label': 'Grootste verschuiving omhoog',
+  'cfg.control_model_max_preheat_k.help':
+    'Hoever het modelplan het kamerdoel mag verhogen voor een koude omslag, in K.',
+  'cfg.control_model_horizon_h.label': 'Uren vooruit kijken',
+  'cfg.control_model_horizon_h.help':
+    'Hoever vooruit de planner de kamer voorspelt uit de zon en de buitenverwachting, in uren.',
+  'cfg.control_model_max_rmse_k.label': 'Grootste toegestane modelfout',
+  'cfg.control_model_max_rmse_k.help':
+    'De planner blijft weg zolang de typische kamerfout van het model hierboven ligt, in K.',
 };

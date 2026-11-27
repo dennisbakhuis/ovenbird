@@ -422,8 +422,9 @@ With `weather_enabled` and a location (manual, else HA's `zone.home`), the servi
 fetches an Open-Meteo forecast every hour (stdlib `urllib` in a thread, backoff after a
 failure; simulation mode uses a simulated provider and never the network) and stores
 every issue as issued in `history.db` (table `forecast`, retention as the 1 h rollup).
-It is display-only (`GET api/v1/weather`), not a controller input; health check
-`weather` never affects readiness.
+It is shown (`GET api/v1/weather`) and is a controller input only through the model plan
+(`control_model_use` `on`, locked for now; with `shadow` it is read and the result recorded,
+with no effect); health check `weather` never affects readiness.
 
 ## Configuration
 
@@ -478,6 +479,10 @@ reverted (see `docs/api-v1.md`).
 | `OVENBIRD_CONTROL_OUTSIDE_PLAUSIBLE_MIN_C` / `_PLAUSIBLE_MAX_C` / `_MAX_DEVIATION_K` | `-40` / `50` / `10` | a chosen outside value outside the plausible range, not finite, or further than the deviation from the pump's fresh reading is not used: the curve uses the pump's sensor for that tick and `outside_sensor_implausible` is raised |
 | `OVENBIRD_HOT_WATER` | `auto` | show hot water (DHW) in the app: `auto` follows the pump's `main/DHW_Installed` (shown while unknown), `on`, `off`; display only, a DHW run still freezes the corrections |
 | `OVENBIRD_CONTROL_STOVE_ENABLED` | `false` | wood-stove mode (`docs/control-interface.md`): room feedback paused with its integrator held and the curve lowered while a stove heats the sensor's room; manual start/stop through `POST api/v1/control/stove` |
+| `OVENBIRD_CONTROL_MODEL_USE` | `off` | the learned house model as a bounded room-target offset (`docs/design.md`, Planner): `off`, `shadow` (computed and recorded, no effect on decisions) or `on` (refused for now: `model_use_on_locked`); `GET api/v1/insight/house/control` |
+| `OVENBIRD_CONTROL_MODEL_MAX_SETBACK_K` / `_MAX_PREHEAT_K` | `0.5` / `0.3` | largest set-back (0.1 to 1 K) and pre-heat (0 to 0.5 K) of the room target |
+| `OVENBIRD_CONTROL_MODEL_HORIZON_H` | `6` | how far ahead the planner looks (2 to 12 h) |
+| `OVENBIRD_CONTROL_MODEL_MAX_RMSE_K` | `0.6` | largest held-out 24 h room error of the champion model that still allows a plan (0.2 to 1.5 K) |
 | `OVENBIRD_CONTROL_STOVE_AUTO` / `_ENTER_ABOVE_K` / `_EXIT_HYSTERESIS_K` | `true` / `1.5` / `1.0` | automatic detection (needs a room signal): enter at comfort + 1.5 K, leave 1 K lower |
 | `OVENBIRD_CONTROL_STOVE_RISE_ENABLED` / `_RISE_K` / `_RISE_WINDOW_S` | `true` / `1.0` / `1800` | also enter on a fast rise above comfort |
 | `OVENBIRD_CONTROL_STOVE_BACKOFF_K` / `_TO_MINIMUM` | `3.0` / `false` | how far the curve is lowered (or down to the safety minimum); the pump is never switched off |

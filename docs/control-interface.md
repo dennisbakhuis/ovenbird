@@ -252,6 +252,35 @@ the integrator for afterwards.
   `stove` term with a note; the decision note starts with "Wood-stove mode (auto, level at
   23.4 °C, 1 h 20 m): room PI paused with the integrator held at +0.4 K; …".
 
+## Model plan
+
+A plan slice from the learned house model (`PlanSource.MODEL`, produced by
+`ovenbird_core.control.planner.plan_offset`; `docs/decisions/2026-11-27-learned-model-in-controller.md`)
+is the one path by which the learned model reaches the controller. It only shifts the room
+target of an active room feedback, by at most `ModelPlanConfig.max_setback_k` below and
+`max_preheat_k` above comfort (defaults 0.5 K and 0.3 K; absolute ceilings 1.0 K and 0.5 K).
+There is no water term.
+
+- The controller clamps every model slice to those bounds, whatever the planner sent, and
+  gives it the reason of its sign (`plan_setback` or `plan_preheat`). The ladder level is
+  `model_plan`: richer than `rule_plan` (it predicts the house), poorer than
+  `optimiser_plan` (no prices, no heat pump model).
+- A slice has no effect at all (no water term; ladder and reason as without a plan) from the
+  first tick on which the room value is not trusted, a wood-stove episode is active, the
+  wood-stove detection is still waiting after an episode or a sensor fault, or the slice is
+  valid for longer than 3600 s (`MODEL_PLAN_MAX_SLICE_S`), so a plan cannot outlive its
+  planner by more than that. Start ramp, cycling floor, rounding, dwell and the safety clamps act
+  after it as always.
+- `controller_state` carries `model_plan_requested_k` (what the planner sent),
+  `model_plan_applied_k` (after the bounds, 0 while ignored) and `model_plan_ignored`
+  (`room_untrusted`, `stove_active`, `stove_recovery`, `slice_too_long`, or `null`), only on
+  ticks that were given a model slice; every other record is unchanged. A replay of such a
+  record feeds the slice back from `model_plan_requested_k`, valid for that tick, so it
+  reproduces the recorded setpoint (`ovenbird.replay.stepping.recorded_model_plan`).
+- The service side (``control_model_use`` `off` / `shadow` / `on`, the guards, the quarter-hour
+  cadence, what is recorded) is `ovenbird.control.modelplan`; see `docs/api-v1.md`
+  (`insight/house/control`). With `shadow` the controller is never given the slice.
+
 ## Vocabulary
 
 `IntentKind`:
@@ -263,7 +292,7 @@ water_setpoint, max_pump_duty, quiet_mode
 `LadderLevel`, from the richest to the most defensive behaviour:
 
 ```text
-optimiser_plan, rule_plan, schedule_curve_feedback, curve_only, hold, refuse
+optimiser_plan, model_plan, rule_plan, schedule_curve_feedback, curve_only, hold, refuse
 ```
 
 `ReasonCode`, a closed `StrEnum`:

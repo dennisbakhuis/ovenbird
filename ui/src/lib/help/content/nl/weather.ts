@@ -37,8 +37,8 @@ export const topic: HelpTopic = {
     {
       id: 'display-only',
       kind: 'know',
-      title: 'De verwachting stuurt nog niet',
-      body: 'Voorlopig is de verwachting alleen om naar te kijken. ovenbird regelt op de gemeten buitentemperatuur; de verwachting is geen invoer van de regelaar.\n\n**Stooklijnwater** is alleen de stooklijn, vóór [[room-feedback|ruimtecorrectie]], grenzen en afronden, dus de echte aanvoertemperatuur kan een paar graden afwijken. ovenbird bewaart elke verwachting zoals ze is uitgegeven, zodat de kwaliteit eerlijk te beoordelen is voordat ze ooit meestuurt.',
+      title: 'Wanneer de verwachting stuurt',
+      body: 'De verwachting is om naar te kijken, met één uitzondering: staat het [[model-plan|modelplan]] aan (Huis → Regeling), dan gebruikt de regelaar haar om het kamerdoel een klein beetje te verschuiven vóór zon of een koude omslag. Anders regelt ovenbird alleen op de gemeten buitentemperatuur.\n\n**Stooklijnwater** is alleen de stooklijn, vóór [[room-feedback|ruimtecorrectie]], grenzen en afronden, dus de echte aanvoertemperatuur kan een paar graden afwijken. ovenbird bewaart elke verwachting zoals ze is uitgegeven, zodat de kwaliteit eerlijk te beoordelen is.',
     },
     {
       id: 'privacy',

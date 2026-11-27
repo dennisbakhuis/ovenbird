@@ -30,6 +30,7 @@ const TARGET_TAB: Record<string, string> = {
   'house.bounds': 'model',
   'house.learning': 'learning',
   'house.quality': 'model',
+  'house.control': 'control',
   'house.run': 'learning',
   'house.timeline': 'learning',
   'house.proposal': 'learning',

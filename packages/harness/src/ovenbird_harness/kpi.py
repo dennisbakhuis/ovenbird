@@ -175,6 +175,15 @@ class Kpis:
             return 0.0
         return (self.last_ts - self.first_ts) / 86400.0
 
+    def room_feedback_decisions(self) -> int:
+        """Return the decisions made with the room feedback active on the schedule's target.
+
+        ``model_plan`` counts like ``schedule_curve_feedback``: the controller applies a
+        model plan only as a shift of the room target of an active room feedback (no
+        water term, ignored without a trusted room value), so the PI runs in both.
+        """
+        return self.ladder["schedule_curve_feedback"] + self.ladder["model_plan"]
+
     def run_histogram(self) -> dict[str, int]:
         """Completed compressor runs per length bin (minutes)."""
         bins: dict[str, int] = {}
@@ -196,7 +205,7 @@ class Kpis:
             "ladder_shares": _share(self.ladder),
             "reason_shares": _share(self.reasons),
             "refusals": dict(sorted(self.refusals.items())),
-            "room_feedback_share": self.ladder["schedule_curve_feedback"] / self.decisions
+            "room_feedback_share": self.room_feedback_decisions() / self.decisions
             if self.decisions
             else math.nan,
             "room_fresh_share": fresh / self.decisions if self.decisions else math.nan,

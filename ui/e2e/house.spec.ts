@@ -1,5 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { allowedHeight } from './budget';
+import { pinCycleMinute } from './clock';
 
 test.skip(Boolean(process.env['BASE_URL']), 'the House page runs against the mock only');
 
@@ -34,6 +35,7 @@ const TABS: [string, string, string[]][] = [
     '#/house/model',
     ['house-signature', 'house-prediction', 'house-quality', 'house-bounds-card'],
   ],
+  ['control', '#/house/control', ['house-control']],
   [
     'learning',
     '#/house/learning',
@@ -853,4 +855,299 @@ test.describe('what if', () => {
     await page.goto('./#/house/what-if');
     await expect(page.getByTestId('whatif-water')).toContainText('Je stooklijn geeft');
   });
+});
+
+const CONTROL_SHOTS = [
+  ['off', 'modelplan:off'],
+  ['shadow', 'modelplan:shadow'],
+  ['dead', 'modelplan:dead'],
+  ['blocked', 'modelplan:blocked'],
+  ['on', 'modelplan:on'],
+] as const;
+
+test.describe('how the controller uses the model', () => {
+  const card = (page: Page) => page.getByTestId('house-control');
+
+  test('is off by default: says so, offers the switch and shows no chart', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, tag(), baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/control');
+    await expect(card(page)).toContainText('How the controller uses the model');
+    await expect(page.getByTestId('house-control-pill')).toHaveText('Off');
+    await expect(page.getByTestId('house-control-meaning')).toContainText('ignores the model');
+    await expect(page.getByTestId('house-control-shift')).toContainText('not running');
+    await expect(page.getByTestId('house-control-ready')).toBeVisible();
+    await expect(page.getByTestId('house-control-summary')).toContainText('did not evaluate');
+    await expect(page.getByTestId('house-control-bounds')).toHaveText(
+      'At most 0.5 K down and 0.3 K up, looking 6 hours ahead.',
+    );
+    await expect(page.getByTestId('house-control-locked')).toContainText('locked');
+    await expect(page.getByTestId('house-control-history').getByRole('img')).toHaveCount(0);
+  });
+
+  test('shadow with a set-back: would lower, the expected effect and the chart', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, `modelplan:shadow.${tag()}`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/control');
+    await expect(page.getByTestId('house-control-pill')).toContainText('Shadow: computes only');
+    await expect(page.getByTestId('house-control-shift')).toContainText(
+      /^Would lower the room target by 0\.3 K until \d\d:\d\d\.$/,
+    );
+    await expect(page.getByTestId('house-control-effect')).toContainText(
+      'the sun is expected to warm the room by about 0.6 °C',
+    );
+    await expect(page.getByTestId('house-control-at')).toContainText('Last evaluated');
+    const history = page.getByTestId('house-control-history');
+    const summary = page.getByTestId('house-control-summary');
+    await expect(summary).toContainText(
+      /^In the last 7 days the model would have lowered the room target on \d days?, by at most 0\.4 K\./,
+    );
+    const image = history.getByRole('img').first();
+    await expect(image).toHaveAttribute('aria-label', /would have lowered the room target/);
+    await history.getByRole('button', { name: 'Show as table' }).click();
+    await expect(history.getByRole('table')).toBeVisible();
+    await expect(history.getByRole('columnheader', { name: /Computed shift/ })).toBeVisible();
+  });
+
+  test('a shadow shift is dashed only; an applied stretch is drawn solid too', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, `modelplan:on.${tag()}`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/control');
+    const history = page.getByTestId('house-control-history');
+    await expect(history.getByRole('button', { name: /Computed shift/ })).toBeVisible();
+    await expect(history.getByRole('button', { name: /Applied/ })).toBeVisible();
+    await expect(history.locator('path[stroke-dasharray]').first()).toBeAttached();
+    await expect(
+      history.locator('svg path[stroke="var(--series-setpoint)"]').first(),
+    ).toBeAttached();
+  });
+
+  test('inside the dead zone there is no shift and it says why', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, `modelplan:dead.${tag()}`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/control');
+    await expect(page.getByTestId('house-control-shift')).toHaveText(
+      'No shift now: the expected change stays within the dead zone.',
+    );
+  });
+
+  test('blocked lists its reasons, most important first', async ({ page, context, baseURL }) => {
+    await scenario(context, `modelplan:blocked.${tag()}`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/control');
+    const items = page.getByTestId('house-control-blocks').locator('li');
+    await expect(items).toHaveText([
+      'The model is not trusted yet.',
+      'A wood stove was burning in the last 12 hours.',
+    ]);
+    await expect(page.getByTestId('house-control-shift')).toContainText('may not act');
+    await expect(page.getByTestId('house-control-ready')).toHaveCount(0);
+  });
+
+  test('on, applied: says what it does, not what it would do', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, `modelplan:on.${tag()}`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/control');
+    await expect(page.getByTestId('house-control-pill')).toHaveText('On');
+    await expect(page.getByTestId('house-control-shift')).toContainText(
+      'Lowers the room target by 0.3 K until',
+    );
+    await expect(page.getByTestId('house-control-summary')).toContainText(
+      'the model lowered the room target',
+    );
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-status-use')).toContainText('Controller use: On');
+  });
+
+  test('an older service hides the card and the status line calmly', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, `modelplan:missing.${tag()}`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/control');
+    await expect(page.getByTestId('house-control-absent')).toBeVisible();
+    await expect(card(page)).toHaveCount(0);
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-status')).toBeVisible();
+    await expect(page.getByTestId('house-status-use')).toHaveCount(0);
+  });
+
+  test('newapi:missing hides it too', async ({ page, context, baseURL }) => {
+    await scenario(context, `newapi:missing.${tag()}`, baseURL);
+    await page.goto('./#/house/control');
+    await expect(page.getByTestId('house-page')).toHaveCount(0);
+    await expect(card(page)).toHaveCount(0);
+  });
+
+  test('the status line names the use and leads to the card', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, `modelplan:shadow.${tag()}`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-status-use')).toContainText('Controller use: Shadow');
+    await page.getByTestId('house-status-use-link').click();
+    await expect(page.getByTestId('house-page')).toHaveAttribute('data-tab', 'control');
+    await expect(card(page)).toBeVisible();
+  });
+
+  test('switching to shadow goes through the draft and applies', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, tag(), baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/control');
+    await expect(page.getByTestId('house-control-pill')).toHaveText('Off');
+    await page.getByTestId('house-control-use-shadow').click();
+    await expect(page.getByTestId('draft-count')).toHaveText('1 change');
+    await expect(page.getByTestId('house-control-pill')).toHaveText('Off');
+    await applyDraft(page);
+    await expect(page.getByTestId('draft-bar')).toHaveCount(0);
+    await expect(page.getByTestId('house-control-pill')).toContainText('Shadow', {
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId('house-control-shift')).toContainText('Would lower');
+    await page.goto('./#/settings/house');
+    await expect(page.getByTestId('field-control_model_use')).toBeVisible();
+  });
+
+  for (const lang of ['en', 'nl'] as const) {
+    test(`on is refused with the translated message in ${lang}`, async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await scenario(context, tag(), baseURL);
+      await language(page, lang);
+      await page.goto('./#/house/control');
+      await page.getByTestId('house-control-use-on').click();
+      await expect(page.getByTestId('draft-errors')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId('house-control-error')).toContainText(
+        lang === 'en' ? 'locked for now' : 'voorlopig vergrendeld',
+      );
+      await expect(page.getByTestId('house-control-error')).not.toContainText(
+        'model_use_on_locked',
+      );
+    });
+  }
+
+  test('the advanced numbers sit in a collapsed block and edit through the draft', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, tag(), baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/control');
+    const details = page.getByTestId('house-control-advanced');
+    await expect(details).not.toHaveAttribute('open', '');
+    await details.locator('summary').click();
+    await expect(page.getByTestId('field-control_model_max_setback_k')).toBeVisible();
+    await expect(page.getByTestId('field-control_model_horizon_h')).toBeVisible();
+    await page.locator('input#field-control_model_max_setback_k').fill('0.4');
+    await expect(page.getByTestId('draft-count')).toHaveText('1 change');
+  });
+
+  test('a decision made with a model plan reads plainly on Home and Setpoint', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await pinCycleMinute(context, baseURL, 130);
+    await scenario(context, `modelplan:on.${tag()}`, baseURL);
+    await language(page, 'en');
+    await page.setViewportSize({ width: 1400, height: 1000 });
+    await page.goto('./#/home');
+    await page.getByTestId('why-card').locator('summary').click();
+    await expect(page.getByTestId('waterfall-model-plan').first()).toContainText(
+      'The house model lowered the room target by 0.3 K',
+    );
+    await page.goto('./#/setpoint');
+    await expect(page.getByTestId('reason-sentence').first()).toContainText(
+      'Room target lowered by 0.3 K: the house model expects the room to warm up on its own',
+    );
+    await expect(page.getByTestId('waterfall-model-plan').first()).toBeVisible();
+    await page.screenshot({ path: 'e2e/shots/house-s4-setpoint-plan-1400.png', fullPage: true });
+    await page.goto('./#/activity');
+    await expect(page.locator('body')).not.toContainText('ladder_model_plan');
+  });
+
+  test('the Dutch card speaks natural Dutch', async ({ page, context, baseURL }) => {
+    await scenario(context, `modelplan:blocked.${tag()}`, baseURL);
+    await language(page, 'nl');
+    await page.goto('./#/house/control');
+    await expect(card(page)).toContainText('Hoe de regelaar het model gebruikt');
+    await expect(page.getByTestId('house-control-pill')).toContainText('Schaduw');
+    await expect(page.getByTestId('house-control-block-model_not_credible')).toHaveText(
+      'Het model wordt nog niet vertrouwd.',
+    );
+    await page.goto('./#/house/control');
+  });
+
+  for (const lang of ['en', 'nl'] as const) {
+    test(`the phone Control tab with a shadow chart fits the height budget in ${lang}`, async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await page.setViewportSize({ width: 400, height: 900 });
+      await scenario(context, `modelplan:shadow.${tag()}`, baseURL);
+      await language(page, lang);
+      await page.goto('./#/house/control');
+      await expect(
+        page.getByTestId('house-control-history').getByRole('img').first(),
+      ).toBeVisible();
+      await page.waitForTimeout(400);
+      const dims = await size(page);
+      expect(dims.scroll).toBeLessThanOrEqual(dims.inner);
+      expect(dims.height, `phone height control ${lang}`).toBeLessThanOrEqual(
+        allowedHeight(PHONE_BUDGET),
+      );
+    });
+  }
+
+  for (const width of [1400, 400]) {
+    test(`session 4 screenshots at ${width} px`, async ({ page, context, baseURL }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await language(page, 'en');
+      for (const [name, value] of CONTROL_SHOTS) {
+        await scenario(context, `${value}.${tag()}`, baseURL);
+        await page.goto('about:blank');
+        await page.goto('./#/house/control');
+        await expect(card(page)).toBeVisible();
+        await page.waitForTimeout(400);
+        await card(page).screenshot({ path: `e2e/shots/house-s4-${name}-${width}.png` });
+      }
+      await scenario(context, `modelplan:shadow.${tag()}`, baseURL);
+      await page.goto('./#/house');
+      await expect(page.getByTestId('house-status-use')).toBeVisible();
+      await page.screenshot({ path: `e2e/shots/house-s4-status-${width}.png` });
+    });
+  }
 });

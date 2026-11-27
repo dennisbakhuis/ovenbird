@@ -17,7 +17,7 @@ export const topic: HelpTopic = {
       id: 'enable',
       kind: 'do',
       title: 'Weersverwachting',
-      body: 'Zet haar aan om de [[forecast|verwachting]] te zien op de pagina [Weer](#/weather) en als blauwe balk in de stooklijngrafiek. In deze versie is ze alleen om te bekijken: de regelaar gebruikt haar niet.',
+      body: 'Zet haar aan om de [[forecast|verwachting]] te zien op de pagina [Weer](#/weather) en als blauwe balk in de stooklijngrafiek. De regelaar gebruikt haar alleen als het [[model-plan|modelplan]] aan staat; anders is ze alleen om te bekijken.',
       target: 'settings/weather.enable',
     },
     {

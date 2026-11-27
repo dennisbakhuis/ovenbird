@@ -21,6 +21,7 @@ from ovenbird_core.control import (
     Override,
     OverrideKind,
     PlanSlice,
+    PlanSource,
     PumpDutyConfig,
     RampPhase,
     ReasonCode,
@@ -86,6 +87,7 @@ class Tick:
     mode: Mode
     override: Override | None
     plan_offset: float | None
+    plan_source: PlanSource = PlanSource.RULE
 
 
 ticks = st.builds(
@@ -137,7 +139,7 @@ def inputs_for(t: float, tick: Tick) -> ControlInputs:
     plan = None
     if tick.plan_offset is not None:
         reason = ReasonCode.PLAN_PREHEAT if tick.plan_offset > 0 else ReasonCode.PLAN_SETBACK
-        plan = PlanSlice(tick.plan_offset, reason, now, now.shifted(900))
+        plan = PlanSlice(tick.plan_offset, reason, now, now.shifted(900), tick.plan_source)
     return synthetic_inputs(now, tick.plant, mode=tick.mode, override=tick.override, plan=plan)
 
 
@@ -287,6 +289,67 @@ def assert_dwell_and_deadband(controller: OvenbirdController, sequence: list[Tic
             )
             if not ramping:
                 assert inputs.now.monotonic - before.last_change_at >= stages.dwell_s
+
+
+MODEL_OFFSETS = st.sampled_from([None, -2.0, -1.0, -0.5, -0.2, 0.3, 0.5, 2.0])
+model_ticks = st.builds(
+    lambda tick, offset: replace(tick, plan_offset=offset, plan_source=PlanSource.MODEL),
+    ticks,
+    MODEL_OFFSETS,
+)
+
+
+@st.composite
+def steady_with_model_plan(draw: st.DrawFn) -> list[Tick]:
+    """A steady plant with a model plan that comes, goes and jumps to its bounds."""
+    sequence = draw(steady())
+    offsets = draw(st.lists(MODEL_OFFSETS, min_size=len(sequence), max_size=len(sequence)))
+    return [
+        replace(tick, plan_offset=offset, plan_source=PlanSource.MODEL)
+        for tick, offset in zip(sequence, offsets, strict=True)
+    ]
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    controller=st.sampled_from(CONTROLLERS), sequence=st.lists(model_ticks, min_size=1, max_size=40)
+)
+def test_a_model_plan_keeps_the_safety_envelope_and_its_bounds(
+    controller: OvenbirdController, sequence: list[Tick]
+) -> None:
+    cfg = controller.config
+    safety = cfg.safety
+    for _, inputs, result in drive(controller, sequence):
+        decision = result.decision
+        if decision.ladder in (LadderLevel.HOLD, LadderLevel.REFUSE):
+            continue
+        outside = inputs.snapshot.fresh_value(HeishaSignal.OUTSIDE_TEMP)
+        assert isinstance(outside, float)
+        bounds = safety.bounds(outside)
+        assert decision.setpoint is not None
+        assert bounds.low_int <= decision.setpoint <= bounds.high_int
+        assert decision.pre_round is not None
+        assert bounds.low - 1e-9 <= decision.pre_round <= bounds.high + 1e-9
+        plan = decision.term("plan")
+        assert plan is not None
+        assert plan.value == 0.0
+        target = decision.controller_state["room_target_c"]
+        if isinstance(target, float):
+            low = cfg.comfort_room_c - cfg.model_plan.max_setback_k
+            high = cfg.comfort_room_c + cfg.model_plan.max_preheat_k
+            assert low - 1e-9 <= target <= high + 1e-9
+        if decision.ladder is LadderLevel.MODEL_PLAN:
+            assert inputs.room is not None
+            assert decision.controller_state["model_plan_ignored"] is None
+            assert not result.state.stove_active
+
+
+@settings(max_examples=150, deadline=None)
+@given(controller=st.sampled_from(CONTROLLERS), sequence=steady_with_model_plan())
+def test_a_model_plan_coming_and_going_respects_dwell_and_deadband(
+    controller: OvenbirdController, sequence: list[Tick]
+) -> None:
+    assert_dwell_and_deadband(controller, sequence)
 
 
 @settings(max_examples=100, deadline=None)

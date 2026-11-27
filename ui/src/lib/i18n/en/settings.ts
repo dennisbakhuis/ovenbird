@@ -15,6 +15,7 @@ export const settings = {
   group_house: 'Facts about the house',
   group_house_bounds: 'Pin or limit what is learned',
   group_house_learning: 'Learning',
+  group_model_plan: 'Use of the model by the controller',
   group_curve: 'Curve',
   group_room: 'Room sensor and target',
   group_feedback: 'Room correction',
@@ -60,6 +61,8 @@ export const settings = {
   check_date_format: 'Write each day as YYYY-MM-DD, a real date.',
   check_date_future: 'A day to leave out cannot be more than a day ahead.',
   check_date_repeated: 'Each day can be left out only once.',
+  check_model_use_on_locked:
+    'Using the model for control (On) is locked for now. Use Shadow: it computes and records, and changes nothing.',
   check_house_bounds_order:
     '{min_field} ({min} {unit}) must not exceed {max_field} ({max} {unit}).',
   check_house_fit_days_short:

@@ -186,6 +186,11 @@ FIELDS: Final[dict[str, FieldMeta]] = {
     "house_learn_test_days": FieldMeta("house_learning", A, "d", step=1.0),
     "house_learn_tolerance_k": FieldMeta("house_learning", A, "K", step=0.01),
     "house_learn_excluded_days": FieldMeta("house_learning", A, kind="dates"),
+    "control_model_use": FieldMeta("model_plan", B),
+    "control_model_max_setback_k": FieldMeta("model_plan", A, step=0.1),
+    "control_model_max_preheat_k": FieldMeta("model_plan", A, step=0.1),
+    "control_model_horizon_h": FieldMeta("model_plan", A, step=1.0),
+    "control_model_max_rmse_k": FieldMeta("model_plan", A, "K", step=0.05),
     "history_raw_days": FieldMeta(
         "history", A, "d", step=1.0, soft_min=1.0, soft_max=90.0, kind="retention"
     ),
@@ -319,6 +324,7 @@ GROUP_ORDER: Final = (
     "house",
     "house_bounds",
     "house_learning",
+    "model_plan",
     "ha",
     "mqtt",
     "controller",

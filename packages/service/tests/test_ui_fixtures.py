@@ -26,6 +26,7 @@ from ovenbird.control.adapter import CommandStatus
 from ovenbird.control.alarms import (
     ENVELOPE_JOURNAL_CODE,
     HOLD_JOURNAL_CODE,
+    MODEL_PLAN_JOURNAL_CODE,
     AlarmCode,
     AlarmEventKind,
     Severity,
@@ -148,7 +149,12 @@ def codes() -> dict[str, list[str]]:
         "mode": [mode.value for mode in Mode],
         "alarm": [code.value for code in AlarmCode],
         "alarm_event": [kind.value for kind in AlarmEventKind],
-        "alarm_journal": [HOLD_JOURNAL_CODE, STOVE_JOURNAL_CODE, ENVELOPE_JOURNAL_CODE],
+        "alarm_journal": [
+            HOLD_JOURNAL_CODE,
+            STOVE_JOURNAL_CODE,
+            ENVELOPE_JOURNAL_CODE,
+            MODEL_PLAN_JOURNAL_CODE,
+        ],
         "severity": [severity.value for severity in Severity],
         "monitor_status": [status.value for status in MonitorStatus],
         "command_status": [status.value for status in CommandStatus],

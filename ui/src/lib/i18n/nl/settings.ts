@@ -17,6 +17,7 @@ export const settings: Record<keyof typeof en, string> = {
   group_house: 'Gegevens over het huis',
   group_house_bounds: 'Geleerde waarden vastzetten of begrenzen',
   group_house_learning: 'Leren',
+  group_model_plan: 'Gebruik van het model door de regelaar',
   group_curve: 'Stooklijn',
   group_room: 'Kamersensor en doel',
   group_feedback: 'Ruimtecorrectie',
@@ -62,6 +63,8 @@ export const settings: Record<keyof typeof en, string> = {
   check_date_format: 'Schrijf elke dag als JJJJ-MM-DD, een echte datum.',
   check_date_future: 'Een dag om over te slaan mag niet meer dan een dag vooruit liggen.',
   check_date_repeated: 'Elke dag kan maar één keer worden overgeslagen.',
+  check_model_use_on_locked:
+    'Het model gebruiken voor de regeling (Aan) is voorlopig vergrendeld. Gebruik Schaduw: dat rekent en legt vast, en verandert niets.',
   check_house_bounds_order:
     '{min_field} ({min} {unit}) mag niet hoger zijn dan {max_field} ({max} {unit}).',
   check_house_fit_days_short:

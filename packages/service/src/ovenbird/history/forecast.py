@@ -144,3 +144,40 @@ def at_lead(path: Path, lead_h: float, start: float, end: float) -> dict[float, 
     finally:
         conn.close()
     return {float(target): float(temp) for target, temp in rows}
+
+
+def newest_rows(path: Path, start: float, end: float, issued_by: float) -> list[ForecastRow]:
+    """Return, for each target hour in ``[start, end]``, the newest stored issue's row.
+
+    The newest issue at or before ``issued_by`` is the one with the shortest lead
+    (``target_ts - issued_ts``), which is what the model planner needs: the best
+    knowledge of each hour, past and future.
+
+    Parameters
+    ----------
+    path
+        Database file; a missing file or table yields no rows.
+    start, end
+        Target window in unix seconds (both ends included).
+    issued_by
+        Only issues made at or before this time count.
+
+    Returns
+    -------
+    list of ForecastRow
+        One row per target hour, by target time.
+    """
+    conn = _open(path)
+    if conn is None:
+        return []
+    try:
+        rows = conn.execute(
+            f"SELECT f.{COLUMNS.replace(', ', ', f.')} FROM forecast AS f "  # noqa: S608
+            "JOIN (SELECT target_ts, MAX(issued_ts) AS issued_ts FROM forecast "
+            "WHERE issued_ts <= ? AND target_ts >= ? AND target_ts <= ? GROUP BY target_ts) AS m "
+            "ON f.target_ts = m.target_ts AND f.issued_ts = m.issued_ts ORDER BY f.target_ts",
+            (issued_by, start, end),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [ForecastRow(*row) for row in rows]

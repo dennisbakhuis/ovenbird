@@ -42,6 +42,28 @@ function termValue(record: DecisionRecord, name: string): number {
   return record.terms.find((term) => term.name === name)?.value ?? 0;
 }
 
+function kelvin(value: number | null, fmt: NumberFormats): string {
+  return value === null ? '–' : `${fmt.plain(Math.abs(value), 1)} K`;
+}
+
+/**
+ * The model plan of a decision: the shift it asked for and applied to the room target, and why
+ * it was set aside; null when the decision carries no model plan.
+ */
+export function modelPlanOf(
+  record: DecisionRecord,
+): { requestedK: number; appliedK: number; ignored: string | null } | null {
+  const requested = state(record, 'model_plan_requested_k');
+  const applied = state(record, 'model_plan_applied_k');
+  if (requested === null || applied === null) return null;
+  const ignored = record.controller_state['model_plan_ignored'];
+  return {
+    requestedK: requested,
+    appliedK: applied,
+    ignored: typeof ignored === 'string' ? ignored : null,
+  };
+}
+
 /**
  * Template parameters derived from a decision record, all pre-formatted for display.
  */
@@ -76,6 +98,8 @@ export function explainParams(
     high: high === null ? dash : fmt.plain(high, 1),
     dwellMin: dwell === null ? dash : Math.ceil(dwell / 60),
     actor: record.actor ?? '',
+    planApplied: kelvin(state(record, 'model_plan_applied_k'), fmt),
+    planRequested: kelvin(state(record, 'model_plan_requested_k'), fmt),
   };
   return params;
 }
@@ -103,10 +127,24 @@ export function explain(
 ): Explanation {
   const params = explainParams(record, fmt);
   if (record.actor === null) params['actor'] = translate('explain_actor_unknown') ?? '';
-  const headline =
+  const plan = modelPlanOf(record);
+  const planned = record.ladder === 'model_plan' && plan !== null && plan.appliedK !== 0;
+  const reason =
+    (planned ? translate(`explain_reason_${record.reason}_model`, params) : undefined) ??
     (fixedBase(record) ? translate(`explain_reason_${record.reason}_fixed`, params) : undefined) ??
     translate(`explain_reason_${record.reason}`, params) ??
     record.reason;
+  const notes: string[] = [reason];
+  if (planned && plan && Math.abs(plan.requestedK) - Math.abs(plan.appliedK) >= 0.05)
+    notes.push(translate('explain_plan_requested', params) ?? '');
+  if (plan?.ignored)
+    notes.push(
+      translate('explain_plan_ignored', {
+        ...params,
+        why: translate(`houseCtlIgnored_${plan.ignored}`, params) ?? plan.ignored,
+      }) ?? '',
+    );
+  const headline = notes.filter(Boolean).join(' ');
   const constraint =
     record.binding === null
       ? null

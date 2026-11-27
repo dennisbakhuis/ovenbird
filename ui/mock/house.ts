@@ -828,3 +828,144 @@ export function makeWhatIf(
     },
   };
 }
+
+type Situation = 'setback' | 'preheat' | 'dead' | 'blocked';
+
+interface PlanState {
+  use: 'off' | 'shadow' | 'on';
+  situation: Situation;
+}
+
+/**
+ * The switch and what the planner computed, from the scenario and the stored configuration: a
+ * `modelplan` scenario forces both; without one the switch is `control_model_use` and the planner
+ * issues a set-back.
+ */
+export function planState(scenario: Scenario, doc: ConfigDoc): PlanState {
+  switch (scenario.modelplan) {
+    case 'shadow':
+      return { use: 'shadow', situation: 'setback' };
+    case 'preheat':
+      return { use: 'shadow', situation: 'preheat' };
+    case 'dead':
+      return { use: 'shadow', situation: 'dead' };
+    case 'blocked':
+      return { use: 'shadow', situation: 'blocked' };
+    case 'on':
+      return { use: 'on', situation: 'setback' };
+    default: {
+      const stored = doc.fields['control_model_use']?.value;
+      const use = stored === 'shadow' || stored === 'on' ? stored : 'off';
+      return { use, situation: 'setback' };
+    }
+  }
+}
+
+export const PLAN_SHIFT_K = 0.3;
+
+/**
+ * The room-target shift the controller applies in the mock decisions: only with the switch on.
+ */
+export function appliedPlanK(scenario: Scenario, doc: ConfigDoc): number {
+  const state = planState(scenario, doc);
+  if (state.use !== 'on') return 0;
+  return state.situation === 'preheat'
+    ? PLAN_SHIFT_K
+    : state.situation === 'setback'
+      ? -PLAN_SHIFT_K
+      : 0;
+}
+
+const QUARTER = 900_000;
+const bell = (hour: number, from: number, to: number) =>
+  hour <= from || hour >= to ? 0 : Math.sin(((hour - from) / (to - from)) * Math.PI);
+
+function pastOffset(at: number, maxDown: number, maxUp: number): number {
+  const date = new Date(at);
+  const hour = date.getHours() + date.getMinutes() / 60;
+  const dayIndex = Math.floor((at - date.getTimezoneOffset() * 60_000) / DAY);
+  const sunny = dayIndex % 7 !== 2 && dayIndex % 7 !== 5;
+  const cold = dayIndex % 3 === 1;
+  const down = sunny ? -maxDown * 0.8 * bell(hour, 8.5, 14) : 0;
+  const up = cold ? maxUp * bell(hour, 15, 19) : 0;
+  const value = Math.round((down + up) * 10) / 10;
+  return Math.abs(value) < 0.1 ? 0 : value;
+}
+
+function bound(doc: ConfigDoc, id: string, fallback: number): number {
+  const value = doc.fields[id]?.value;
+  return typeof value === 'number' ? value : fallback;
+}
+
+/**
+ * `GET insight/house/control`: the switch, whether the planner may act, the latest evaluation
+ * and 7 days of computed shifts every 15 minutes. The history is one pattern per day (a set-back
+ * on sunny mornings, a pre-heat before some cold evenings); the last two hours and `now` follow
+ * the scenario. Off: nothing is computed. On: the last three days were applied, the days before
+ * only computed.
+ */
+export function makeHouseControl(now: number, scenario: Scenario, doc: ConfigDoc): MockResult {
+  if (scenario.modelplan === 'missing') return notFound('not_found', 'no such endpoint');
+  const { use, situation } = planState(scenario, doc);
+  const maxDown = bound(doc, 'control_model_max_setback_k', 0.5);
+  const maxUp = bound(doc, 'control_model_max_preheat_k', 0.3);
+  const horizon = bound(doc, 'control_model_horizon_h', 6);
+  const maxRmse = bound(doc, 'control_model_max_rmse_k', 0.4);
+  const blocked = situation === 'blocked';
+  const blocks = blocked ? ['model_not_credible', 'stove_tail'] : [];
+  const slot = Math.floor(now / QUARTER) * QUARTER;
+  const from = slot - 7 * DAY;
+  const points: [string, number | null, 0 | 1 | null][] = [];
+  const currentK =
+    situation === 'preheat' ? PLAN_SHIFT_K : situation === 'setback' ? -PLAN_SHIFT_K : 0;
+  const gapFrom = slot - 2 * DAY - 5 * HOUR;
+  const appliedFrom = slot - 3 * DAY;
+  for (let at = from; at <= slot; at += QUARTER) {
+    let offset: number | null = pastOffset(at, maxDown, maxUp);
+    const recent = at > slot - 2 * HOUR;
+    if (recent) offset = blocked ? null : currentK;
+    if (
+      use === 'off' ||
+      (at >= gapFrom && at < gapFrom + 5 * HOUR) ||
+      (blocked && at > slot - 6 * HOUR)
+    )
+      offset = null;
+    const applied = offset === null ? null : use === 'on' && at >= appliedFrom ? 1 : 0;
+    points.push([iso(at), offset, applied]);
+  }
+  const evaluatedAt = blocked ? slot - 4 * HOUR : slot;
+  const evaluating = use !== 'off';
+  const dead = situation === 'dead';
+  const rise = dead ? 0.2 : situation === 'preheat' ? 0.1 : 0.6;
+  const fall = dead ? 0.1 : situation === 'preheat' ? 0.7 : 0.1;
+  const body = {
+    use,
+    verdict: { ok: blocks.length === 0, blocks },
+    model: modelName(now - DAY),
+    model_rmse_k: blocked ? 0.62 : 0.21,
+    bounds: {
+      max_setback_k: maxDown,
+      max_preheat_k: maxUp,
+      horizon_h: horizon,
+      max_rmse_k: maxRmse,
+    },
+    now: evaluating
+      ? {
+          at: iso(evaluatedAt),
+          status: dead ? 'inside_dead_zone' : 'issued',
+          offset_k: currentK,
+          applied: use === 'on' && !dead && !blocked,
+          reason: dead ? null : currentK < 0 ? 'plan_setback' : 'plan_preheat',
+          valid_until: dead ? null : iso(evaluatedAt + 20 * 60_000),
+          rise_k: rise,
+          rise_at: iso(evaluatedAt + 3 * HOUR),
+          fall_k: -fall,
+          fall_at: iso(evaluatedAt + 5 * HOUR),
+          solar_k: situation === 'preheat' ? 0.1 : rise,
+          outside_k: situation === 'preheat' ? -0.7 : dead ? 0 : -0.1,
+        }
+      : null,
+    history: { step_s: 900, from: iso(from), to: iso(slot), points: use === 'off' ? [] : points },
+  };
+  return { status: 200, body };
+}

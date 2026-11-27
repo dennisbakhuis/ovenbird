@@ -66,10 +66,12 @@ import {
   seriesExport,
 } from './data.ts';
 import {
+  appliedPlanK,
   makeBalance,
   makeHouse,
   makeHouseSeries,
   makeWhatIf,
+  makeHouseControl,
   makeHouseHistory,
   makeProposalDraft,
   makeRun,
@@ -137,6 +139,7 @@ const WAVE3_PATHS = [
   '/insight/house/whatif',
   '/insight/house/proposal/draft',
   '/insight/house/run',
+  '/insight/house/control',
   '/history/signals',
   '/history/storage',
   '/history/compact',
@@ -776,6 +779,7 @@ export function mockApi(): Plugin {
           roomStaleSince: scenario.room === 'stale' ? now - ROOM_STALE_S * 1000 : null,
           stove: stove(),
           configAt,
+          modelPlanK: appliedPlanK(scenario, doc()),
         };
         const holdActive = () =>
           Boolean(withScenario(makeControl(now, controlState()), scenario, now).adapter?.hold);
@@ -1052,7 +1056,9 @@ export function mockApi(): Plugin {
           );
           if (![0, 300, 900, 3600].includes(step))
             return send({ detail: 'step must be 0, 300, 900 or 3600' }, 400);
-          return send(makeSeries(from, to, step, now, stove(), configAt));
+          return send(
+            makeSeries(from, to, step, now, stove(), configAt, appliedPlanK(scenario, doc())),
+          );
         }
         if (path.endsWith('/api/v1/decisions')) {
           const limit = Math.min(Math.max(Number(param('limit') ?? 500), 1), 5000);
@@ -1295,6 +1301,10 @@ export function mockApi(): Plugin {
             return [];
           };
           return sendDownload(res, journalExport(kind, url.searchParams, now, rows));
+        }
+        if (path.endsWith('/api/v1/insight/house/control')) {
+          const result = makeHouseControl(now, scenario, doc());
+          return send(result.body, result.status);
         }
         if (path.endsWith('/api/v1/insight/house/run')) {
           const result = makeRun(now, scenario, learnerRuns.get(key));

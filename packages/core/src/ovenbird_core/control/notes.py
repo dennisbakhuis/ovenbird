@@ -15,6 +15,7 @@ from ovenbird_core.control.safety import EPSILON, Bound, SafetyBounds
 from ovenbird_core.control.types import (
     ControlInputs,
     PlanSlice,
+    PlanSource,
     ReasonCode,
     RoomInput,
     RoomProfile,
@@ -281,6 +282,7 @@ def decision_note(
     held_offset: float = 0.0,
     stove: str | None = None,
     fixed: bool = False,
+    model_ignored: str | None = None,
 ) -> str:
     """Return the decision note: what drove the water setpoint and what held or moved it."""
     parts: list[str] = []
@@ -314,8 +316,12 @@ def decision_note(
         parts.append("DHW run in progress: integrator frozen, no decrease")
     if duty_skipped:
         parts.append("defrost: the pump sets its own duty; no duty command")
-    if plan is not None:
+    if plan is not None and plan.source is PlanSource.MODEL:
+        parts.append(f"model plan {signed(plan.room_offset_k)} K on the room target")
+    elif plan is not None:
         parts.append(f"plan {signed(plan.room_offset_k)} K room ({signed(plan_w)} K water)")
+    elif model_ignored is not None:
+        parts.append(model_ignored)
     if boost:
         parts.append(f"boost {signed(boost)} K")
     if ramp < 0.0 and cap is not None:

@@ -47,6 +47,7 @@
   "insight_house_whatif_scenario": 200,
   "insight_house_whatif_range": 422,
   "insight_house_balance": 200,
+  "insight_house_control": 200,
   "proposal_draft": 200,
   "insight_house_run": 200,
   "insight_house_run_unavailable": 409,

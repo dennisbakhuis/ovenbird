@@ -26,8 +26,10 @@
   import HouseFields from './HouseFields.svelte';
   import PendingNote from './PendingNote.svelte';
 
+  type CardSubset = Exclude<Subset, 'plan'>;
+
   interface Props {
-    subset: Subset;
+    subset: CardSubset;
     schema: ConfigSchema;
     config: ConfigDoc;
     house?: HouseInsight | null;
@@ -46,7 +48,7 @@
     onstarted,
   }: Props = $props();
 
-  const TEXT: Record<Subset, { title: MessageKey; subtitle: MessageKey; testid: string }> = {
+  const TEXT: Record<CardSubset, { title: MessageKey; subtitle: MessageKey; testid: string }> = {
     facts: {
       title: 'houseFactsInputTitle',
       subtitle: 'houseFactsInputSubtitle',

@@ -37,9 +37,15 @@ class IntentKind(StrEnum):
 
 
 class LadderLevel(StrEnum):
-    """Degradation ladder, from the richest to the most defensive behaviour."""
+    """Degradation ladder, from the richest to the most defensive behaviour.
+
+    ``model_plan``: the room feedback with a bounded room-target offset from the
+    learned house model; richer than a rule plan (it predicts the house), poorer
+    than the optimiser (no prices, no heat-pump model).
+    """
 
     OPTIMISER_PLAN = "optimiser_plan"
+    MODEL_PLAN = "model_plan"
     RULE_PLAN = "rule_plan"
     SCHEDULE_CURVE_FEEDBACK = "schedule_curve_feedback"
     CURVE_ONLY = "curve_only"
@@ -98,10 +104,36 @@ class OverrideKind(StrEnum):
 
 
 class PlanSource(StrEnum):
-    """Which planner produced a plan slice."""
+    """Which planner produced a plan slice.
+
+    A ``model`` slice comes from the learned house model
+    (:mod:`ovenbird_core.control.planner`). The controller clamps it to the bounds of
+    :class:`~ovenbird_core.control.config.ModelPlanConfig`, applies it only as a
+    room-target offset of an active room feedback, and ignores it otherwise
+    (:class:`ModelPlanBlock`).
+    """
 
     OPTIMISER = "optimiser"
+    MODEL = "model"
     RULE = "rule"
+
+
+class ModelPlanBlock(StrEnum):
+    """Why the controller ignores an active model plan slice this tick.
+
+    ``room_untrusted``: no trusted room value (missing, stale or implausible), so
+    there is no room target to shift; a model plan never maps to water.
+    ``stove_active``: a wood-stove episode is active. ``stove_recovery``: the
+    wood-stove detection is still waiting after an episode or a sensor fault (the
+    room has not cooled below the exit threshold, or the room value has not been
+    trusted again for the re-entry hold). ``slice_too_long``: the slice is valid for
+    longer than ``MODEL_PLAN_MAX_SLICE_S``, so a stale plan could outlive its planner.
+    """
+
+    ROOM_UNTRUSTED = "room_untrusted"
+    STOVE_ACTIVE = "stove_active"
+    STOVE_RECOVERY = "stove_recovery"
+    SLICE_TOO_LONG = "slice_too_long"
 
 
 def _require_finite(name: str, value: float) -> None:

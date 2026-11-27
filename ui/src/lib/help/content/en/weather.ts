@@ -37,8 +37,8 @@ export const topic: HelpTopic = {
     {
       id: 'display-only',
       kind: 'know',
-      title: 'The forecast does not steer yet',
-      body: 'For now the forecast is for you to look at. ovenbird controls on the measured outside temperature; the forecast is not one of its inputs.\n\n**Curve water** is the heating curve alone, before [[room-feedback|room feedback]], limits and rounding, so the real setpoint can differ by a few degrees. ovenbird stores every forecast as it was issued, so its quality can be judged honestly before it is ever used for control.',
+      title: 'When the forecast steers',
+      body: 'The forecast is for you to look at, with one exception: when the [[model-plan|model plan]] is switched on (House → Control), the controller uses it to move the room target a little ahead of sun or a cold turn. Otherwise ovenbird controls on the measured outside temperature alone.\n\n**Curve water** is the heating curve alone, before [[room-feedback|room feedback]], limits and rounding, so the real setpoint can differ by a few degrees. ovenbird stores every forecast as it was issued, so its quality can be judged honestly.',
     },
     {
       id: 'privacy',
