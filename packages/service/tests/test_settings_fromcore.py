@@ -16,6 +16,7 @@ from ovenbird.config.fromcore import CORE_FIELDS, CoreSource
 from ovenbird.configstore.fields import FIELDS, unit_of
 from ovenbird_core.control import (
     CyclingConfig,
+    ModelPlanConfig,
     OutsideSource,
     OvenbirdConfig,
     PumpDutyConfig,
@@ -27,12 +28,15 @@ from ovenbird_core.control import (
     StartRampConfig,
     StoveConfig,
 )
+from ovenbird_core.control.planner import PlannerConfig
 from ovenbird_core.setting import specs
 
 CONFIGS: Final = (
     CyclingConfig,
+    ModelPlanConfig,
     OutsideSource,
     OvenbirdConfig,
+    PlannerConfig,
     PumpDutyConfig,
     QuietModeConfig,
     RoomFeedbackConfig,
@@ -51,6 +55,18 @@ CORE_ONLY: Final = frozenset(
         (StoveConfig, "fault_step_k"),
         (StoveConfig, "fault_step_window_s"),
         (StoveConfig, "crosscheck_allow_k"),
+        (PlannerConfig, "max_setback_k"),
+        (PlannerConfig, "max_preheat_k"),
+        (PlannerConfig, "gain"),
+        (PlannerConfig, "dead_zone_k"),
+        (PlannerConfig, "quantum_k"),
+        (PlannerConfig, "rate_k_per_slice"),
+        (PlannerConfig, "slice_s"),
+        (PlannerConfig, "grace_s"),
+        (PlannerConfig, "outside_weight"),
+        (PlannerConfig, "outside_filter_tau_s"),
+        (PlannerConfig, "weather_compensation"),
+        (PlannerConfig, "max_outside_mismatch_k"),
     }
 )
 SWITCHED: Final = frozenset({"control_stove_rise_k"})

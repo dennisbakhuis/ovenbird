@@ -44,6 +44,11 @@ active) and ``room_sensor_quiet``, the early warning for an
 on the curve plus the held offset, long before ``room_sensor_silent`` at the
 silence limit. It clears with the next proof of life.
 
+Model plan: an optional :class:`~ovenbird.control.modelplan.ModelPlanRunner`
+(``model_plan``) is asked for a plan slice before the controller step and told the
+decision afterwards. It returns a slice only with ``control_model_use`` ``on``, and
+never raises into the tick.
+
 Tick hooks (``tick_hooks``) run after the controller step and the room alarms, before
 the arbiter: the release manager (:mod:`ovenbird.trial.release`) records the go-live
 snapshot there, so nothing sent in that tick can be in it, and the envelope watch
@@ -58,7 +63,7 @@ import logging
 import math
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final, Protocol
 
@@ -67,6 +72,7 @@ from ovenbird.control.adapter import CommandAdapter, CommandEvent
 from ovenbird.control.alarms import AlarmBoard, AlarmCode, AlarmEvent
 from ovenbird.control.arbiter import Action, arbitrate
 from ovenbird.control.guard import PublishGuard
+from ovenbird.control.modelplan import ModelPlanRunner, PlanContext
 from ovenbird.control.monitors import SafetyMonitor, monitor_config
 from ovenbird.control.persist import STATE_KEY, encode_state
 from ovenbird.history.journal import AlarmRow, CommandRow, DecisionRow, StateRow
@@ -76,6 +82,7 @@ from ovenbird.stove.session import StoveSession
 from ovenbird_core import Instant, Snapshot
 from ovenbird_core.catalogue import HeishaSignal
 from ovenbird_core.control import (
+    ControlInputs,
     DecisionRecord,
     IntentKind,
     Mode,
@@ -84,6 +91,7 @@ from ovenbird_core.control import (
     OvenbirdConfig,
     OvenbirdController,
     OvenbirdState,
+    PlanSlice,
     RoomSensorProfile,
     carry_state,
     control_inputs,
@@ -310,6 +318,7 @@ class ControlLoop:
         self.tick_hooks: list[Callable[[Instant, Mode], None]] = []
         self.release: ReleaseManager | None = None
         self.envelope: EnvelopeWatch | None = None
+        self.model_plan: ModelPlanRunner | None = None
 
     @property
     def effective_mode(self) -> Mode:
@@ -397,9 +406,14 @@ class ControlLoop:
             override=None if request is None else request.override(moment),
             room_profile=self.room_profile,
         )
+        plan = self._model_plan(moment, inputs)
+        if plan is not None:
+            inputs = replace(inputs, plan=plan)
         result = self.controller.step(self.state, inputs)
         self.state = result.state
         self.stove.after(result.decision, moment)
+        if self.model_plan is not None:
+            self.model_plan.after(result.decision)
         self._room_alarm(result.decision, moment)
         self.stove.reference_alarm(self.controller.config.stove, result.decision, moment)
         self._outside_alarm(result.decision, moment)
@@ -468,6 +482,43 @@ class ControlLoop:
             or "no intents",
         )
         return row
+
+    def plan_context(self, moment: Instant, inputs: ControlInputs) -> PlanContext:
+        """Return what the model plan runner needs at ``moment``.
+
+        The room counts as trusted when the controller has a fresh room value that its
+        cross-check did not reject at the previous tick.
+        """
+        room = inputs.room
+        plausible = (self.latest_state or {}).get("room_plausible") is not False
+        return PlanContext(
+            now=moment,
+            room_trusted=room is not None and room.fresh and plausible,
+            stove_active=self.state.stove_active,
+            outside_filtered_c=self.state.outside_filtered,
+            config=self.controller.config,
+        )
+
+    def live_plan_context(self) -> PlanContext:
+        """Return :meth:`plan_context` for the current state of the store (the API)."""
+        moment = self.runtime.clock()
+        inputs = control_inputs(
+            self.runtime.store.snapshot(moment),
+            room_signal=self.room_signal,
+            mode=self.effective_mode,
+            room_profile=self.room_profile,
+        )
+        return self.plan_context(moment, inputs)
+
+    def _model_plan(self, moment: Instant, inputs: ControlInputs) -> PlanSlice | None:
+        runner = self.model_plan
+        if runner is None:
+            return None
+        try:
+            return runner.step(self.plan_context(moment, inputs))
+        except Exception:
+            LOGGER.exception("the model plan failed; no plan this tick")
+            return None
 
     def request_stove(
         self, on: bool, until: datetime | None, actor: str, now: Instant | None = None

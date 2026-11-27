@@ -39,12 +39,13 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from types import MappingProxyType
-from typing import Any, Final
+from typing import Any, Final, Protocol
 
 import numpy as np
 
 from ovenbird_core.catalogue import HeishaSignal
 from ovenbird_core.control.observe import pump_actual, room_input
+from ovenbird_core.control.planner import ForecastHour
 from ovenbird_core.control.protocol import Controller, StepResult
 from ovenbird_core.control.record import DecisionRecord
 from ovenbird_core.control.types import (
@@ -53,6 +54,7 @@ from ovenbird_core.control.types import (
     IntentKind,
     LadderLevel,
     Mode,
+    PlanSlice,
     ReasonCode,
 )
 from ovenbird_core.instant import Instant
@@ -83,7 +85,11 @@ TICK_S: Final = 60.0
 LOOP_SENSOR_STEP_K: Final = 0.25
 HEARTBEAT_AGE_S: Final = 2.0
 ROOM_RESOLUTION_K: Final = 0.2
-FEEDBACK_LEVELS: Final = frozenset({"schedule_curve_feedback", "rule_plan", "optimiser_plan"})
+PLAN_EVERY_S: Final = 900.0
+MODEL_PLAN_APPLIED_KEY: Final = "model_plan_applied_k"
+FEEDBACK_LEVELS: Final = frozenset(
+    {"schedule_curve_feedback", "model_plan", "rule_plan", "optimiser_plan"}
+)
 
 
 STATIC_SIGNALS: Final[Mapping[SignalId, Value]] = MappingProxyType(
@@ -142,6 +148,39 @@ class Weather:
         return self.t0 + self.dt * np.arange(self.n, dtype=np.float64)
 
 
+class ForecastView(Protocol):
+    """What the service has stored of the weather forecast at a time."""
+
+    def rows(self, now: Instant) -> tuple[ForecastHour, ...]:
+        """Return the hourly rows the planner reads at ``now`` (past and future hours)."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class PlanRequest:
+    """What the service has when it asks a planner for the slice starting at ``now``.
+
+    Parameters
+    ----------
+    now
+        Start of the slice.
+    outside_filtered_c
+        The controller's filtered outside temperature.
+    previous_offset_k
+        Offset of the slice issued by the previous call (0 when none, or expired).
+    forecast
+        View of the stored forecast.
+    """
+
+    now: Instant
+    outside_filtered_c: float
+    previous_offset_k: float
+    forecast: ForecastView
+
+
+type PlanProvider = Callable[[PlanRequest], PlanSlice | None]
+
+
 @dataclass(frozen=True, slots=True)
 class LoopOptions:
     """Options of a closed-loop run.
@@ -162,6 +201,14 @@ class LoopOptions:
         Signal id of the simulated living-room sensor.
     sensors
         Dither noise of the integer sensors.
+    plan_provider
+        Called every ``plan_every_s`` of simulated time with a :class:`PlanRequest`;
+        the slice it returns (or none) is passed to the controller until the next call
+        (the controller ignores it once expired). ``None``: no plan, as before.
+    plan_forecast
+        The forecast view handed to the provider.
+    plan_every_s
+        Period of the provider calls.
     """
 
     initial_setpoint: int
@@ -171,6 +218,9 @@ class LoopOptions:
     mode: Mode = Mode.AUTO
     room_signal: SignalId = DATALAKE_SIGNAL
     sensors: SensorModel = field(default_factory=SensorModel)
+    plan_provider: PlanProvider | None = None
+    plan_forecast: ForecastView | None = None
+    plan_every_s: float = PLAN_EVERY_S
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +261,9 @@ class Trace:
     hz
         Compressor frequency of heating operation at the end of each step (0 when
         stopped or defrosting).
+    plan_offset_k
+        Room-target offset of a model plan the controller applied at each tick (0 when
+        none applied).
     """
 
     t: FloatArray
@@ -232,6 +285,7 @@ class Trace:
     room_fresh: FloatArray = field(default_factory=lambda: np.zeros(0))
     room_feedback: FloatArray = field(default_factory=lambda: np.zeros(0))
     hz: FloatArray = field(default_factory=lambda: np.zeros(0))
+    plan_offset_k: FloatArray = field(default_factory=lambda: np.zeros(0))
 
 
 def quantise(value: float, step_k: float) -> float:
@@ -553,6 +607,12 @@ class RecordedSetpoints:
         return StepResult(state, intents, record)
 
 
+def _outside_filtered(state: object) -> float | None:
+    """Return the controller state's filtered outside temperature, if it has one."""
+    value = getattr(state, "outside_filtered", None)
+    return float(value) if isinstance(value, int | float) else None
+
+
 def simulate[S](
     controller: Controller[S],
     params: PlantParams,
@@ -617,6 +677,8 @@ def simulate[S](
     ladder: list[str] = []
     fresh = np.zeros(n)
     feedback = np.zeros(n)
+    plan_offset = np.zeros(n)
+    plan: PlanSlice | None = None
     for k in range(n):
         t = float(times[k])
         outside = float(weather.outside_c[k])
@@ -626,11 +688,24 @@ def simulate[S](
         snapshot = heishamon.snapshot(t, values, room_view)
         room_in = room_input(snapshot, options.room_signal, profile)
         fresh[k] = float(room_in is not None and room_in.fresh)
+        if (
+            options.plan_provider is not None
+            and options.plan_forecast is not None
+            and t % options.plan_every_s == 0.0
+        ):
+            filtered = _outside_filtered(cstate)
+            if filtered is not None:
+                previous = (
+                    plan.room_offset_k if plan is not None and plan.active(snapshot.now) else 0.0
+                )
+                plan = options.plan_provider(
+                    PlanRequest(snapshot.now, filtered, previous, options.plan_forecast)
+                )
         inputs = ControlInputs(
             now=snapshot.now,
             snapshot=snapshot,
             room=room_in,
-            plan=None,
+            plan=plan,
             mode=options.mode,
             override=None,
             actual=pump_actual(snapshot),
@@ -642,6 +717,9 @@ def simulate[S](
         reasons.append(result.decision.reason.value)
         ladder.append(result.decision.ladder.value)
         feedback[k] = float(result.decision.ladder.value in FEEDBACK_LEVELS)
+        applied_offset = result.decision.controller_state.get(MODEL_PLAN_APPLIED_KEY)
+        if isinstance(applied_offset, int | float):
+            plan_offset[k] = float(applied_offset)
         intent = result.intent(IntentKind.WATER_SETPOINT)
         if intent is not None and intent.value != applied:
             applied = intent.value
@@ -691,4 +769,5 @@ def simulate[S](
         room_fresh=fresh,
         room_feedback=feedback,
         hz=cols["hz"],
+        plan_offset_k=plan_offset,
     )

@@ -134,6 +134,82 @@ describe('explain', () => {
 const LIVE_NOTE =
   "Room 0.1 K above target; PI adds +0.2 K to the curve's 30.4 °C at 5.9 °C outside; held value 21.9 °C (2 h 10 m), device alive (humidity 4 min ago), ±0.2 K, cooling authority 80 %; defrost in progress: integrator frozen, no decrease; defrost: the pump sets its own duty; no duty command; cycling floor 30.5 °C limits the decrease; setpoint stays 31 °C, no decrease during defrost.";
 
+describe('explain with a model plan', () => {
+  const planned = (
+    extra: Record<string, unknown>,
+    reason = 'plan_setback',
+    ladder = 'model_plan',
+  ) =>
+    record({
+      reason,
+      ladder,
+      binding: null,
+      controller_state: {
+        ...record().controller_state,
+        model_plan_requested_k: -0.4,
+        model_plan_applied_k: -0.3,
+        model_plan_ignored: null,
+        ...extra,
+      } as DecisionRecord['controller_state'],
+    });
+
+  it('says the room target was lowered, by how much and why', () => {
+    const text = explain(planned({}), translator('en'), numberFormats('en')).headline;
+    expect(text).toContain(
+      'Room target lowered by 0.3 K: the house model expects the room to warm',
+    );
+    expect(text).toContain('The plan asked for 0.4 K; the bounds limited it.');
+    expect(text).not.toMatch(/\{\w+\}/);
+  });
+
+  it('says the room target was raised for a pre-heat, without a limit sentence when not cut', () => {
+    const text = explain(
+      planned({ model_plan_requested_k: 0.3, model_plan_applied_k: 0.3 }, 'plan_preheat'),
+      translator('en'),
+      numberFormats('en'),
+    ).headline;
+    expect(text).toContain('Room target raised by 0.3 K');
+    expect(text).not.toContain('bounds limited');
+  });
+
+  it('speaks Dutch', () => {
+    const text = explain(planned({}), translator('nl'), numberFormats('nl')).headline;
+    expect(text).toContain('Kamerdoel 0,3 K verlaagd');
+    expect(text).not.toMatch(/\{\w+\}/);
+  });
+
+  it.each(['room_untrusted', 'stove_active', 'stove_recovery', 'slice_too_long'])(
+    'names why the plan was not used: %s',
+    (ignored) => {
+      const result = explain(
+        planned(
+          { model_plan_applied_k: 0, model_plan_ignored: ignored },
+          'room_feedback',
+          'schedule_curve_feedback',
+        ),
+        translator('en'),
+        numberFormats('en'),
+      );
+      expect(result.headline).toContain('The house model’s plan was not used:');
+      expect(result.headline).not.toMatch(/\{\w+\}|houseCtl/);
+    },
+  );
+
+  it('keeps the plain plan sentence for a plan that is not a model plan', () => {
+    const text = explain(
+      planned({}, 'plan_setback', 'optimiser_plan'),
+      translator('en'),
+      numberFormats('en'),
+    );
+    expect(text.headline).toContain('The plan asks for a setback');
+  });
+
+  it('has a ladder label for the model plan in both languages', () => {
+    for (const language of languages)
+      expect(translateOptional(language, 'ladder_model_plan')).toBeTruthy();
+  });
+});
+
 describe('flipModel', () => {
   it('puts the room flip point below the room when the water would step up', () => {
     const model = flipModel(

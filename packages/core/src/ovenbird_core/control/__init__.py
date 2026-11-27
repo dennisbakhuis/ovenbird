@@ -2,6 +2,7 @@
 
 from ovenbird_core.control.config import (
     CyclingConfig,
+    ModelPlanConfig,
     OutsideSource,
     OvenbirdConfig,
     PumpDutyConfig,
@@ -67,6 +68,7 @@ from ovenbird_core.control.types import (
     IntentKind,
     LadderLevel,
     Mode,
+    ModelPlanBlock,
     Override,
     OverrideKind,
     PlanSlice,
@@ -98,6 +100,8 @@ __all__ = [
     "JsonValue",
     "LadderLevel",
     "Mode",
+    "ModelPlanBlock",
+    "ModelPlanConfig",
     "OutsideReason",
     "OutsideSource",
     "OvenbirdConfig",

@@ -1,14 +1,17 @@
 <!--
-  House: what the learned house model says, in three tabs. Overview: the indicative insulation
+  House: what the learned house model says, in tabs. Overview: the indicative insulation
   score, the other learned figures and a line about the model in use. Model: the energy signature
-  and the model's quality. Learning: the learner and its run now button, how the model is learned
+  and the model's quality. Control: how the controller uses the model (the shadow switch, what the
+  planner does and why not, the computed shifts). Learning: the learner and its run now button, how the model is learned
   (errors, left-out periods, data) and the curve suggestion (opened as a settings draft, never
   applied here). Before a model exists the page shows what is missing and the learner; on an
   older service one card says so. Loads insight/house and insight/house/history, refreshed
-  every 30 minutes and after a learner run.
+  every 30 minutes and after a learner run, and insight/house/control every minute (an older
+  service without it shows no use card).
 -->
 <script lang="ts">
   import FactsCard from '$components/house/FactsCard.svelte';
+  import ModelPlanCard from '$components/house/ModelPlanCard.svelte';
   import HouseSchematic from '$components/house/HouseSchematic.svelte';
   import PredictionChart from '$components/house/PredictionChart.svelte';
   import WhatIfCard from '$components/house/WhatIfCard.svelte';
@@ -33,6 +36,8 @@
     type HouseResult,
   } from '$lib/house/house';
   import type { LiveStore } from '$lib/core/live.svelte';
+  import { fetchHouseControl } from '$lib/house/plan';
+  import type { HouseControl } from '$lib/house/shapes';
   import { buildHash, router } from '$lib/core/router.svelte';
   import { draft } from '$lib/core/draft.svelte';
   import { t } from '$lib/core/settings.svelte';
@@ -43,12 +48,17 @@
 
   const REFRESH_MS = 1_800_000;
   const BALANCE_REFRESH_MS = 60_000;
-  const TABS = ['overview', 'model', 'learning', 'what-if'] as const;
+  const CONTROL_REFRESH_MS = 60_000;
+  const TABS = ['overview', 'model', 'control', 'learning', 'what-if'] as const;
   type Tab = (typeof TABS)[number];
 
   const active = $derived<Tab>(TABS.find((tab) => tab === router.location.sub[0]) ?? 'overview');
   const items = $derived(
-    TABS.filter((tab) => tab !== 'what-if' || balance?.kind !== 'absent').map((tab) => ({
+    TABS.filter(
+      (tab) =>
+        (tab !== 'what-if' || balance?.kind !== 'absent') &&
+        (tab !== 'control' || control !== null),
+    ).map((tab) => ({
       id: tab,
       label: t(`houseTab_${tab}` as 'houseTab_overview'),
       href: buildHash('house', tab === 'overview' ? [] : [tab]),
@@ -62,6 +72,8 @@
   let versions = $state<ConfigVersion[]>([]);
   let balance = $state<BalanceResult | null>(null);
   let balanceFailed = $state(false);
+  let control = $state<HouseControl | null>(null);
+  let controlChecked = $state(false);
 
   function openFacts(): void {
     document
@@ -89,6 +101,31 @@
       window.clearTimeout(timer);
     };
   });
+
+  $effect(() => {
+    void live.configVersion;
+    void ctl.config?.version;
+    const controller = new AbortController();
+    let timer: number | undefined;
+    const load = async () => {
+      try {
+        control = await fetchHouseControl(controller.signal);
+        controlChecked = true;
+      } catch {
+        if (controller.signal.aborted) return;
+      }
+      timer = window.setTimeout(load, CONTROL_REFRESH_MS);
+    };
+    void load();
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  });
+
+  function openControl(): void {
+    router.navigate('house', ['control']);
+  }
 
   $effect(() => {
     void cfg.loadSchema();
@@ -189,6 +226,14 @@
         />
       {/if}
     </div>
+  {:else if active === 'control'}
+    <div class="grid" data-testid="house-page" data-tab="control">
+      {#if control}
+        <ModelPlanCard {control} {schema} {config} />
+      {:else if controlChecked}
+        <p class="muted" data-testid="house-control-absent">{t('houseCtlAbsent')}</p>
+      {/if}
+    </div>
   {:else if active === 'learning'}
     <div class="grid" data-testid="house-page" data-tab="learning">
       <RunCard credibility={result.data.credibility} onsettled={() => (reload += 1)} />
@@ -210,7 +255,7 @@
       <WhatIfCard {comfortC} onoverview={() => router.navigate('house')} />
     </div>
   {:else}
-    <StatusLine house={result.data} />
+    <StatusLine house={result.data} use={control?.use ?? null} onuse={openControl} />
     <div class="grid" data-testid="house-page" data-tab="overview">
       {#if balance?.kind !== 'absent'}
         <HouseSchematic {balance} failed={balanceFailed} onfacts={openFacts} />

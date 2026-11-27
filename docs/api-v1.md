@@ -437,7 +437,11 @@ when the hold ends; `await_release`: latched until `control/release-hold`) and
 `event`: `raised` / `cleared` for alarms; `started` / `expired` / `released` for
 `command_hold` (`detail.until` is unix seconds, null when latched) and for the
 informational `stove_mode` journal entries (wood-stove mode on; off by a manual stop;
-off for any other reason, `detail.exit` says which; not alarms, never in `active`).
+off for any other reason, `detail.exit` says which; not alarms, never in `active`) and for
+the informational `model_plan` entries: `started` when the model plan has no plan because a
+guard blocks, `released` when every guard passes again (`detail`: `use`, `blocks`, the
+failing guard codes of `insight/house/control`); only while `control_model_use` is not
+`off`, never an alarm and never a notification.
 `recognised` for the informational `envelope_correction` entries (the HeishaMon envelope
 rule corrected ovenbird's water setpoint and ovenbird adopted it; `detail`: `setting`,
 `signal`, `ovenbird_value`, `seen_value`, `outside_c`, `low_c`, `high_c` (the band),
@@ -622,8 +626,13 @@ dynamic bounds follow the current emitter and limits).
   (`house_fit_days_short`); `house_learn_tolerance_k` -0.1 to 0.2, default 0;
   `house_learn_excluded_days`, up to 60 days `YYYY-MM-DD`, none more than a day ahead, each
   once, stored sorted: `date_format`, `date_future`, `date_repeated`). Every `house_*`
-  field reaches the learner through its configuration file; the next run applies it,
-`ha`, `mqtt` (the broker
+  field reaches the learner through its configuration file; the next run applies it;
+  `model_plan` (the learned house model as a bounded room-target offset, see
+  `insight/house/control`: `control_model_use`, basic, one of `off` (default), `shadow` and
+  `on`, where `on` is refused for now with `model_use_on_locked`; and the advanced
+  `control_model_max_setback_k` 0.1 to 1 K, default 0.5, `control_model_max_preheat_k` 0 to
+  0.5 K, default 0.3, `control_model_horizon_h` 2 to 12 h, default 6, and
+  `control_model_max_rmse_k` 0.2 to 1.5 K, default 0.6), `ha`, `mqtt` (the broker
   connection of `config/mqtt` and `mqtt_inputs`), `controller`, `commands`, `safety`,
   `history` (the advanced retention fields `history_raw_days`, `history_1m_days`,
   `history_15m_days`, `history_1h_days`, `history_decision_days`; the rest of the group
@@ -732,6 +741,7 @@ value, e.g. `[0, "start"]` in the quiet windows; "-" means none):
 | `min_above_max` | error | `min`, `max` | minimum setpoint not below the maximum supply (both effective) |
 | `house_bounds_order` | error | `min_field`, `max_field`, `min`, `max` | a `house_*_min_*` bound above its `house_*_max_*` bound (reported on the maximum field) |
 | `house_fit_days_short` | error | `fit_days`, `test_days`, `min` | `house_learn_fit_days` below `house_learn_test_days` + 8 |
+| `model_use_on_locked` | error | - | `control_model_use` `on`: the model may only be switched on after the evaluation and a shadow period (decision record 2026-11-27); `off` and `shadow` are accepted |
 | `curve_range` | error | `min`, `max` | water outside [minimum setpoint, maximum supply] |
 | `outside_envelope` | error | `at`, `by_k` | the curve leaves the safety envelope |
 | `integral_above_output` | error | - | integrator limit above the output limit |
@@ -1055,8 +1065,10 @@ control returns to the configured mode (unless paused). `200` `{"mode", "config"
 
 Measured, filtered and forecast outside temperature (`back_h` up to 168, `ahead_h` up
 to 72; `422` beyond). The forecast is **opt-in** (`weather_enabled`; the coordinates
-leave the house, rounded to 0.01°) and **display-only** in v1: it is not a controller
-input.
+leave the house, rounded to 0.01°). It is shown only, unless the model plan is switched on
+(`control_model_use`, see `insight/house/control`): then it is a controller input, through
+a bounded room-target offset. With `shadow` it is read and the result recorded, with no
+effect on any decision.
 
 ```json
 {"enabled": true, "provider": "open-meteo", "issued": "...", "age": 1200.0, "stale": false,
@@ -1361,6 +1373,63 @@ One entry per promoted model, oldest first, with the score for the current floor
              "time_constant_h": 52.6, "credible": false, "room_rmse_24h_k": 0.093,
              "score": {"state": "learning", "...": "..."}}]}
 ```
+
+## `GET api/v1/insight/house/control` (read)
+
+The learned house model as a bounded room-target offset (the *model plan*, decision record
+`docs/decisions/2026-11-27-learned-model-in-controller.md`): the switch, the guards, the
+latest planner evaluation and what it computed over the last 7 days.
+
+```json
+{"use": "shadow",
+ "verdict": {"ok": false, "blocks": ["room_untrusted"]},
+ "model": "house-20261113", "model_rmse_k": 0.42,
+ "bounds": {"max_setback_k": 0.5, "max_preheat_k": 0.3, "horizon_h": 6.0, "max_rmse_k": 0.6},
+ "now": {"at": "2026-12-01T09:00:03Z", "status": "issued", "offset_k": -0.2, "applied": false,
+         "reason": "plan_setback", "valid_until": "2026-12-01T09:20:03Z",
+         "rise_k": 0.8, "rise_at": "2026-12-01T13:15:03Z", "fall_k": -0.1,
+         "fall_at": "2026-12-01T20:00:03Z", "solar_k": 0.7, "outside_k": 0.0},
+ "history": {"step_s": 900, "from": "2026-11-24T09:00:00Z", "to": "2026-12-01T09:00:03Z",
+             "points": [["2026-11-24T09:00:00Z", -0.1, 0], ["2026-11-24T09:15:00Z", null, null]]}}
+```
+
+- `use`: `control_model_use`: `off` (no planner call, no recording), `shadow` (computed and
+  recorded exactly as for `on`, never passed to the controller: its decisions are those of
+  `off`) or `on` (the slice shifts the room target; refused for now, see
+  `model_use_on_locked`).
+- `verdict`: the guards, evaluated now (also while `off`, so the owner sees what would block),
+  in this fixed order, all reported: `weather_off` (no forecast is fetched),
+  `model_missing` (no champion, or its files are refused; the next three need a champion),
+  `model_not_credible`, `model_stale` (the learner has not re-validated the model within
+  twice its interval), `model_error_high` (the champion's held-out 24 h room error exceeds
+  `control_model_max_rmse_k`, or is unknown), `forecast_stale` (the newest stored forecast is
+  older than 3 h, or there is none), `room_untrusted` (the controller has no fresh,
+  plausible room value), `stove_active` (a wood-stove episode runs) and `stove_tail` (the
+  last episode ended less than 12 h ago, read back from the journal so a restart does not
+  forget it). No guard for weather-dependent control being off: the planner then holds the
+  loop heat instead of modelling the curve.
+- `model`, `model_rmse_k`: the champion and its held-out 24 h room error (`null` without one).
+- `bounds`: the settings of the group `model_plan`.
+- `now`: the latest planner evaluation, `null` while `use` is `off` or it never ran.
+  `status`: `issued` (a slice with a non-zero offset), `inside_dead_zone`, `crossing_zero`
+  (the rate limit holds the offset at zero), `forecast_gap`, `forecast_mismatch`,
+  `model_invalid` or `planner_error` (the planner raised; logged, no plan). `offset_k` is
+  the issued offset (0 without a slice); `applied` is true only when the controller applied
+  a model offset at its latest tick (never with `shadow`); `reason` `plan_setback` or
+  `plan_preheat`, `valid_until` and the predicted drift of the room (`rise_*`, `fall_*`,
+  `solar_k`, `outside_k`) are `null` when there is none. A guard that blocks at a later tick
+  withdraws the slice at once but leaves this evaluation as it was.
+- `history`: the computed offsets of the last 7 days from the 15 min rollups of
+  `derived/model_plan_offset_k` and `derived/model_plan_applied` (history signals written
+  only while `use` is not `off`, to the history writer only, never into the state the
+  controller reads). `points` are `[time, offset_k, applied]`: `offset_k` is `0` when the
+  planner ran and issued no slice and `null` when a guard blocked (a gap); `applied` is `1`
+  when the controller applied the offset for most of the interval; `points` is empty when
+  nothing was recorded.
+
+The planner runs every quarter hour of the service clock, with the previous slice's offset
+for its rate limit (0 after a restart, so the offset ramps from 0 again; no plan is in force
+until the first evaluation after a start).
 
 ## `GET api/v1/insight/house/run` (read)
 

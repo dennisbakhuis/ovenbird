@@ -53,7 +53,12 @@ describe('settings sections', () => {
 
 describe('house settings in the schema', () => {
   it('keeps every house group inside the House section, facts first', () => {
-    expect(sectionOf('house')?.groups).toEqual(['house', 'house_bounds', 'house_learning']);
+    expect(sectionOf('house')?.groups).toEqual([
+      'house',
+      'house_bounds',
+      'house_learning',
+      'model_plan',
+    ]);
     const ids = sch.groups.map((g) => g.id);
     expect(ids.indexOf('house')).toBeLessThan(ids.indexOf('house_bounds'));
     expect(ids.indexOf('house_bounds')).toBeLessThan(ids.indexOf('house_learning'));

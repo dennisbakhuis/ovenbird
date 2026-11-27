@@ -1,9 +1,10 @@
-"""CLI: ``python -m ovenbird_sim.evaluate {open-loop,counterfactual} ...``.
+"""CLI: ``python -m ovenbird_sim.evaluate {open-loop,counterfactual,model-plan} ...``.
 
 ``open-loop`` drives ovenbird through a recorded capture (open loop, nothing is sent)
 and writes ``openloop.sqlite`` plus ``openloop_summary.json``; ``counterfactual`` runs
 ovenbird and the recorded setpoints on the fitted plant (closed loop) and writes
-``counterfactual.sqlite`` plus ``counterfactual_summary.json``.
+``counterfactual.sqlite`` plus ``counterfactual_summary.json``; ``model-plan`` runs the
+paired planner evaluation (:mod:`ovenbird_sim.evaluate.modelplan_run`).
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from ovenbird_core.control.ovenbird import OvenbirdController
 from ovenbird_core.control.types import RoomProfile
 from ovenbird_core.store import HA_MAX_AGE_S
 from ovenbird_sim import local
+from ovenbird_sim.evaluate import modelplan_run
 from ovenbird_sim.evaluate.claims import GateBounds
 from ovenbird_sim.evaluate.counterfactual import (
     ASSUMED_CONFIRM_S,
@@ -193,6 +195,17 @@ def build_parser() -> argparse.ArgumentParser:
     cf.add_argument("--from", dest="start", type=date.fromisoformat, help="first day (UTC)")
     cf.add_argument("--to", dest="end", type=date.fromisoformat, help="last day (UTC, inclusive)")
     cf.add_argument("--out", type=Path, required=True)
+
+    plan = sub.add_parser(
+        "model-plan",
+        help="paired closed-loop runs with and without the model planner on the reference plant",
+    )
+    plan.add_argument("--out", type=Path, required=True)
+    plan.add_argument("--quick", action="store_true", help="small subset (for tests)")
+    plan.add_argument("--days", type=int, help="simulated days per run (default 8)")
+    plan.add_argument("--seeds", type=int, help="seeds of the noisy forecast (default 3)")
+    plan.add_argument("--workers", type=int, help="worker processes (default: CPU count)")
+    plan.add_argument("--no-sweep", action="store_true", help="skip the setting sweep")
     return parser
 
 
@@ -289,6 +302,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "open-loop":
         return run_dry(args)
+    if args.command == "model-plan":
+        return modelplan_run.run(args)
     return run_counterfactual(args)
 
 

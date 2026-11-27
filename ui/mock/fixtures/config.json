@@ -356,6 +356,41 @@
       "stored": null,
       "value": "auto"
     },
+    "control_model_horizon_h": {
+      "default": 6.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 6.0
+    },
+    "control_model_max_preheat_k": {
+      "default": 0.3,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 0.3
+    },
+    "control_model_max_rmse_k": {
+      "default": 0.6,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 0.6
+    },
+    "control_model_max_setback_k": {
+      "default": 0.5,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 0.5
+    },
+    "control_model_use": {
+      "default": "off",
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": "off"
+    },
     "control_outside_filter_s": {
       "default": 14400.0,
       "locked": false,

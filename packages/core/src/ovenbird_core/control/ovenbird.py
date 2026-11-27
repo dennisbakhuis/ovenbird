@@ -90,6 +90,21 @@ See :mod:`ovenbird_core.control.stove`: while an episode is active the room PI i
 frozen with its integrator held, the plan is paused and the ``stove`` term lowers
 the curve; every other stage applies as always.
 
+Model plan
+----------
+A plan slice from the learned house model (``PlanSource.MODEL``,
+:mod:`ovenbird_core.control.planner`) is clamped to the bounds of
+:class:`~ovenbird_core.control.config.ModelPlanConfig` and only shifts the room
+target of an active room feedback. It has no effect at all (no water term, ladder and
+reason as without a plan, the reason in ``model_plan_ignored``) from the first tick
+on which the room value is not trusted, a wood-stove episode is active, the
+wood-stove detection is still waiting after an episode or a sensor fault
+(``stove_blocked``, ``stove_level_blocked``, ``stove_reentry_wait``,
+``stove_fault``), or the slice is valid for longer than ``MODEL_PLAN_MAX_SLICE_S``.
+Start ramp, cycling floor, rounding, dwell and the safety clamps act after it as
+always, and the integrator follows the shifted target under the same freezes and
+anti-windup as without a plan.
+
 Because deadband and dwell keep the issued setpoint below or above ``pre_round``
 for a while, the integrator keeps integrating through them; this is intended (it
 is what eventually moves the setpoint by one step) and bounded by its clamp.
@@ -103,7 +118,7 @@ from typing import Final
 
 from ovenbird_core.catalogue import HeishaSignal
 from ovenbird_core.control import stove as stove_mode
-from ovenbird_core.control.config import OutsideSource, OvenbirdConfig
+from ovenbird_core.control.config import MODEL_PLAN_MAX_SLICE_S, OutsideSource, OvenbirdConfig
 from ovenbird_core.control.curve import filter_outside
 from ovenbird_core.control.integrator import freezes, integral_at_life, integrate, rollback
 from ovenbird_core.control.notes import (
@@ -138,6 +153,7 @@ from ovenbird_core.control.terms import (
     HELD_INTEGRAL_FADE_S,
     Feedback,
     Floor,
+    ModelPlan,
     Ramp,
     RampPhase,
     boost_term,
@@ -156,6 +172,7 @@ from ovenbird_core.control.types import (
     IntentKind,
     LadderLevel,
     Mode,
+    ModelPlanBlock,
     Override,
     OverrideKind,
     PlanSlice,
@@ -571,6 +588,7 @@ class _Tick:
     dhw: bool
     running: bool
     plan: PlanSlice | None
+    model: ModelPlan | None
     override: Override | None
     manual_setpoint: Override | None
     boost: float
@@ -617,13 +635,16 @@ class _Setpoint:
     last_change_at: float | None
 
 
+_PLAN_LADDER: Final = {
+    PlanSource.OPTIMISER: LadderLevel.OPTIMISER_PLAN,
+    PlanSource.MODEL: LadderLevel.MODEL_PLAN,
+    PlanSource.RULE: LadderLevel.RULE_PLAN,
+}
+
+
 def _ladder(plan: PlanSlice | None, room: RoomInput | None) -> LadderLevel:
     if plan is not None:
-        return (
-            LadderLevel.OPTIMISER_PLAN
-            if plan.source is PlanSource.OPTIMISER
-            else LadderLevel.RULE_PLAN
-        )
+        return _PLAN_LADDER[plan.source]
     if room is not None:
         return LadderLevel.SCHEDULE_CURVE_FEEDBACK
     return LadderLevel.CURVE_ONLY
@@ -1027,6 +1048,7 @@ class OvenbirdController:
             else None
         )
         lost_for = 0.0 if room_lost_at is None else now - room_lost_at
+        plan, model = self._model_plan(plan, room, stove)
         return _Tick(
             now=now,
             dt=dt,
@@ -1038,6 +1060,7 @@ class OvenbirdController:
             dhw=observed.dhw is True,
             running=observed.running is True,
             plan=plan,
+            model=model,
             override=override,
             manual_setpoint=manual_setpoint,
             boost=boost,
@@ -1053,6 +1076,33 @@ class OvenbirdController:
             lost_for=lost_for,
             fade=max(0.0, 1.0 - lost_for / HELD_INTEGRAL_FADE_S),
         )
+
+    def _model_plan(
+        self, plan: PlanSlice | None, room: RoomInput | None, stove: StoveStep
+    ) -> tuple[PlanSlice | None, ModelPlan | None]:
+        """Return the plan that applies this tick and, for a model slice, what became of it.
+
+        A model slice is clamped to the model bounds and gets the reason of its sign;
+        it does not apply (``None``) while blocked or when the bounds cut it to zero.
+        Every other slice passes unchanged.
+        """
+        if plan is None or plan.source is not PlanSource.MODEL:
+            return plan, None
+        block: ModelPlanBlock | None = None
+        if stove.active:
+            block = ModelPlanBlock.STOVE_ACTIVE
+        elif room is None:
+            block = ModelPlanBlock.ROOM_UNTRUSTED
+        elif stove.blocked or stove.level_blocked or stove.reentry_wait or stove.fault:
+            block = ModelPlanBlock.STOVE_RECOVERY
+        elif plan.valid_until.since(plan.valid_from) > MODEL_PLAN_MAX_SLICE_S:
+            block = ModelPlanBlock.SLICE_TOO_LONG
+        applied = 0.0 if block is not None else self.config.model_plan.clamp(plan.room_offset_k)
+        model = ModelPlan(plan.room_offset_k, applied, block)
+        if applied == 0.0:
+            return None, model
+        reason = ReasonCode.PLAN_SETBACK if applied < 0.0 else ReasonCode.PLAN_PREHEAT
+        return replace(plan, room_offset_k=applied, reason=reason), model
 
     def _sum(self, state: OvenbirdState, tick: _Tick) -> _Sum:
         """Add the terms up to the continuous, safety-clamped ``pre_round`` (stages 3-4)."""
@@ -1078,7 +1128,12 @@ class OvenbirdController:
         )
         terms.append(feedback.term)
         plan_raw, plan_w, plan_t = plan_term(
-            cfg, plan, tick.outside_f, stove=tick.stove.active, pi_room=tick.pi_room
+            cfg,
+            plan,
+            tick.outside_f,
+            stove=tick.stove.active,
+            pi_room=tick.pi_room,
+            model=tick.model,
         )
         terms.append(plan_t)
         boost_t = boost_term(tick.override, tick.boost)
@@ -1289,6 +1344,12 @@ class OvenbirdController:
             extra["outside_source"] = str(tick.curve.source)
             extra["outside_fallback"] = tick.curve.fallback
             extra["outside_reason"] = None if tick.curve.reason is None else tick.curve.reason.value
+        if tick.model is not None:
+            extra["model_plan_requested_k"] = tick.model.requested_k
+            extra["model_plan_applied_k"] = tick.model.applied_k
+            extra["model_plan_ignored"] = (
+                None if tick.model.block is None else tick.model.block.value
+            )
         on_change = pi_room is not None and pi_room.profile is RoomProfile.ON_CHANGE
         stove = stove_mode.sentence(
             tick.stove,
@@ -1327,6 +1388,7 @@ class OvenbirdController:
             held_offset=feedback.held_offset,
             stove=stove,
             fixed=not cfg.weather_compensation,
+            model_ignored=None if tick.model is None else tick.model.ignored_text(),
         )
         return self._record(
             new_state,

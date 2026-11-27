@@ -117,6 +117,7 @@ SEVERITY: Final[dict[AlarmCode, Severity]] = {
 
 HOLD_JOURNAL_CODE: Final = "command_hold"
 ENVELOPE_JOURNAL_CODE: Final = "envelope_correction"
+MODEL_PLAN_JOURNAL_CODE: Final = "model_plan"
 
 
 class AlarmEventKind(StrEnum):
@@ -246,6 +247,16 @@ class AlarmBoard:
                 listener(event)
             except Exception:
                 LOGGER.exception("alarm listener failed")
+
+    def journal_only(self, event: AlarmEvent) -> None:
+        """Keep and journal one informational event without telling the listeners.
+
+        For notices that must be reviewable but never notify (the model plan's guard
+        verdicts); the alarm board's active alarms are not touched.
+        """
+        self.history.append(event)
+        if self.journal is not None:
+            self.journal(event)
 
     def raise_alarm(
         self,

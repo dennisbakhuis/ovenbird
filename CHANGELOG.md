@@ -8,6 +8,23 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Model plan in shadow: the learned house model looks at the forecast sun and outside
+  temperature over the next hours (6 h by default) and computes every quarter hour how far
+  the room target should be set back before free heat arrives or raised before a loss
+  arrives, at most 0.5 K down and 0.3 K up by default. The switch `control_model_use`
+  (Settings → Model plan) is `off` (default), `shadow` (computed and recorded, with no effect
+  on any decision, which stay byte-identical to `off`) or `on`. `on` is locked for now: it is
+  refused (`model_use_on_locked`) until the offline evaluation and a shadow period of two
+  weeks have been reviewed. A plan is only made while the model is promoted, credible,
+  recently re-validated and accurate enough (`control_model_max_rmse_k`), the forecast is
+  fresh, the room value is trusted and no wood-stove episode runs or ended less than 12 h
+  ago; the blocking guards are shown. New settings `control_model_max_setback_k`,
+  `control_model_max_preheat_k`, `control_model_horizon_h` and `control_model_max_rmse_k`;
+  `GET api/v1/insight/house/control` reports the switch, the guards, the latest evaluation
+  and the computed offsets of the last 7 days (history signals
+  `derived/model_plan_offset_k` and `derived/model_plan_applied`; guard changes are
+  journalled as informational `model_plan` events). The weather forecast is no longer
+  display-only in the design: it is a controller input only when the model plan is `on`.
 - What-if on the House page: what the house needs to hold a comfort temperature at an
   outside temperature, with sun and a wood stove, from the learned model or, without one,
   from the house facts: the heat, the loop and supply temperatures against your curve and

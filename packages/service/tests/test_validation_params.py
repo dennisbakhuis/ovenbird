@@ -102,6 +102,7 @@ TRIGGERS: list[tuple[str, dict[str, Any]]] = [
     ("max_supply_raise", {"control_max_supply_c": 45}),
     ("house_bounds_order", {"house_ua_min_w_per_k": 300, "house_ua_max_w_per_k": 200}),
     ("house_fit_days_short", {"house_learn_fit_days": 21}),
+    ("model_use_on_locked", {"control_model_use": "on"}),
     ("date_format", {"house_learn_excluded_days": ["2026-13-01"]}),
     ("date_repeated", {"house_learn_excluded_days": ["2026-01-01", "2026-01-01"]}),
     ("date_future", {"house_learn_excluded_days": ["2999-01-01"]}),

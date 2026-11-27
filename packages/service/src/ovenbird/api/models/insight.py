@@ -38,6 +38,28 @@ LearnedNumber = Annotated[Any, WithJsonSchema(NUMBER_OR_NULL)]
 LearnedPair = Annotated[Any, WithJsonSchema(PAIR_OR_NULL)]
 
 type ScoreState = Literal["learning", "no_floor_area", "ready"]
+type ModelUse = Literal["off", "shadow", "on"]
+type ModelGuard = Literal[
+    "weather_off",
+    "model_missing",
+    "model_not_credible",
+    "model_stale",
+    "model_error_high",
+    "forecast_stale",
+    "room_untrusted",
+    "stove_active",
+    "stove_tail",
+]
+type ModelPlanStatus = Literal[
+    "issued",
+    "inside_dead_zone",
+    "crossing_zero",
+    "forecast_gap",
+    "forecast_mismatch",
+    "model_invalid",
+    "planner_error",
+]
+type ModelPlanReason = Literal["plan_setback", "plan_preheat"]
 
 
 class InsightDay(ApiModel):
@@ -398,3 +420,69 @@ class HouseBalance(ApiModel):
     flows: BalanceFlows
     ua_w_per_k: Number
     notes: list[BalanceNote]
+
+
+class ModelPlanVerdict(ApiModel):
+    """The guards of the model plan: ``ok`` when none blocks, else the failing ones in order."""
+
+    ok: bool
+    blocks: list[ModelGuard]
+
+
+class ModelPlanBounds(ApiModel):
+    """The model plan bounds, the planner horizon and the error limit of the model."""
+
+    max_setback_k: Number
+    max_preheat_k: Number
+    horizon_h: Number
+    max_rmse_k: Number
+
+
+class ModelPlanNow(ApiModel):
+    """The latest planner evaluation.
+
+    ``offset_k`` is the offset the planner issued (``0`` without a slice); ``applied`` is
+    true only when the controller applied a model offset at its latest tick (never in
+    ``shadow``). ``rise_*``, ``fall_*``, ``solar_k`` and ``outside_k`` are the predicted
+    drift of the room (K) and when it peaks; ``null`` when the planner could not predict.
+    """
+
+    at: str
+    status: ModelPlanStatus
+    offset_k: Number
+    applied: bool
+    reason: ModelPlanReason | None
+    valid_until: str | None
+    rise_k: Number | None
+    rise_at: str | None
+    fall_k: Number | None
+    fall_at: str | None
+    solar_k: Number | None
+    outside_k: Number | None
+
+
+class ModelPlanHistory(ApiModel):
+    """The computed offsets of the last 7 days from the 15 min rollups.
+
+    ``points`` are ``[time, offset_k, applied]`` rows, oldest first: ``offset_k`` is
+    ``null`` where a guard blocked or nothing was recorded, ``applied`` is ``1`` when the
+    controller applied the offset for most of the interval, else ``0``; empty when
+    nothing was recorded.
+    """
+
+    step_s: int
+    from_: str = Field(alias="from")
+    to: str
+    points: list[tuple[str, Number | None, int | None]]
+
+
+class HouseControl(ApiModel):
+    """``GET insight/house/control``: the model plan switch, its guards, latest result, history."""
+
+    use: ModelUse
+    verdict: ModelPlanVerdict
+    model: str | None
+    model_rmse_k: Number | None
+    bounds: ModelPlanBounds
+    now: ModelPlanNow | None
+    history: ModelPlanHistory

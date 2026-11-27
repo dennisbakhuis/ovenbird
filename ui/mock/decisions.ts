@@ -202,9 +202,14 @@ function roomStatus(room: RoomFacts, cooling: boolean): string {
 export function buildRecord(
   ms: number,
   mode: Mode = 'auto',
-  options: { roomStale?: boolean; stove?: StoveMock | null; targetC?: number } = {},
+  options: {
+    roomStale?: boolean;
+    stove?: StoveMock | null;
+    targetC?: number;
+    modelPlanK?: number;
+  } = {},
 ): Built {
-  const target = options.targetC ?? TARGET_C;
+  const comfort = options.targetC ?? TARGET_C;
   const minute = Math.floor(ms / MINUTE);
   const cycleMinute = ((minute % CYCLE_MIN) + CYCLE_MIN) % CYCLE_MIN;
   const cycleScenario = scenarioAt(cycleMinute);
@@ -213,6 +218,9 @@ export function buildRecord(
       ? 'curve_only'
       : cycleScenario;
   const roomStale = scenario === 'curve_only';
+  const planShift =
+    scenario === 'normal' && !options.stove?.episode ? (options.modelPlanK ?? 0) : 0;
+  const target = round1(comfort + planShift);
   const stoveConfig = options.stove?.enabled ? options.stove : null;
   const stoveOn = stoveActiveAt(stoveConfig, ms) && !roomStale;
   const roomBase = roomFacts(ms, roomStale);
@@ -544,6 +552,8 @@ export function buildRecord(
       'defrost in progress: integrator frozen, no decrease',
       'defrost: the pump sets its own duty; no duty command',
     );
+  if (planShift !== 0)
+    noteParts.push(`plan from the house model shifts the room target by ${signed(planShift)} K`);
   if (ramp < 0) noteParts.push(`start ramp caps at ${(curve + ramp).toFixed(1)} °C`);
   if (scenario === 'cycling') noteParts.push(`cycling floor raises to ${setpoint} °C`);
   if (scenario === 'override') noteParts.push('override by admin: 33 °C');
@@ -556,6 +566,15 @@ export function buildRecord(
         ? `setpoint stays ${setpoint} °C, no decrease during defrost`
         : `setpoint ${setpoint} °C`;
   const note = `${noteParts.join('; ')}; ${outcome}.`;
+  if (planShift !== 0) {
+    reason = planShift < 0 ? 'plan_setback' : 'plan_preheat';
+    Object.assign(extra, {
+      model_plan_requested_k: planShift,
+      model_plan_applied_k: planShift,
+      model_plan_ignored: null,
+    });
+    return base('model_plan', reason, note, terms, setpoint, preRound, binding, extra);
+  }
   return base('schedule_curve_feedback', reason, note, terms, setpoint, preRound, binding, extra);
 }
 
@@ -569,6 +588,7 @@ export interface ConfigAt {
 
 export interface DecisionOptions {
   roomStaleSince?: number | null;
+  modelPlanK?: number;
   stove?: StoveMock | null;
   configAt?: (ms: number) => ConfigAt;
 }
@@ -593,10 +613,12 @@ export function makeDecision(
     roomStale: stale(ms),
     stove: options.stove,
     targetC: config?.comfortC,
+    modelPlanK: options.modelPlanK,
   });
   const previous = buildRecord(ms - MINUTE, mode, {
     roomStale: stale(ms - MINUTE),
     stove: options.stove,
+    modelPlanK: options.modelPlanK,
   }).record.setpoint;
   const minute = Math.floor(ms / MINUTE) * MINUTE;
   const at = new Date(minute).toISOString();
@@ -683,6 +705,7 @@ export function makeSeries(
   nowMs: number,
   stove: StoveMock | null = null,
   configAt?: (ms: number) => ConfigAt,
+  modelPlanK = 0,
 ): DecisionSeries {
   const stepMs = Math.max(stepSeconds, 60) * 1000;
   const out: DecisionSeries = {
@@ -710,7 +733,11 @@ export function makeSeries(
   const first = Math.ceil(fromMs / stepMs) * stepMs;
   for (let t = first; t <= toMs; t += stepMs) {
     const config = configAt?.(t);
-    const { record } = buildRecord(t, 'auto', { stove, targetC: config?.comfortC });
+    const { record } = buildRecord(t, 'auto', {
+      stove,
+      targetC: config?.comfortC,
+      modelPlanK,
+    });
     const named = (name: string) => record.terms.find((item) => item.name === name)?.value ?? null;
     const safety = record.terms.find((item) => item.name === 'safety');
     const state = record.controller_state;

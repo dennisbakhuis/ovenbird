@@ -48,6 +48,13 @@ export const topic: HelpTopic = {
       target: 'settings/house.bounds',
     },
     {
+      id: 'model-plan',
+      kind: 'know',
+      title: 'Use of the model by the controller',
+      body: 'The switch **Controller use of the house model** is off, shadow or on, and four numbers bound it: the largest shift down (default 0.5 K), the largest shift up (0.3 K), the hours looked ahead (6) and the largest model error accepted. **Shadow** computes and records and changes nothing; **On** is locked for now and is refused until an evaluation and a shadow period are done. See [[model-plan]] and the card on the [House](#/house) page.',
+      target: 'settings/house.plan',
+    },
+    {
       id: 'learning',
       kind: 'know',
       title: 'Learning settings',

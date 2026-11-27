@@ -154,7 +154,7 @@ export const glossary: GlossaryEntry[] = [
     term: 'Weather forecast',
     short:
       'The expected outside temperature, sun, cloud and wind for the coming days, from an online provider.',
-    body: 'Opt-in: only your location, rounded to about 1 km, is sent. For now it is shown for your information; ovenbird does not steer on it yet.',
+    body: 'Opt-in: only your location, rounded to about 1 km, is sent. It is shown for your information, and used by the controller only when the model plan is switched on.',
     related: ['lead-time', 'forecast-bias', 'mae'],
   },
   {

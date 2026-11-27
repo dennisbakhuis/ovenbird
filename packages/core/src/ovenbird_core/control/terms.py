@@ -18,12 +18,25 @@ from ovenbird_core.control.curve import room_offset_to_water
 from ovenbird_core.control.notes import SECONDS_PER_HOUR, duration_text, kept, room_status, signed
 from ovenbird_core.control.record import Term
 from ovenbird_core.control.safety import SafetyBounds
-from ovenbird_core.control.types import Override, OverrideKind, PlanSlice, RoomInput
+from ovenbird_core.control.types import (
+    ModelPlanBlock,
+    Override,
+    OverrideKind,
+    PlanSlice,
+    PlanSource,
+    RoomInput,
+)
 
 if TYPE_CHECKING:
     from ovenbird_core.control.ovenbird import OvenbirdState
 
 HELD_INTEGRAL_FADE_S: Final = 24 * 3600.0
+MODEL_BLOCK_TEXT: Final[dict[ModelPlanBlock, str]] = {
+    ModelPlanBlock.ROOM_UNTRUSTED: "no trusted room value (a model plan never maps to water)",
+    ModelPlanBlock.STOVE_ACTIVE: "wood-stove episode active",
+    ModelPlanBlock.STOVE_RECOVERY: "wood-stove recovery (the detection has not re-armed yet)",
+    ModelPlanBlock.SLICE_TOO_LONG: "slice longer than a model slice may be",
+}
 
 
 class RampPhase(StrEnum):
@@ -66,6 +79,37 @@ class Feedback:
     u: float
     held_offset: float
     term: Term
+
+
+@dataclass(frozen=True, slots=True)
+class ModelPlan:
+    """An active model plan slice of one tick (``PlanSource.MODEL``).
+
+    Parameters
+    ----------
+    requested_k
+        Room offset the planner sent.
+    applied_k
+        Room offset applied to the room target: ``requested_k`` clamped to the model
+        bounds, ``0`` while ``block`` is set.
+    block
+        Why the slice has no effect this tick (``None``: it applies).
+    """
+
+    requested_k: float
+    applied_k: float
+    block: ModelPlanBlock | None
+
+    @property
+    def clamped(self) -> bool:
+        """Whether the bounds cut the requested offset."""
+        return self.block is None and self.applied_k != self.requested_k
+
+    def ignored_text(self) -> str | None:
+        """Return why the slice is ignored, for the notes (``None`` when it applies)."""
+        if self.block is None:
+            return None
+        return f"model plan {signed(self.requested_k)} K ignored: {MODEL_BLOCK_TEXT[self.block]}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,14 +247,30 @@ def plan_term(
     *,
     stove: bool,
     pi_room: RoomInput | None,
+    model: ModelPlan | None = None,
 ) -> tuple[float, float, Term]:
     """Return the plan's water offset before and after its clamp, and its term.
 
     With an active room PI the plan shifts the room target instead (no water offset).
+    A model plan (``PlanSource.MODEL``) only ever shifts the room target: without an
+    active room PI it has no effect at all, and ``model`` says why it was ignored or
+    whether its bounds cut it.
     """
     plan_raw = plan_w = 0.0
-    if plan is None:
+    ignored = None if model is None else model.ignored_text()
+    if ignored is not None:
+        plan_note = ignored
+    elif plan is None and model is not None:
+        plan_note = f"model plan {signed(model.requested_k)} K cut to 0 by the model bounds"
+    elif plan is None:
         plan_note = "no plan"
+    elif plan.source is PlanSource.MODEL:
+        if stove or pi_room is None:
+            plan_note = "model plan ignored: no active room feedback"
+        else:
+            plan_note = f"model plan shifts room target by {signed(plan.room_offset_k)} K"
+            if model is not None and model.clamped:
+                plan_note += f" (asked {model.requested_k:+.2f} K, cut to the model bounds)"
     elif stove:
         plan_note = "paused by wood-stove mode"
     elif pi_room is not None:

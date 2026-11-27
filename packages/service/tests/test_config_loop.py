@@ -159,7 +159,7 @@ def test_room_signal_change_resubscribes_home_assistant(
     )
     ha = next(c for c in run.service.components if c.name == "ha")
     hook = run.service.control.reconfigure_hooks
-    assert len(hook) == 4
+    assert len(hook) == 5
     run.tick()
     run.clock.advance(61.0)
     run.apply(control_room_signal="ha/sensor.b_temperature")

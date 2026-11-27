@@ -3,7 +3,7 @@ import type { HelpTopic } from '$lib/help/types';
 export const topic: HelpTopic = {
   id: 'house',
   title: 'House',
-  lead: 'What ovenbird learned about your house from its own history: heat loss, how slowly it cools, an indicative insulation score and a suggestion for your curve. Four tabs: **Overview**, **Model**, **Learning** and **What if**.',
+  lead: 'What ovenbird learned about your house from its own history: heat loss, how slowly it cools, an indicative insulation score and a suggestion for your curve. Five tabs: **Overview**, **Model**, **Control**, **Learning** and **What if**.',
   art: 'home',
   sections: [
     {
@@ -59,6 +59,18 @@ export const topic: HelpTopic = {
       title: 'How far to trust it',
       body: 'Regularly (by default once a week) a new model is fitted on the latest history. It is only used when it predicted the room on the last 14 days at least as well as the model in use. The card shows both errors, the heat loss of every model so far and the data it used. Its limits are listed under **Limits of this model**.',
       target: 'house.quality',
+    },
+    {
+      id: 'control',
+      kind: 'do',
+      title: 'How the controller uses the model',
+      body: 'On the **Control** tab one card says whether the controller uses the model, and how. The switch has three positions: **Off** (the model is only shown), **Shadow** (every 15 minutes the planner predicts how the sun and the outside forecast will move the room and records what it would do, but changes nothing) and **On** (it shifts the room target a little, within fixed bounds: by default at most 0.5 K down before free heat arrives and 0.3 K up before a cold turn). **On** is locked for now: the service refuses it until an evaluation and a shadow period are done.\n\nThe card also says what the planner would do right now, why it may not act (for example a model that is not trusted yet, an old forecast or a burning wood stove), and shows the shifts of the last 7 days: dashed where only computed, solid where applied. **Show as table** lists the values. The room sensor still decides and the safety limits do not change.',
+      steps: [
+        'Open the **Control** tab.',
+        'Pick **Shadow** and press **Review and apply** in the bar at the bottom.',
+        'Come back after a few days and read the chart and the sentence under it.',
+      ],
+      target: 'house.control',
     },
     {
       id: 'whatif',
@@ -156,9 +168,14 @@ export const topic: HelpTopic = {
       a: 'The band follows the heat loss per m² at 20 °C inside and −10 °C outside: **A** below 30 W/m², **B** 30 to 45, **C** 45 to 60, **D** 60 to 80, **E** 80 to 100, **F** 100 to 125 and **G** 125 or more. The limits also stand under the scale on the card.',
     },
     {
+      id: 'uses-model',
+      q: 'Does ovenbird use the model to control?',
+      a: 'Only in one narrow way, and only when you switch it on. The controller can shift the room target a little (by default at most 0.5 K down and 0.3 K up) ahead of sun or a cold turn, using this model and the [[forecast|weather forecast]]. It is **off** until you choose otherwise, **Shadow** only records what it would do, and **On** is locked for now. Everything else, the [[heating-curve|heating curve]], the room correction and the safety limits, works as before. See [[model-plan]].',
+    },
+    {
       id: 'tabs',
       q: 'What is on which tab?',
-      a: '**Overview**: the picture of the house, the insulation score and what the model learned. **Model**: the energy signature, the prediction and how far to trust it. **Learning**: the learner, how the model is learned and the curve suggestion. **What if**: what other weather would take.',
+      a: '**Overview**: the picture of the house, the insulation score and what the model learned. **Model**: the energy signature, the prediction and how far to trust it. **Control**: whether and how the controller uses the model. **Learning**: the learner, how the model is learned and the curve suggestion. **What if**: what other weather would take.',
     },
   ],
   related: ['settings/house', 'settings/curve', 'pump'],

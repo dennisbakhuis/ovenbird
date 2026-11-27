@@ -115,7 +115,7 @@ export const fields = {
   'cfg.control_emitter.opt.radiators': 'Radiators',
   'cfg.weather_enabled.label': 'Weather forecast',
   'cfg.weather_enabled.help':
-    'Fetch an outside temperature forecast for the weather page. Display only: it does not influence the controller.',
+    'Fetch an outside temperature forecast for the weather page. The controller uses it only when the model plan is switched on (House → Control); otherwise it is for display.',
   'cfg.weather_latitude.label': 'Latitude',
   'cfg.weather_latitude.help': 'Degrees north, rounded to 0.01°.',
   'cfg.weather_longitude.label': 'Longitude',
@@ -381,4 +381,22 @@ export const fields = {
   'cfg.control_outside_max_deviation_k.label': 'Outside sensor may differ from the pump by',
   'cfg.control_outside_max_deviation_k.help':
     "How far the chosen sensor may be from the pump's own outside sensor. Further apart, one of the two is wrong and the curve uses the pump's sensor until they agree again.",
+  'cfg.control_model_use.label': 'Controller use of the house model',
+  'cfg.control_model_use.help':
+    'Off: the controller ignores the model. Shadow: it computes every 15 minutes how sun and the forecast would move the room and records what it would do, but changes nothing. On: it shifts the room target a little within the bounds. On is locked until an evaluation and a shadow period are done.',
+  'cfg.control_model_use.opt.off': 'Off',
+  'cfg.control_model_use.opt.shadow': 'Shadow (computes only)',
+  'cfg.control_model_use.opt.on': 'On (locked for now)',
+  'cfg.control_model_max_setback_k.label': 'Largest shift down',
+  'cfg.control_model_max_setback_k.help':
+    'How far the model plan may lower the room target before free heat arrives, in K.',
+  'cfg.control_model_max_preheat_k.label': 'Largest shift up',
+  'cfg.control_model_max_preheat_k.help':
+    'How far the model plan may raise the room target before a cold turn, in K.',
+  'cfg.control_model_horizon_h.label': 'Hours looked ahead',
+  'cfg.control_model_horizon_h.help':
+    'How far ahead the planner predicts the room from the sun and the outside forecast, in hours.',
+  'cfg.control_model_max_rmse_k.label': 'Largest model error accepted',
+  'cfg.control_model_max_rmse_k.help':
+    'The planner stays out while the model’s typical room error is above this, in K.',
 };

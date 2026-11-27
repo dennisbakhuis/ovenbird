@@ -52,6 +52,7 @@ from ovenbird.control.adapter import CommandSender
 from ovenbird.control.envelope import EnvelopeWatch
 from ovenbird.control.guard import ModeHold
 from ovenbird.control.loop import alarm_row
+from ovenbird.control.modelplan import ModelPlanRunner
 from ovenbird.control.monitors import SafetyMonitor, monitor_config
 from ovenbird.control.persist import load_state, restore_adapter
 from ovenbird.ha import REFRESH_INTERVAL_S, Connector, HaInput
@@ -59,7 +60,7 @@ from ovenbird.history import HistoryWriter
 from ovenbird.history.archive import AlarmHook, ConfigSource, MonthArchiver, clean_build_folders
 from ovenbird.history.journal import latest_decision
 from ovenbird.hotwater import dhw_installed
-from ovenbird.insight.house import run_handoff
+from ovenbird.insight.house import models_dir, run_handoff
 from ovenbird.insight.learnrun import LearnRunner
 from ovenbird.instance import Endpoint, InstanceLock, probe_host
 from ovenbird.mqtt import MqttIngest, SubscribeOnlyClient
@@ -614,6 +615,15 @@ def build_service(
     )
     learn_runner = LearnRunner(lambda: manager.settings, facts)
     components.append(Component("learner-run", learn_runner.run))
+    control.model_plan = ModelPlanRunner(
+        manager.settings,
+        lambda: models_dir(manager.settings),
+        weather_enabled=lambda: weather.enabled,
+        embedded=lambda: learn_runner.available,
+        sink=runtime.history,
+        alarms=control.alarms,
+    )
+    control.reconfigure_hooks.append(control.model_plan.reconfigure)
     mqtt_setup = MqttSetup(manager, mqtt, runtime, lambda: control.guard.installed, control.alarms)
     components.append(Component("mqtt-trial", mqtt_setup.run))
     if worker is not None:

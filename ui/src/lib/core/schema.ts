@@ -12,7 +12,7 @@ export const SECTIONS = [
   { id: 'quiet', groups: ['quiet'], icon: 'moon' },
   { id: 'emitter', groups: ['emitter'], icon: 'flame' },
   { id: 'weather', groups: ['weather'], icon: 'weather' },
-  { id: 'house', groups: ['house', 'house_bounds', 'house_learning'], icon: 'home' },
+  { id: 'house', groups: ['house', 'house_bounds', 'house_learning', 'model_plan'], icon: 'home' },
   { id: 'ha', groups: ['ha'], icon: 'link' },
   { id: 'mqtt', groups: ['mqtt'], icon: 'globe' },
   { id: 'data', groups: ['history'], icon: 'download' },

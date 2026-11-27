@@ -3,7 +3,7 @@ import type { HelpTopic } from '$lib/help/types';
 export const topic: HelpTopic = {
   id: 'house',
   title: 'Huis',
-  lead: 'Wat ovenbird uit zijn eigen geschiedenis over je huis leerde: warmteverlies, hoe langzaam het afkoelt, een indicatieve isolatiescore en een voorstel voor je stooklijn. Vier tabbladen: **Overzicht**, **Model**, **Leren** en **Wat als**.',
+  lead: 'Wat ovenbird uit zijn eigen geschiedenis over je huis leerde: warmteverlies, hoe langzaam het afkoelt, een indicatieve isolatiescore en een voorstel voor je stooklijn. Vijf tabbladen: **Overzicht**, **Model**, **Regeling**, **Leren** en **Wat als**.',
   art: 'home',
   sections: [
     {
@@ -59,6 +59,18 @@ export const topic: HelpTopic = {
       title: 'Hoeveel je erop kunt bouwen',
       body: 'Regelmatig (standaard eens per week) wordt een nieuw model gefit op de laatste geschiedenis. Het wordt alleen gebruikt als het de kamer op de laatste 14 dagen minstens zo goed voorspelde als het model dat in gebruik is. De kaart toont beide fouten, het warmteverlies van elk model tot nu toe en de gebruikte gegevens. De grenzen staan onder **Grenzen van dit model**.',
       target: 'house.quality',
+    },
+    {
+      id: 'control',
+      kind: 'do',
+      title: 'Hoe de regelaar het model gebruikt',
+      body: 'Op het tabblad **Regeling** zegt één kaart of de regelaar het model gebruikt en hoe. De schakelaar heeft drie standen: **Uit** (het model wordt alleen getoond), **Schaduw** (elke 15 minuten voorspelt de planner hoe de zon en de buitenverwachting de kamer bewegen en legt hij vast wat hij zou doen, maar hij verandert niets) en **Aan** (hij verschuift het kamerdoel een beetje, binnen vaste grenzen: standaard hooguit 0,5 K omlaag voordat gratis warmte binnenkomt en 0,3 K omhoog voor een koude omslag). **Aan** is voorlopig vergrendeld: de service weigert het tot een beoordeling en een schaduwperiode klaar zijn.\n\nDe kaart zegt ook wat de planner nu zou doen, waarom hij misschien niet mag ingrijpen (bijvoorbeeld een model dat nog niet wordt vertrouwd, een oude verwachting of een brandende houtkachel) en toont de verschuivingen van de laatste 7 dagen: gestippeld waar alleen berekend, doorgetrokken waar toegepast. **Toon als tabel** noemt de waarden. De kamersensor beslist nog steeds en de veiligheidsgrenzen veranderen niet.',
+      steps: [
+        'Open het tabblad **Regeling**.',
+        'Kies **Schaduw** en druk op **Bekijken en toepassen** in de balk onderaan.',
+        'Kom na een paar dagen terug en lees de grafiek en de zin eronder.',
+      ],
+      target: 'house.control',
     },
     {
       id: 'whatif',
@@ -156,9 +168,14 @@ export const topic: HelpTopic = {
       a: 'De klasse volgt het warmteverlies per m² bij 20 °C binnen en −10 °C buiten: **A** onder 30 W/m², **B** 30 tot 45, **C** 45 tot 60, **D** 60 tot 80, **E** 80 tot 100, **F** 100 tot 125 en **G** 125 of meer. De grenzen staan ook onder de schaal op de kaart.',
     },
     {
+      id: 'uses-model',
+      q: 'Gebruikt ovenbird het model om te regelen?',
+      a: 'Alleen op één smalle manier, en alleen als je het aanzet. De regelaar kan het kamerdoel een beetje verschuiven (standaard hooguit 0,5 K omlaag en 0,3 K omhoog) vóór zon of een koude omslag, met dit model en de [[forecast|weersverwachting]]. Het staat **uit** tot je anders kiest, **Schaduw** legt alleen vast wat hij zou doen en **Aan** is voorlopig vergrendeld. Al het andere, de [[heating-curve|stooklijn]], de ruimtecorrectie en de veiligheidsgrenzen, werkt als voorheen. Zie [[model-plan]].',
+    },
+    {
       id: 'tabs',
       q: 'Wat staat op welk tabblad?',
-      a: '**Overzicht**: het plaatje van het huis, de isolatiescore en wat het model leerde. **Model**: de energiesignatuur, de voorspelling en hoeveel je erop kunt bouwen. **Leren**: het leerprogramma, hoe het model leert en het voorstel voor de stooklijn. **Wat als**: wat ander weer zou vragen.',
+      a: '**Overzicht**: het plaatje van het huis, de isolatiescore en wat het model leerde. **Model**: de energiesignatuur, de voorspelling en hoeveel je erop kunt bouwen. **Regeling**: of en hoe de regelaar het model gebruikt. **Leren**: het leerprogramma, hoe het model leert en het voorstel voor de stooklijn. **Wat als**: wat ander weer zou vragen.',
     },
   ],
   related: ['settings/house', 'settings/curve', 'pump'],

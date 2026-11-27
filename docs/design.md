@@ -178,20 +178,30 @@ ramp**, then clamps, rounding with hysteresis, deadband ≥ 1 K and dwell.
 
 - **Rule planner** (permanent fallback): price rank + forecast PV surplus + comfort band →
   room offsets; anticipates solar gain.
-- **Model plan** (planned; owner decision 2026-11-27,
+- **Model plan** (built; `shadow` available, `on` locked; owner decision 2026-11-27,
   [record](decisions/2026-11-27-learned-model-in-controller.md)): the champion house
   model's predicted effect of forecast sun and forecast outside temperature over the
-  next hours → a room-target offset through the same plan hook. Bounds are settings
-  (defaults: set back at most 0.5 K, pre-heat at most 0.3 K, horizon 6 h), so the comfort
-  effect is at most the bound whatever the model error. Start ramp, cycling floor,
-  wood-stove pause and safety clamp still apply after it. No water term, no automatic
-  curve or gain change. Switch `control_model_use`: `off` (default), `shadow` (computed
-  and logged, decisions byte-identical to `off`), `on` (only after an offline evaluation
-  with deliberately wrong models and missing-sun forecasts shows no meaningful worsening
-  of undershoot or starts, and two weeks of live shadow reviewed by the owner). Guards,
-  each failing to "no plan" with the reason shown: model promoted, credible and recently
-  re-validated (held-out 24 h room error below a set limit); forecast fresh; room value
-  trusted; no wood-stove episode or its recovery tail.
+  next hours → a room-target offset through the same plan hook
+  (`ovenbird_core.control.planner`, pure Python; the service side is
+  `ovenbird.control.modelplan`). Bounds are settings (defaults: set back at most 0.5 K,
+  pre-heat at most 0.3 K, horizon 6 h), so the comfort effect is at most the bound whatever
+  the model error. Start ramp, cycling floor, wood-stove pause and safety clamp still apply
+  after it. No water term, no automatic curve or gain change. Switch
+  `control_model_use`: `off` (default; no planner call, nothing recorded), `shadow` (computed
+  every quarter hour and recorded as `derived/model_plan_offset_k` and
+  `derived/model_plan_applied`, the guard verdict changes journalled as informational
+  `model_plan` events; decisions byte-identical to `off`), `on` (refused with
+  `model_use_on_locked` until an offline evaluation with deliberately wrong models and
+  missing-sun forecasts shows no meaningful worsening of undershoot or starts, and two weeks
+  of live shadow have been reviewed by the owner; lifting the lock is one line,
+  `ovenbird.config.validation.modelplan.ON_LOCKED`). Guards, each failing to "no plan" with
+  the reason shown: `weather_off`, `model_missing`, `model_not_credible`, `model_stale`,
+  `model_error_high` (held-out 24 h room error above `control_model_max_rmse_k`),
+  `forecast_stale`, `room_untrusted`, `stove_active`, `stove_tail` (12 h after an episode,
+  read back from the journal after a restart). The cheap ones are re-checked at every tick
+  and withdraw a slice at once. After a restart no plan is in force until the first
+  evaluation and the rate limit ramps from 0. The weather forecast is a controller input only
+  through this path and only with `on`.
 - **LP optimiser** (experimental, shadow until it wins): HiGHS via scipy; 15-min steps to
   end of published prices; uses the fitted model (below); COP per step incl. defrost
   penalty; separate import/export; terminal constraint; start penalty.
@@ -304,7 +314,8 @@ The model **proposes, the owner approves**: a curve, PI gains or any other confi
 change from the learner is a draft the owner reviews and applies. The one exception is
 the bounded model plan (see Planner; owner decision 2026-11-27,
 [record](decisions/2026-11-27-learned-model-in-controller.md)): a room-target offset of
-at most −0.5 K / +0.3 K by default, off unless `control_model_use` is `on`.
+at most −0.5 K / +0.3 K by default, off unless `control_model_use` is `on` (locked for
+now; `shadow` computes and records it without effect).
 
 - **Data.** The service stores the loop heat it computes live
   (`derived/heat_delivered_w`: core's `heat_delivered_w`, 0 with the compressor stopped,

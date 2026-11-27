@@ -190,6 +190,7 @@ CASES = (
     ),
     Case("insight_house_whatif_range", "GET", "/insight/house/whatif", {"outside_c": 99}),
     Case("insight_house_balance", "GET", "/insight/house/balance"),
+    Case("insight_house_control", "GET", "/insight/house/control"),
     Case("proposal_draft", "POST", "/insight/house/proposal/draft", body={}),
     Case("insight_house_run", "GET", "/insight/house/run"),
     Case("insight_house_run_unavailable", "POST", "/insight/house/run", body={}),

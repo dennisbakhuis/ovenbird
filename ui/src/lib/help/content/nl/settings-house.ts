@@ -48,6 +48,13 @@ export const topic: HelpTopic = {
       target: 'settings/house.bounds',
     },
     {
+      id: 'model-plan',
+      kind: 'know',
+      title: 'Gebruik van het model door de regelaar',
+      body: 'De schakelaar **Gebruik van het huismodel door de regelaar** staat uit, op schaduw of aan, en vier getallen begrenzen hem: de grootste verschuiving omlaag (standaard 0,5 K), omhoog (0,3 K), de uren vooruit kijken (6) en de grootste toegestane modelfout. **Schaduw** rekent en legt vast en verandert niets; **Aan** is voorlopig vergrendeld en wordt geweigerd tot een beoordeling en een schaduwperiode klaar zijn. Zie [[model-plan]] en de kaart op de pagina [Huis](#/house).',
+      target: 'settings/house.plan',
+    },
+    {
       id: 'learning',
       kind: 'know',
       title: 'Instellingen voor het leren',

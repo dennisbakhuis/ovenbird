@@ -4177,6 +4177,63 @@
         ],
         "type": "object"
       },
+      "HouseControl": {
+        "description": "``GET insight/house/control``: the model plan switch, its guards, latest result, history.",
+        "properties": {
+          "bounds": {
+            "$ref": "#/components/schemas/ModelPlanBounds"
+          },
+          "history": {
+            "$ref": "#/components/schemas/ModelPlanHistory"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model_rmse_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "now": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelPlanNow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "use": {
+            "$ref": "#/components/schemas/ModelUse"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/ModelPlanVerdict"
+          }
+        },
+        "required": [
+          "use",
+          "verdict",
+          "model",
+          "model_rmse_k",
+          "bounds",
+          "now",
+          "history"
+        ],
+        "type": "object"
+      },
       "HouseHistory": {
         "description": "``GET insight/house/history``: every promoted model.",
         "properties": {
@@ -5404,6 +5461,256 @@
           "shadow",
           "auto",
           "manual"
+        ],
+        "type": "string"
+      },
+      "ModelGuard": {
+        "enum": [
+          "weather_off",
+          "model_missing",
+          "model_not_credible",
+          "model_stale",
+          "model_error_high",
+          "forecast_stale",
+          "room_untrusted",
+          "stove_active",
+          "stove_tail"
+        ],
+        "type": "string"
+      },
+      "ModelPlanBounds": {
+        "description": "The model plan bounds, the planner horizon and the error limit of the model.",
+        "properties": {
+          "horizon_h": {
+            "type": "number"
+          },
+          "max_preheat_k": {
+            "type": "number"
+          },
+          "max_rmse_k": {
+            "type": "number"
+          },
+          "max_setback_k": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "max_setback_k",
+          "max_preheat_k",
+          "horizon_h",
+          "max_rmse_k"
+        ],
+        "type": "object"
+      },
+      "ModelPlanHistory": {
+        "description": "The computed offsets of the last 7 days from the 15 min rollups.\n\n``points`` are ``[time, offset_k, applied]`` rows, oldest first: ``offset_k`` is\n``null`` where a guard blocked or nothing was recorded, ``applied`` is ``1`` when the\ncontroller applied the offset for most of the interval, else ``0``; empty when\nnothing was recorded.",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "maxItems": 3,
+              "minItems": 3,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "step_s": {
+            "type": "integer"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "step_s",
+          "from",
+          "to",
+          "points"
+        ],
+        "type": "object"
+      },
+      "ModelPlanNow": {
+        "description": "The latest planner evaluation.\n\n``offset_k`` is the offset the planner issued (``0`` without a slice); ``applied`` is\ntrue only when the controller applied a model offset at its latest tick (never in\n``shadow``). ``rise_*``, ``fall_*``, ``solar_k`` and ``outside_k`` are the predicted\ndrift of the room (K) and when it peaks; ``null`` when the planner could not predict.",
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          },
+          "at": {
+            "type": "string"
+          },
+          "fall_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fall_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "offset_k": {
+            "type": "number"
+          },
+          "outside_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelPlanReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rise_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rise_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "solar_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/ModelPlanStatus"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "at",
+          "status",
+          "offset_k",
+          "applied",
+          "reason",
+          "valid_until",
+          "rise_k",
+          "rise_at",
+          "fall_k",
+          "fall_at",
+          "solar_k",
+          "outside_k"
+        ],
+        "type": "object"
+      },
+      "ModelPlanReason": {
+        "enum": [
+          "plan_setback",
+          "plan_preheat"
+        ],
+        "type": "string"
+      },
+      "ModelPlanStatus": {
+        "enum": [
+          "issued",
+          "inside_dead_zone",
+          "crossing_zero",
+          "forecast_gap",
+          "forecast_mismatch",
+          "model_invalid",
+          "planner_error"
+        ],
+        "type": "string"
+      },
+      "ModelPlanVerdict": {
+        "description": "The guards of the model plan: ``ok`` when none blocks, else the failing ones in order.",
+        "properties": {
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/ModelGuard"
+            },
+            "type": "array"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "blocks"
+        ],
+        "type": "object"
+      },
+      "ModelUse": {
+        "enum": [
+          "off",
+          "shadow",
+          "on"
         ],
         "type": "string"
       },
@@ -11678,6 +11985,24 @@
           }
         },
         "summary": "House Balance"
+      }
+    },
+    "/api/v1/insight/house/control": {
+      "get": {
+        "operationId": "house_control_api_v1_insight_house_control_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HouseControl"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "House Control"
       }
     },
     "/api/v1/insight/house/history": {

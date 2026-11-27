@@ -107,6 +107,7 @@ EPSILON: Final = 1e-6
 CONTROL_LEVELS: Final = frozenset(
     {
         LadderLevel.OPTIMISER_PLAN,
+        LadderLevel.MODEL_PLAN,
         LadderLevel.RULE_PLAN,
         LadderLevel.SCHEDULE_CURVE_FEEDBACK,
         LadderLevel.CURVE_ONLY,

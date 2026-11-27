@@ -32,7 +32,9 @@ TICK_S: Final = 60.0
 SLACK_S: Final = 2 * TICK_S
 WARMUP_S: Final = 86_400.0
 TAIL_S: Final = 2 * HOUR
-CONTROL: Final = frozenset({"optimiser_plan", "rule_plan", "schedule_curve_feedback", "curve_only"})
+CONTROL: Final = frozenset(
+    {"optimiser_plan", "model_plan", "rule_plan", "schedule_curve_feedback", "curve_only"}
+)
 TROUBLE: Final = frozenset({"foreign_writer", "verification_failed", "hold_latched"})
 EPSILON: Final = 1e-6
 COMFORT_FLOOR_K: Final = 1.5

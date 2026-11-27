@@ -12,7 +12,7 @@ cross-field rules are in :mod:`ovenbird.config.validation`.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator
@@ -37,6 +37,7 @@ from ovenbird.config.values import (
 )
 from ovenbird_core.control import (
     CyclingConfig,
+    ModelPlanConfig,
     OutsideSource,
     OvenbirdConfig,
     PumpDutyConfig,
@@ -49,6 +50,7 @@ from ovenbird_core.control import (
     StartRampConfig,
     default_curve,
 )
+from ovenbird_core.control.planner import PlannerConfig
 from ovenbird_core.control.safety import DEFAULT_MAX_SUPPLY_C
 
 if TYPE_CHECKING:
@@ -122,6 +124,36 @@ class ControlSettings(FeatureSettings):
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+
+type ModelUse = Literal["off", "shadow", "on"]
+
+
+class ModelPlanSettings(FeatureSettings):
+    """The learned house model as a bounded room-target offset (``control_model_*``).
+
+    Parameters
+    ----------
+    control_model_use
+        ``off`` (default): no model plan. ``shadow``: the plan is computed and recorded
+        but has no effect on any decision. ``on``: the plan shifts the room target within
+        the bounds below; refused for now (``model_use_on_locked``).
+    control_model_max_setback_k, control_model_max_preheat_k
+        Largest room-target set-back and pre-heat a model plan may ask for
+        (:class:`~ovenbird_core.control.ModelPlanConfig`).
+    control_model_horizon_h
+        How far ahead the planner looks
+        (:class:`~ovenbird_core.control.planner.PlannerConfig`).
+    control_model_max_rmse_k
+        Largest held-out 24 h room error of the champion model for which the plan is
+        allowed (the guard ``model_error_high``).
+    """
+
+    control_model_use: ModelUse = "off"
+    control_model_max_setback_k: float = core_field(ModelPlanConfig, "max_setback_k", ge=0.1)
+    control_model_max_preheat_k: float = core_field(ModelPlanConfig, "max_preheat_k")
+    control_model_horizon_h: float = core_field(PlannerConfig, "horizon_h", ge=2.0)
+    control_model_max_rmse_k: float = Field(default=0.6, ge=0.2, le=1.5)
 
 
 class TuningSettings(FeatureSettings):
@@ -402,6 +434,10 @@ def controller_config(settings: Settings) -> OvenbirdConfig:
         room=room_profile(settings),
         stove=settings.stove_config(),
         outside=outside_source(settings),
+        model_plan=ModelPlanConfig(
+            max_setback_k=settings.control_model_max_setback_k,
+            max_preheat_k=settings.control_model_max_preheat_k,
+        ),
     )
 
 

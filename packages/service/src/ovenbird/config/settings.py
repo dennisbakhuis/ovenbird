@@ -51,6 +51,7 @@ from ovenbird.config.values import SNAPSHOT_NAME, ConfigError
 from ovenbird.control.settings import (
     CommandSettings,
     ControlSettings,
+    ModelPlanSettings,
     SafetySettings,
     TuningSettings,
     controller_config,
@@ -79,6 +80,7 @@ class Settings(
     CommandSettings,
     NotifySettings,
     AccessSettings,
+    ModelPlanSettings,
     HouseSettings,
     WeatherSettings,
     TuningSettings,
@@ -296,6 +298,18 @@ class Settings(
         low-priority child process in the night window); off leaves only "run now".
     house_learn_interval_h
         Hours between scheduled refits (24 to 720; a weekly refit by default).
+    control_model_use
+        The learned house model as a bounded room-target offset: ``off`` (default),
+        ``shadow`` (computed and recorded, never applied) or ``on`` (refused until the
+        evaluation and a shadow period are done: ``model_use_on_locked``).
+    control_model_max_setback_k, control_model_max_preheat_k
+        Largest room-target set-back (0.1 to 1 K, 0.5 by default) and pre-heat (0 to
+        0.5 K, 0.3 by default) of a model plan.
+    control_model_horizon_h
+        How far ahead the model planner looks (2 to 12 h, 6 by default).
+    control_model_max_rmse_k
+        Largest held-out 24 h room error of the champion model that still allows the
+        plan (0.2 to 1.5 K, 0.6 by default).
     hot_water
         Whether the app shows hot water (DHW): ``auto`` (default) follows the pump's
         ``main/DHW_Installed`` and shows it while that is unknown, ``on`` or ``off``.
