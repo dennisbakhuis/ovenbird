@@ -125,7 +125,7 @@ class Rig:
             memory_available=lambda: self.available_bytes,
             now=self.clock.now,
             monotonic=self.clock.monotonic,
-            sleep=self.clock.sleep,
+            sleep=options.pop("sleep", self.clock.sleep),
             export=self.export,
         )
 
@@ -450,7 +450,13 @@ async def test_only_one_run_at_a_time(rig: Rig) -> None:
     assert rig.runner.payload()["started_at"] is None
 
 
-async def test_the_component_stops_a_running_child_when_cancelled(rig: Rig) -> None:
+async def never(_seconds: float) -> None:
+    """Sleep until cancelled, so a watch loop cannot reach its timeout."""
+    await asyncio.Event().wait()
+
+
+async def test_the_component_stops_a_running_child_when_cancelled(settings: Settings) -> None:
+    rig = Rig(settings, sleep=never)
     rig.next_child = lambda: FakeChild(hang=True)
     rig.runner.start()
     await rig.until_spawned()

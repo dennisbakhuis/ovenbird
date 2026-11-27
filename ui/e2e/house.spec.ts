@@ -289,6 +289,7 @@ test('the timeline shows the daily error, the left-out periods and what the mode
   await expect(page.getByTestId('left-out')).toContainText('Wood stove');
   await expect(page.getByTestId('left-out')).toContainText('5 h');
   await expect(page.getByTestId('excluded-days')).toContainText('1');
+  await page.getByTestId('house-fitted-more').locator('summary').click();
   await expect(page.getByTestId('house-fitted')).toContainText('House only');
   await expect(page.getByTestId('house-fitted')).toContainText('41 days');
 });
@@ -768,6 +769,8 @@ test('what you told is shown next to what was measured, with a remark when they 
   await scenario(context, `${tag()}.house:facts`, baseURL);
   await language(page, 'en');
   await page.goto('./#/house');
+  await expect(page.getByTestId('house-told-differs')).toBeVisible();
+  await page.getByTestId('house-told').locator('summary').click();
   await expect(page.getByTestId('house-told-ua')).toContainText(
     'You told us ≈ 340 W/K · measured 240 W/K (90 % range 225–251)',
   );

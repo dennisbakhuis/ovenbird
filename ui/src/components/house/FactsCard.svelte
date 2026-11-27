@@ -125,12 +125,10 @@
   </dl>
   {#if told.length > 0}
     <div class="told">
-      <Details
-        summary={t('houseToldTitle')}
-        id="house-told-details"
-        testid="house-told"
-        open={told.some((row) => row.differs)}
-      >
+      {#if told.some((row) => row.differs)}
+        <p class="differs" data-testid="house-told-differs">{t('houseToldDiffers')}</p>
+      {/if}
+      <Details summary={t('houseToldTitle')} id="house-told-details" testid="house-told">
         <ul>
           {#each told as row (row.id)}
             <li data-testid="house-told-{row.id}" data-differs={row.differs}>
@@ -139,9 +137,6 @@
             </li>
           {/each}
         </ul>
-        {#if told.some((row) => row.differs)}
-          <p class="differs" data-testid="house-told-differs">{t('houseToldDiffers')}</p>
-        {/if}
       </Details>
     </div>
   {/if}

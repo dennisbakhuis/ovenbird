@@ -298,7 +298,7 @@ export const house = {
   houseDayLeftOut: 'left out',
   houseColLeaveOut: 'Leave out',
   houseDayPickHint:
-    'Select a day to leave it out of the next fit; select it again to take it back in.',
+    'Select a day that was not as usual (a holiday, windows open all day, visitors) to leave it out of the next run; select it again to take it back in.',
 
   houseSectionText:
     'The floor area turns the learned heat loss into an indicative insulation score.',

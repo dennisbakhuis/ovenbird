@@ -13,6 +13,7 @@
 <script lang="ts">
   import Button from '$ui/Button.svelte';
   import Card from '$ui/Card.svelte';
+  import Details from '$ui/Details.svelte';
   import { linearScale, niceTicks } from '$lib/core/chart';
   import { chartText, formatNum } from '$lib/core/chartSummary';
   import { draft } from '$lib/core/draft.svelte';
@@ -187,7 +188,6 @@
         <p class="caption" data-testid="daily-error-summary">{summary}</p>
         {#if selectable}
           <p class="caption" data-testid="leave-out-why">
-            {t('houseDaysWhy')}
             {t('houseDayPickHint')}
           </p>
         {/if}
@@ -280,8 +280,7 @@
       {/if}
     </section>
 
-    <section class="part">
-      <h3>{t('houseFittedTitle')}</h3>
+    <Details summary={t('houseFittedTitle')} id="house-fitted-details" testid="house-fitted-more">
       <dl class="facts" data-testid="house-fitted">
         {#if span(fitted.from, fitted.to)}
           <div>
@@ -330,7 +329,7 @@
           </div>
         {/if}
       </dl>
-    </section>
+    </Details>
   </div>
 </Card>
 

@@ -48,16 +48,15 @@ export const house: Record<keyof typeof en, string> = {
 
   houseFactsTitle: 'Wat het model heeft geleerd',
   houseTau: 'Tijdconstante van het huis',
-  houseTauText:
-    'Op een dag van 0 °C zonder verwarming koelt de kamer in de eerste {hours} uur ongeveer 1 °C af.',
+  houseTauText: 'Zonder verwarming koelt de kamer bij 0 °C buiten in {hours} uur ongeveer 1 °C af.',
   houseBalance: 'Stookgrens',
   houseBalanceText:
-    'Boven {value} °C buiten heeft het huis geen verwarming nodig: zon, mensen en apparaten zijn genoeg.',
+    'Boven {value} °C buiten is geen verwarming nodig: zon, mensen en apparaten zijn genoeg.',
   houseSolar: 'Zonvenster',
   houseSolarText: 'Een zonnig uur (500 W/m² op de grond) brengt ongeveer {kw} kW binnen.',
   houseGains: 'Netto vrije warmte',
   houseGainsText:
-    'Ongeveer {value} W van mensen, apparaten en andere bronnen. Dit is niet los van het warmteverlies te bepalen.',
+    'Ongeveer {value} W van mensen, apparaten en andere bronnen; niet los van het warmteverlies te bepalen.',
   houseGainsZero:
     'Het model kwam hier uit op 0 W. Dat betekent dat de gegevens dit getal niet kunnen bepalen, niet dat er iets mis is.',
   houseGainsCoupling:
@@ -307,7 +306,7 @@ export const house: Record<keyof typeof en, string> = {
   houseDayLeftOut: 'weggelaten',
   houseColLeaveOut: 'Weglaten',
   houseDayPickHint:
-    'Kies een dag om hem bij de volgende leerronde weg te laten; kies hem nog eens om hem weer mee te tellen.',
+    'Kies een dag die anders was dan normaal (vakantie, ramen de hele dag open, bezoek) om hem bij de volgende leerronde weg te laten; kies hem nog eens om hem weer mee te tellen.',
 
   houseSectionText:
     'Met het vloeroppervlak wordt het geleerde warmteverlies een indicatieve isolatiescore.',
