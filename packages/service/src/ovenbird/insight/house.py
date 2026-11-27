@@ -388,7 +388,7 @@ def score(
     return result
 
 
-def _models_ok(models: Path) -> bool:
+def models_ok(models: Path) -> bool:
     """Whether ``models`` is a real directory (not a link)."""
     try:
         return stat.S_ISDIR(os.lstat(models).st_mode)
@@ -398,7 +398,7 @@ def _models_ok(models: Path) -> bool:
 
 def last_run(models: Path) -> Json | None:
     """Return the essentials of ``status.json`` (the learner's last run)."""
-    if not _models_ok(models):
+    if not models_ok(models):
         return None
     return checked_status(read_json(models / STATUS))
 
@@ -411,7 +411,7 @@ def champion(models: Path) -> tuple[Json, Json] | None:
     LearnerFileError
         When the champion's files exist but are refused.
     """
-    if not _models_ok(models):
+    if not models_ok(models):
         return None
     current = read_untrusted(models / CURRENT)
     if current is None:
@@ -580,10 +580,10 @@ def history_payload(models: Path, settings: Settings) -> Json:
 
     Runs that are not plain bounded JSON with the expected types are left out.
     """
-    index = read_json(models / INDEX) if _models_ok(models) else None
+    index = read_json(models / INDEX) if models_ok(models) else None
     runs = index.get("runs", []) if isinstance(index, dict) else []
     runs = runs if isinstance(runs, list) else []
-    current = read_json(models / CURRENT) if _models_ok(models) else None
+    current = read_json(models / CURRENT) if models_ok(models) else None
     champion_name = current.get("model") if isinstance(current, dict) else None
     out = []
     for raw in runs[:MAX_ITEMS]:

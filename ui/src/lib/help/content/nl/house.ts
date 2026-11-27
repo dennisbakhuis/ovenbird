@@ -3,9 +3,16 @@ import type { HelpTopic } from '$lib/help/types';
 export const topic: HelpTopic = {
   id: 'house',
   title: 'Huis',
-  lead: 'Wat ovenbird uit zijn eigen geschiedenis over je huis leerde: warmteverlies, hoe langzaam het afkoelt, een indicatieve isolatiescore en een voorstel voor je stooklijn. Drie tabbladen: **Overzicht**, **Model** en **Leren**.',
+  lead: 'Wat ovenbird uit zijn eigen geschiedenis over je huis leerde: warmteverlies, hoe langzaam het afkoelt, een indicatieve isolatiescore en een voorstel voor je stooklijn. Vier tabbladen: **Overzicht**, **Model**, **Leren** en **Wat als**.',
   art: 'home',
   sections: [
+    {
+      id: 'balance',
+      kind: 'see',
+      title: 'Het huis op dit moment',
+      body: 'Het plaatje laat zien waar de warmte van dit moment vandaan komt en waar ze heen gaat: de warmtepomp via de verwarmingskring, de zon, en mensen en apparaten (plus een houtkachel zolang die brandt) gaan erin; het warmteverlies door muren, dak en ramen gaat eruit. De gebouwmassa (vloer en muren) **slaat** het verschil **op** of **geeft warmte terug**.\n\nDe buiten- en kamertemperatuur en het vermogen van de warmtepomp zijn gemeten; de zon en het verlies zijn berekend uit het geleerde warmteverlies en het zonvenster. De pijlen worden dikker bij meer warmte; een gestippelde pijl zegt **onbekend**, het betekent niet nul. Zolang een houtkachel brandt, is zijn warmte niet gemeten, dus is de opslag onbekend. Voordat er een model is geleerd is het plaatje een **schatting uit je antwoorden** en dat staat erbij.',
+      target: 'house.balance',
+    },
     {
       id: 'score',
       kind: 'see',
@@ -17,7 +24,7 @@ export const topic: HelpTopic = {
       id: 'facts',
       kind: 'see',
       title: 'Wat het model leerde',
-      body: 'De [[time-constant|tijdconstante]] zegt hoe langzaam het huis afkoelt; de [[balance-temperature|stookgrens]] boven welke buitentemperatuur het geen verwarming nodig heeft. Het zonvenster is hoeveel een zonnig uur het huis verwarmt, de interne warmte wat mensen en apparaten toevoegen. Elk met zijn bereik en één gewone zin.',
+      body: 'De [[time-constant|tijdconstante]] zegt hoe langzaam het huis afkoelt; de [[balance-temperature|stookgrens]] boven welke buitentemperatuur het geen verwarming nodig heeft. Het zonvenster is hoeveel een zonnig uur het huis verwarmt, de interne warmte wat mensen en apparaten toevoegen. Elk met zijn bereik en één gewone zin. Heb je gegevens over het huis ingevuld, dan toont de kaart ook wat je opgaf naast wat is gemeten; verschillen ze een factor 1,5 of meer, dan volgt het model de metingen.',
       target: 'house.facts',
     },
     {
@@ -26,6 +33,13 @@ export const topic: HelpTopic = {
       title: 'Energiesignatuur',
       body: 'De [[energy-signature|energiesignatuur]] heeft één stip per dag: de warmte die het huis nodig had tegen de buitentemperatuur van die dag. De stippellijn is de fit: steiler betekent meer warmteverlies, en bij de stookgrens komt hij op nul. Zonnige dagen liggen onder de lijn. Dagen met de houtkachel tellen niet mee. **Toon als tabel** geeft elke dag.',
       target: 'house.signature',
+    },
+    {
+      id: 'prediction',
+      kind: 'see',
+      title: 'Gemeten tegenover voorspeld',
+      body: 'De getrokken lijn is de kamertemperatuur die je sensor mat. De stippellijn is wat het model voor dat moment **24 uur eerder** had voorspeld. Hoe dichter ze bij elkaar liggen, hoe beter het model je huis kent. De zin onder de grafiek geeft het gewone en het grootste verschil. Een gat in een lijn betekent dat er toen geen waarde was. Wissel de periode tussen 3, 7 en 14 dagen; **Toon als tabel** geeft elk punt.',
+      target: 'house.prediction',
     },
     {
       id: 'proposal',
@@ -45,6 +59,18 @@ export const topic: HelpTopic = {
       title: 'Hoeveel je erop kunt bouwen',
       body: 'Regelmatig (standaard eens per week) wordt een nieuw model gefit op de laatste geschiedenis. Het wordt alleen gebruikt als het de kamer op de laatste 14 dagen minstens zo goed voorspelde als het model dat in gebruik is. De kaart toont beide fouten, het warmteverlies van elk model tot nu toe en de gebruikte gegevens. De grenzen staan onder **Grenzen van dit model**.',
       target: 'house.quality',
+    },
+    {
+      id: 'whatif',
+      kind: 'do',
+      title: 'Ander weer proberen',
+      body: 'Het tabblad **Wat als** vraagt het model wat een andere dag nodig heeft. Niets wat je daar doet verandert een instelling: het rekent alleen.',
+      steps: [
+        'Stel de buitentemperatuur in, je comforttemperatuur, de zon (geen, heiig, fel of een exacte waarde) en of de houtkachel brandt.',
+        'Lees wat de warmtepomp moet leveren en welke watertemperatuur daarvoor nodig is, naast wat je [[heating-curve|stooklijn]] geeft.',
+        'Begrenst je maximale aanvoer het, dan staat dat er. De kleine grafiek toont hoever de kamer in 8 uur afkoelt met de verwarming uit.',
+      ],
+      target: 'house.whatif',
     },
     {
       id: 'run',
@@ -132,7 +158,7 @@ export const topic: HelpTopic = {
     {
       id: 'tabs',
       q: 'Wat staat op welk tabblad?',
-      a: '**Overzicht**: de isolatiescore en wat het model leerde. **Model**: de energiesignatuur en hoeveel je erop kunt bouwen. **Leren**: het leerprogramma, hoe het model leert en het voorstel voor de stooklijn.',
+      a: '**Overzicht**: het plaatje van het huis, de isolatiescore en wat het model leerde. **Model**: de energiesignatuur, de voorspelling en hoeveel je erop kunt bouwen. **Leren**: het leerprogramma, hoe het model leert en het voorstel voor de stooklijn. **Wat als**: wat ander weer zou vragen.',
     },
   ],
   related: ['settings/house', 'settings/curve', 'pump'],

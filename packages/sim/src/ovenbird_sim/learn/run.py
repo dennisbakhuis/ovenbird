@@ -102,6 +102,7 @@ from ovenbird_sim.learn.priors import (
 )
 from ovenbird_sim.learn.proposal import CurveLimits, propose_curve
 from ovenbird_sim.learn.score import DESIGN_OUTSIDE_C, score
+from ovenbird_sim.learn.series import room_series
 from ovenbird_sim.model.building import J_PER_KWH, BuildingParams
 from ovenbird_sim.model.heatpump import HeatPumpParams
 from ovenbird_sim.model.plant import PlantParams
@@ -827,6 +828,7 @@ def _learn(
         model, status["at"], fit, house, validation, provenance, trend, daily_errors, ds, roles
     )
     store.write_json(models / store.insight_name(model), insight)
+    entry["series"] = _write_series(models, model, verdict.coarse, ds, fit, timer)
     entry["w_per_m2"] = house.score.get("w_per_m2")
     entry["band"] = house.score.get("band")
     store.append_index(models, entry)
@@ -854,6 +856,23 @@ def _learn(
             )
         },
     }
+
+
+def _write_series(
+    models: Path, model: str, scored: Dataset, ds: Dataset, fit: FitOutcome, timer: Timer
+) -> str | None:
+    """Write ``series-<model>.json``; ``None`` (logged) when the series cannot be built."""
+    try:
+        body = timer.run(
+            "series",
+            lambda: room_series(scored, ds.coarsen(5), fit.train_building, fit.split, iso),
+        )
+        name = store.series_name(model)
+        store.write_json(models / name, body | {"model": model})
+    except (ValueError, ArithmeticError, IndexError, KeyError) as exc:
+        LOGGER.warning("no series for %s: %s", model, exc)
+        return None
+    return name
 
 
 def _load(

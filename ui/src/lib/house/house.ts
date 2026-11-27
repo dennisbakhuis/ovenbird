@@ -2,6 +2,7 @@ import { ApiError, getJson, getOptional, isMissing, postJson } from '$lib/core/a
 import type { Curve } from '$lib/core/curve';
 import type { MessageKey, Params } from '$lib/i18n';
 import type { Schemas } from '$lib/core/types';
+import type { HouseProvenance } from './shapes';
 
 export type Interval = [number, number];
 
@@ -67,6 +68,7 @@ export interface Validation {
   champion: string | null;
   promoted: boolean;
   rule: string;
+  settings_changed?: boolean;
 }
 
 export interface ErrorTrendEntry {
@@ -139,7 +141,7 @@ export interface HouseInsight {
   proposal: Proposal | null;
   events: unknown[];
   limits: string[];
-  provenance: Record<string, unknown>;
+  provenance: HouseProvenance;
 }
 
 /** The draft of `POST insight/house/proposal/draft`; its `points` are the learner's. */

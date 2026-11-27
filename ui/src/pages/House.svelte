@@ -9,6 +9,9 @@
 -->
 <script lang="ts">
   import FactsCard from '$components/house/FactsCard.svelte';
+  import HouseSchematic from '$components/house/HouseSchematic.svelte';
+  import PredictionChart from '$components/house/PredictionChart.svelte';
+  import WhatIfCard from '$components/house/WhatIfCard.svelte';
   import HouseInputCard from '$components/house/HouseInputCard.svelte';
   import LearningCard from '$components/house/LearningCard.svelte';
   import ProposalCard from '$components/house/ProposalCard.svelte';
@@ -20,6 +23,7 @@
   import TimelineCard from '$components/house/TimelineCard.svelte';
   import Tabs from '$ui/Tabs.svelte';
   import { fetchVersions } from '$lib/core/api';
+  import { fetchHouseBalance, type BalanceResult } from '$lib/house/balance';
   import { cfg } from '$lib/core/cfg.svelte';
   import type { ControlStore } from '$lib/core/control.svelte';
   import {
@@ -38,12 +42,13 @@
   let { live, ctl }: { live: LiveStore; ctl: ControlStore } = $props();
 
   const REFRESH_MS = 1_800_000;
-  const TABS = ['overview', 'model', 'learning'] as const;
+  const BALANCE_REFRESH_MS = 60_000;
+  const TABS = ['overview', 'model', 'learning', 'what-if'] as const;
   type Tab = (typeof TABS)[number];
 
   const active = $derived<Tab>(TABS.find((tab) => tab === router.location.sub[0]) ?? 'overview');
   const items = $derived(
-    TABS.map((tab) => ({
+    TABS.filter((tab) => tab !== 'what-if' || balance?.kind !== 'absent').map((tab) => ({
       id: tab,
       label: t(`houseTab_${tab}` as 'houseTab_overview'),
       href: buildHash('house', tab === 'overview' ? [] : [tab]),
@@ -55,6 +60,35 @@
   let failed = $state(false);
   let reload = $state(0);
   let versions = $state<ConfigVersion[]>([]);
+  let balance = $state<BalanceResult | null>(null);
+  let balanceFailed = $state(false);
+
+  function openFacts(): void {
+    document
+      .querySelector('[data-testid="house-facts-input"]')
+      ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
+
+  $effect(() => {
+    void live.configVersion;
+    const controller = new AbortController();
+    let timer: number | undefined;
+    const load = async () => {
+      try {
+        balance = await fetchHouseBalance(controller.signal);
+        balanceFailed = false;
+      } catch {
+        if (controller.signal.aborted) return;
+        balanceFailed = true;
+      }
+      timer = window.setTimeout(load, BALANCE_REFRESH_MS);
+    };
+    void load();
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  });
 
   $effect(() => {
     void cfg.loadSchema();
@@ -72,6 +106,10 @@
     return () => controller.abort();
   });
 
+  const comfortC = $derived.by(() => {
+    const value = ctl.config?.fields['control_comfort_c']?.value;
+    return typeof value === 'number' ? value : 21;
+  });
   const schema = $derived(cfg.schema);
   const config = $derived(ctl.config);
   const available = (subset: Subset) =>
@@ -121,6 +159,9 @@
   <LearningCard kind="missing" />
 {:else if result.kind === 'learning'}
   <div class="grid">
+    {#if balance?.kind !== 'absent'}
+      <HouseSchematic {balance} failed={balanceFailed} onfacts={openFacts} />
+    {/if}
     <LearningCard
       kind={result.data.state === 'not_run' ? 'not_run' : 'learning'}
       data={result.data}
@@ -135,6 +176,7 @@
   {#if active === 'model'}
     <div class="grid" data-testid="house-page" data-tab="model">
       <SignatureChart house={result.data} />
+      <PredictionChart />
       <QualityCard house={result.data} {history} />
       {#if available('bounds') && schema && config}
         <HouseInputCard
@@ -163,9 +205,16 @@
       <TimelineCard house={result.data} {schema} {config} />
       <ProposalCard house={result.data} {ctl} />
     </div>
+  {:else if active === 'what-if'}
+    <div class="grid" data-testid="house-page" data-tab="what-if">
+      <WhatIfCard {comfortC} onoverview={() => router.navigate('house')} />
+    </div>
   {:else}
     <StatusLine house={result.data} />
     <div class="grid" data-testid="house-page" data-tab="overview">
+      {#if balance?.kind !== 'absent'}
+        <HouseSchematic {balance} failed={balanceFailed} onfacts={openFacts} />
+      {/if}
       <ScoreCard house={result.data} />
       <FactsCard house={result.data} />
       {#if available('facts') && schema && config}

@@ -216,6 +216,14 @@ export const glossary: GlossaryEntry[] = [
     aliases: ['tau', 'thermische massa', 'time constant'],
   },
   {
+    id: 'building-mass',
+    term: 'Gebouwmassa',
+    short: 'De vloer, muren en meubels die warmte opslaan en langzaam weer afgeven.',
+    body: 'Het huismodel heeft drie delen: het water in de verwarmingskring, de **gebouwmassa** en de lucht in de kamer. De warmtepomp verwarmt het water, het water verwarmt de massa en de massa verwarmt de kamer. Een zware massa is waarom een huis langzaam afkoelt: de [[time-constant|tijdconstante]] is lang. In het plaatje op de [Huispagina](#/house) slaat de massa warmte op of geeft ze terug.',
+    related: ['time-constant', 'ua'],
+    aliases: ['thermal mass', 'opslag', 'building mass'],
+  },
+  {
     id: 'energy-signature',
     term: 'Energiesignatuur',
     short:

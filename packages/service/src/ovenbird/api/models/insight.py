@@ -306,3 +306,95 @@ class HouseRun(ApiModel):
     interval_h: Number
     last: HouseRunLast | None
     failure: HouseRunFailure | None
+
+
+type HouseSource = Literal["model", "estimate"]
+type WhatIfLimit = Literal["max_supply", "no_heat_needed"]
+type BalanceNote = Literal[
+    "estimate",
+    "not_credible",
+    "room_unknown",
+    "outside_unknown",
+    "sun_unknown",
+    "dhw_active",
+    "heat_unknown",
+    "defrost",
+    "stove_active",
+]
+
+
+class HouseSeries(ApiModel):
+    """``GET insight/house/series``: the room, measured and as predicted 24 h earlier.
+
+    ``points`` are ``[time, measured, predicted]`` rows, oldest first; either value is
+    ``null`` where it is unknown (the prediction exists only inside the learner's
+    held-out block).
+    """
+
+    model: str
+    step_s: int
+    from_: str = Field(alias="from")
+    to: str
+    points: list[tuple[str, Number | None, Number | None]]
+
+
+class WhatIfInputs(ApiModel):
+    """The scenario of a what-if, with the defaults filled in."""
+
+    outside_c: Number
+    comfort_c: Number
+    sun_wm2: Number
+    stove_w: Number
+
+
+class WhatIfDrift(ApiModel):
+    """The room temperature with the heating off, from the comfort steady state."""
+
+    hours: int
+    step_s: int
+    room_c: list[Number]
+
+
+class HouseWhatIf(ApiModel):
+    """``GET insight/house/whatif``: what the house needs to hold comfort in a scenario."""
+
+    source: HouseSource
+    model: str | None
+    credible: bool
+    inputs: WhatIfInputs
+    heat_demand_w: Number
+    free_heat_w: Number
+    loss_w: Number
+    loop_mean_c: Number
+    supply_c: Number
+    curve_c: Number
+    max_supply_c: Number
+    limited_by: list[WhatIfLimit]
+    balance_outside_c: Number
+    drift: WhatIfDrift
+    time_constant_h: Number | None
+
+
+class BalanceFlows(ApiModel):
+    """The heat flows of the house in W; ``null`` where an input is unknown."""
+
+    heat_pump_w: Number | None
+    loss_w: Number | None
+    sun_w: Number | None
+    internal_w: Number
+    stove_active: bool
+    storage_w: Number | None
+
+
+class HouseBalance(ApiModel):
+    """``GET insight/house/balance``: the heat balance of the house right now."""
+
+    at: str
+    source: HouseSource
+    credible: bool
+    room_c: Number | None
+    outside_c: Number | None
+    sun_wm2: Number | None
+    flows: BalanceFlows
+    ua_w_per_k: Number
+    notes: list[BalanceNote]

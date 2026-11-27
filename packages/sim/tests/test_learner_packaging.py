@@ -44,6 +44,9 @@ def test_controller_imports_stay_free_of_numpy_and_scipy() -> None:
         import sys
         import ovenbird_core
         import ovenbird.control.loop
+        import ovenbird.insight.whatif
+        import ovenbird.api.insight_api
+        import ovenbird_core.housemodel
         loaded = [m for m in ("numpy", "scipy") if m in sys.modules]
         assert not loaded, loaded
         """)

@@ -473,6 +473,8 @@ def create_app(
             config=config,
             audit=audit,
             learn=learn,
+            control=control,
+            weather=weather,
         ),
         prefix=API_PREFIX,
     )

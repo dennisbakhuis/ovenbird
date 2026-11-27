@@ -216,6 +216,14 @@ export const glossary: GlossaryEntry[] = [
     aliases: ['tau', 'thermal mass', 'tijdconstante'],
   },
   {
+    id: 'building-mass',
+    term: 'Building mass',
+    short: 'The floor, walls and furniture that store heat and release it slowly.',
+    body: 'The house model has three parts: the water in the heating loop, the **building mass** and the room air. The heat pump warms the water, the water warms the mass, and the mass warms the room. A heavy mass is why a house cools slowly: its [[time-constant]] is long. In the picture on the [House page](#/house) the mass either stores heat or gives it back.',
+    related: ['time-constant', 'ua'],
+    aliases: ['thermal mass', 'storage', 'gebouwmassa'],
+  },
+  {
     id: 'energy-signature',
     term: 'Energy signature',
     short: "A chart of the heat the house needed per day against that day's outside temperature.",

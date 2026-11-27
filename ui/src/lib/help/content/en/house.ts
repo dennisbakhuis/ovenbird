@@ -3,9 +3,16 @@ import type { HelpTopic } from '$lib/help/types';
 export const topic: HelpTopic = {
   id: 'house',
   title: 'House',
-  lead: 'What ovenbird learned about your house from its own history: heat loss, how slowly it cools, an indicative insulation score and a suggestion for your curve. Three tabs: **Overview**, **Model** and **Learning**.',
+  lead: 'What ovenbird learned about your house from its own history: heat loss, how slowly it cools, an indicative insulation score and a suggestion for your curve. Four tabs: **Overview**, **Model**, **Learning** and **What if**.',
   art: 'home',
   sections: [
+    {
+      id: 'balance',
+      kind: 'see',
+      title: 'The house right now',
+      body: 'The picture shows where the heat of this moment comes from and where it goes: the heat pump through the heating loop, the sun, and people and appliances (plus a wood stove while it burns) go in; the heat loss through walls, roof and windows goes out. The building mass (floor and walls) either **stores** the difference or **gives heat back**.\n\nThe outside and room temperatures and the heat pump output are measured; the sun and the loss are modelled from the learned heat loss and the solar aperture. The arrows get thicker with more heat; an arrow that is dashed says **unknown**, it does not mean zero. While a wood stove burns, its heat is not measured, so the storage is unknown. Before a model is learned the picture is an **estimate from your answers**, and says so.',
+      target: 'house.balance',
+    },
     {
       id: 'score',
       kind: 'see',
@@ -17,7 +24,7 @@ export const topic: HelpTopic = {
       id: 'facts',
       kind: 'see',
       title: 'What the model learned',
-      body: 'The [[time-constant]] says how slowly the house cools; the [[balance-temperature]] above which outside temperature it needs no heating. The solar aperture is how much a sunny hour warms the house, the internal gains what people and appliances add. Each comes with its range and one plain sentence.',
+      body: 'The [[time-constant]] says how slowly the house cools; the [[balance-temperature]] above which outside temperature it needs no heating. The solar aperture is how much a sunny hour warms the house, the internal gains what people and appliances add. Each comes with its range and one plain sentence. Where you filled in facts about the house, the card also shows what you told next to what was measured; when they differ by a factor of about 1.5 or more, the model follows the measurements.',
       target: 'house.facts',
     },
     {
@@ -26,6 +33,13 @@ export const topic: HelpTopic = {
       title: 'Energy signature',
       body: "The [[energy-signature|energy signature]] has one dot per day: the heat the house needed against that day's outside temperature. The dashed line is the fit: steeper means more heat loss, and it reaches zero at the balance temperature. Sunny days sit below the line. Days with a wood-stove fire are left out. **Show as table** lists every day.",
       target: 'house.signature',
+    },
+    {
+      id: 'prediction',
+      kind: 'see',
+      title: 'Measured against predicted',
+      body: 'The solid line is the room temperature your sensor measured. The dashed line is what the model had predicted for that moment **24 hours earlier**. The closer they are, the better the model knows your house. The sentence under the chart gives the typical and the largest difference. A gap in a line means there was no value then. Switch the period between 3, 7 and 14 days; **Show as table** lists every point.',
+      target: 'house.prediction',
     },
     {
       id: 'proposal',
@@ -45,6 +59,18 @@ export const topic: HelpTopic = {
       title: 'How far to trust it',
       body: 'Regularly (by default once a week) a new model is fitted on the latest history. It is only used when it predicted the room on the last 14 days at least as well as the model in use. The card shows both errors, the heat loss of every model so far and the data it used. Its limits are listed under **Limits of this model**.',
       target: 'house.quality',
+    },
+    {
+      id: 'whatif',
+      kind: 'do',
+      title: 'Try other weather',
+      body: 'The **What if** tab asks the model what a different day would take. Nothing you do there changes a setting: it only calculates.',
+      steps: [
+        'Set the outside temperature, your comfort temperature, the sun (none, hazy, bright or an exact value) and whether the wood stove burns.',
+        'Read what the heat pump has to deliver and the water temperature that needs, next to what your [[heating-curve|heating curve]] gives.',
+        'If your maximum supply limits it, the page says so. The small chart shows how far the room cools in 8 hours with the heating off.',
+      ],
+      target: 'house.whatif',
     },
     {
       id: 'run',
@@ -132,7 +158,7 @@ export const topic: HelpTopic = {
     {
       id: 'tabs',
       q: 'What is on which tab?',
-      a: '**Overview**: the insulation score and what the model learned. **Model**: the energy signature and how far to trust it. **Learning**: the learner, how the model is learned and the curve suggestion.',
+      a: '**Overview**: the picture of the house, the insulation score and what the model learned. **Model**: the energy signature, the prediction and how far to trust it. **Learning**: the learner, how the model is learned and the curve suggestion. **What if**: what other weather would take.',
     },
   ],
   related: ['settings/house', 'settings/curve', 'pump'],

@@ -12,6 +12,12 @@ insight/house/proposal/draft`` (operate) turns its curve proposal into a validat
 configuration draft for the normal preview and apply flow. See
 :mod:`ovenbird.insight.house`.
 
+``GET insight/house/series``, ``GET insight/house/whatif`` and ``GET insight/house/balance``
+(every role) answer from the learned house model, or from the owner's facts without one;
+errors are ``404`` with ``{"detail": {"code", "message", "params"}}`` and code
+``house_series_missing`` or ``house_model_missing``, out-of-range query values ``422``;
+see :mod:`ovenbird.insight.whatif`.
+
 ``GET insight/house/run`` (every role) reports the learner run the service itself
 starts (:mod:`ovenbird.insight.learnrun`); ``POST insight/house/run`` (operate, audited
 as ``house_learn_run``) starts one at once: ``202`` with the same body, ``409`` with
@@ -33,14 +39,18 @@ from ovenbird.api.auth import Role
 from ovenbird.api.deps import RefusalAudit, read_json, require_role
 from ovenbird.api.models.base import returns
 from ovenbird.api.models.insight import (
+    HouseBalance,
     HouseHistory,
     HouseReport,
     HouseRun,
+    HouseSeries,
+    HouseWhatIf,
     InsightDaily,
     ProposalDraft,
 )
 from ovenbird.config import Settings
-from ovenbird.insight import house
+from ovenbird.control.loop import ControlLoop
+from ovenbird.insight import house, whatif
 from ovenbird.insight.daily import MAX_DAYS, daily_payload
 from ovenbird.insight.learnrun import (
     REFUSAL_CODES,
@@ -51,6 +61,7 @@ from ovenbird.insight.learnrun import (
 from ovenbird.payloads import Json
 from ovenbird.runtime import Runtime
 from ovenbird.system.facts import Facts
+from ovenbird.weather.service import WeatherService
 
 RUN_AUDIT: Final = "house_learn_run"
 RUNNING: Final = REFUSAL_CODES[0]
@@ -68,6 +79,8 @@ def build_insight_router(
     config: ConfigManager | None = None,
     audit: RefusalAudit | None = None,
     learn: LearnRunner | None = None,
+    control: ControlLoop | None = None,
+    weather: WeatherService | None = None,
 ) -> APIRouter:
     """Return the ``api/v1/insight`` routes.
 
@@ -88,6 +101,11 @@ def build_insight_router(
         Records refused state-changing requests.
     learn
         The learner runner; without it the learner counts as unavailable.
+    control
+        The control loop (the owner's curve and supply limit, wood-stove state); the
+        effective settings stand in without it.
+    weather
+        The weather component (the stored forecast's irradiance for the balance).
 
     Returns
     -------
@@ -142,6 +160,56 @@ def build_insight_router(
                 config.validate(body["changes"]).to_json() if config is not None else None
             )
         return JSONResponse(body, status_code=status)
+
+    @router.get("/insight/house/series", **returns(HouseSeries))
+    async def house_series() -> JSONResponse:
+        effective = current()
+        try:
+            body = await asyncio.to_thread(whatif.series_payload, house.models_dir(effective))
+        except whatif.InsightError as exc:
+            return JSONResponse(exc.to_json(), status_code=exc.status)
+        return JSONResponse(body)
+
+    @router.get("/insight/house/whatif", **returns(HouseWhatIf))
+    async def house_whatif(
+        outside_c: Annotated[float | None, Query(ge=-30.0, le=30.0)] = None,
+        comfort_c: Annotated[float | None, Query(ge=5.0, le=30.0)] = None,
+        sun_wm2: Annotated[float, Query(ge=0.0, le=1000.0)] = 0.0,
+        stove_w: Annotated[float, Query(ge=0.0, le=15000.0)] = 0.0,
+    ) -> JSONResponse:
+        effective = current()
+        outside = outside_c if outside_c is not None else whatif.outside_now(runtime, effective)
+
+        def answer() -> Json:
+            choice = whatif.choose_model(house.models_dir(effective), effective)
+            return whatif.whatif_payload(
+                choice,
+                control.controller.config if control is not None else effective.controller_config(),
+                outside_c=0.0 if outside is None else outside,
+                comfort_c=effective.control_comfort_c if comfort_c is None else comfort_c,
+                sun_wm2=sun_wm2,
+                stove_w=stove_w,
+            )
+
+        try:
+            return JSONResponse(await asyncio.to_thread(answer))
+        except whatif.InsightError as exc:
+            return JSONResponse(exc.to_json(), status_code=exc.status)
+
+    @router.get("/insight/house/balance", **returns(HouseBalance))
+    async def house_balance() -> JSONResponse:
+        effective = current()
+        stove = control is not None and control.stove_status().get("active") is True
+
+        def answer() -> Json:
+            choice = whatif.choose_model(house.models_dir(effective), effective)
+            live = whatif.read_live(runtime, effective, weather, stove)
+            return whatif.balance_payload(choice, live)
+
+        try:
+            return JSONResponse(await asyncio.to_thread(answer))
+        except whatif.InsightError as exc:
+            return JSONResponse(exc.to_json(), status_code=exc.status)
 
     @router.get("/insight/house/run", **returns(HouseRun))
     async def house_run() -> Json:

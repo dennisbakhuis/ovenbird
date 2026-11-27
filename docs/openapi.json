@@ -714,6 +714,80 @@
         ],
         "type": "string"
       },
+      "BalanceFlows": {
+        "description": "The heat flows of the house in W; ``null`` where an input is unknown.",
+        "properties": {
+          "heat_pump_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "internal_w": {
+            "type": "number"
+          },
+          "loss_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "storage_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stove_active": {
+            "type": "boolean"
+          },
+          "sun_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "heat_pump_w",
+          "loss_w",
+          "sun_w",
+          "internal_w",
+          "stove_active",
+          "storage_w"
+        ],
+        "type": "object"
+      },
+      "BalanceNote": {
+        "enum": [
+          "estimate",
+          "not_credible",
+          "room_unknown",
+          "outside_unknown",
+          "sun_unknown",
+          "dhw_active",
+          "heat_unknown",
+          "defrost",
+          "stove_active"
+        ],
+        "type": "string"
+      },
       "Budget": {
         "description": "Today's write budget.",
         "properties": {
@@ -4035,6 +4109,74 @@
         ],
         "type": "object"
       },
+      "HouseBalance": {
+        "description": "``GET insight/house/balance``: the heat balance of the house right now.",
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "credible": {
+            "type": "boolean"
+          },
+          "flows": {
+            "$ref": "#/components/schemas/BalanceFlows"
+          },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/BalanceNote"
+            },
+            "type": "array"
+          },
+          "outside_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "room_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/HouseSource"
+          },
+          "sun_wm2": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ua_w_per_k": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "at",
+          "source",
+          "credible",
+          "room_c",
+          "outside_c",
+          "sun_wm2",
+          "flows",
+          "ua_w_per_k",
+          "notes"
+        ],
+        "type": "object"
+      },
       "HouseHistory": {
         "description": "``GET insight/house/history``: every promoted model.",
         "properties": {
@@ -4464,6 +4606,71 @@
         ],
         "type": "object"
       },
+      "HouseSeries": {
+        "description": "``GET insight/house/series``: the room, measured and as predicted 24 h earlier.\n\n``points`` are ``[time, measured, predicted]`` rows, oldest first; either value is\n``null`` where it is unknown (the prediction exists only inside the learner's\nheld-out block).",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "maxItems": 3,
+              "minItems": 3,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "step_s": {
+            "type": "integer"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "step_s",
+          "from",
+          "to",
+          "points"
+        ],
+        "type": "object"
+      },
+      "HouseSource": {
+        "enum": [
+          "model",
+          "estimate"
+        ],
+        "type": "string"
+      },
       "HouseWaiting": {
         "description": "``GET insight/house`` before a model is promoted: what is missing.",
         "properties": {
@@ -4499,6 +4706,91 @@
           "missing",
           "last_run",
           "learner"
+        ],
+        "type": "object"
+      },
+      "HouseWhatIf": {
+        "description": "``GET insight/house/whatif``: what the house needs to hold comfort in a scenario.",
+        "properties": {
+          "balance_outside_c": {
+            "type": "number"
+          },
+          "credible": {
+            "type": "boolean"
+          },
+          "curve_c": {
+            "type": "number"
+          },
+          "drift": {
+            "$ref": "#/components/schemas/WhatIfDrift"
+          },
+          "free_heat_w": {
+            "type": "number"
+          },
+          "heat_demand_w": {
+            "type": "number"
+          },
+          "inputs": {
+            "$ref": "#/components/schemas/WhatIfInputs"
+          },
+          "limited_by": {
+            "items": {
+              "$ref": "#/components/schemas/WhatIfLimit"
+            },
+            "type": "array"
+          },
+          "loop_mean_c": {
+            "type": "number"
+          },
+          "loss_w": {
+            "type": "number"
+          },
+          "max_supply_c": {
+            "type": "number"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/HouseSource"
+          },
+          "supply_c": {
+            "type": "number"
+          },
+          "time_constant_h": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "source",
+          "model",
+          "credible",
+          "inputs",
+          "heat_demand_w",
+          "free_heat_w",
+          "loss_w",
+          "loop_mean_c",
+          "supply_c",
+          "curve_c",
+          "max_supply_c",
+          "limited_by",
+          "balance_outside_c",
+          "drift",
+          "time_constant_h"
         ],
         "type": "object"
       },
@@ -9785,6 +10077,60 @@
             "$ref": "#/components/schemas/WeatherOn"
           }
         ]
+      },
+      "WhatIfDrift": {
+        "description": "The room temperature with the heating off, from the comfort steady state.",
+        "properties": {
+          "hours": {
+            "type": "integer"
+          },
+          "room_c": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "step_s": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "hours",
+          "step_s",
+          "room_c"
+        ],
+        "type": "object"
+      },
+      "WhatIfInputs": {
+        "description": "The scenario of a what-if, with the defaults filled in.",
+        "properties": {
+          "comfort_c": {
+            "type": "number"
+          },
+          "outside_c": {
+            "type": "number"
+          },
+          "stove_w": {
+            "type": "number"
+          },
+          "sun_wm2": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "outside_c",
+          "comfort_c",
+          "sun_wm2",
+          "stove_w"
+        ],
+        "type": "object"
+      },
+      "WhatIfLimit": {
+        "enum": [
+          "max_supply",
+          "no_heat_needed"
+        ],
+        "type": "string"
       }
     }
   },
@@ -11316,6 +11662,24 @@
         "summary": "House Model"
       }
     },
+    "/api/v1/insight/house/balance": {
+      "get": {
+        "operationId": "house_balance_api_v1_insight_house_balance_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HouseBalance"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "House Balance"
+      }
+    },
     "/api/v1/insight/house/history": {
       "get": {
         "operationId": "house_history_api_v1_insight_house_history_get",
@@ -11384,6 +11748,110 @@
           }
         },
         "summary": "Start House Run"
+      }
+    },
+    "/api/v1/insight/house/series": {
+      "get": {
+        "operationId": "house_series_api_v1_insight_house_series_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HouseSeries"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "House Series"
+      }
+    },
+    "/api/v1/insight/house/whatif": {
+      "get": {
+        "operationId": "house_whatif_api_v1_insight_house_whatif_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "outside_c",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 30.0,
+                  "minimum": -30.0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "comfort_c",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 30.0,
+                  "minimum": 5.0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "sun_wm2",
+            "required": false,
+            "schema": {
+              "default": 0.0,
+              "maximum": 1000.0,
+              "minimum": 0.0,
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "stove_w",
+            "required": false,
+            "schema": {
+              "default": 0.0,
+              "maximum": 15000.0,
+              "minimum": 0.0,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HouseWhatIf"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "House Whatif"
       }
     },
     "/api/v1/insight/runs": {

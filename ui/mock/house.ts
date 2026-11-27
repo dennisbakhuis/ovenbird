@@ -1,5 +1,6 @@
 import type { Curve } from '../src/lib/core/curve.ts';
 import type { ConfigDoc } from '../src/lib/core/types';
+import { outsideAt, roomAt } from './decisions.ts';
 import type { Scenario } from './scenario.ts';
 import type { MockResult } from './trial.ts';
 
@@ -27,6 +28,13 @@ const BANDS: [string, number | null][] = [
 const NOTE =
   'Indicative: heat loss per m2 at 20 degC inside and -10 degC outside from the apparent heat-loss coefficient (ventilation included). Not the official energielabel.';
 const COLDEST_DATA_C = -3;
+
+const SOLAR_APERTURE_M2 = 6.2;
+const INTERNAL_W = 318;
+const TIME_CONSTANT_H = 52.6;
+const TOLD = { ua_w_per_k: 340, solar_aperture_m2: 5.0, internal_gain_w: 300 };
+const EMITTER_W_PER_K = 410;
+const DELTA_T_K = 5;
 
 const iso = (ms: number) => new Date(ms).toISOString();
 const day = (ms: number) => iso(ms).slice(0, 10);
@@ -234,6 +242,7 @@ export function makeHouse(now: number, scenario: Scenario, doc: ConfigDoc): Mock
       },
     };
   const credible = scenario.house !== 'uncredible';
+  const changed = scenario.house === 'changed';
   const points = signature(now, credible);
   const coldDays = points.filter((p) => (p['outside_c'] as number) < 5).length;
   const shownCold = credible ? Math.max(coldDays, 12) : 6;
@@ -318,11 +327,14 @@ export function makeHouse(now: number, scenario: Scenario, doc: ConfigDoc): Mock
         test_from: iso(now - 15 * DAY),
         test_to: iso(now - DAY),
         score_horizon_h: 24,
-        challenger_room_rmse_k: 0.093,
+        challenger_room_rmse_k: changed ? 0.108 : 0.093,
         champion_room_rmse_k: 0.101,
         champion: modelName(now - 8 * DAY),
         promoted: true,
-        rule: 'challenger 0.093 K <= champion 0.101 K',
+        settings_changed: changed,
+        rule: changed
+          ? 'house settings changed: promoted although challenger 0.108 K > champion 0.101 K'
+          : 'challenger 0.093 K <= champion 0.101 K',
       },
       error_trend: history(now, area, credible).map((entry) => ({
         model: entry['model'],
@@ -356,6 +368,15 @@ export function makeHouse(now: number, scenario: Scenario, doc: ConfigDoc): Mock
         bootstrap: 20,
         folds: 2,
         generated: iso(runAt),
+        constraints: constraints(doc),
+        told: scenario.house === 'facts' ? { ...TOLD, solar_aperture_m2: 2.5 } : TOLD,
+        learning: {
+          fit_days: numberField(doc, 'house_learn_fit_days', 42),
+          test_days: numberField(doc, 'house_learn_test_days', 14),
+          tolerance_k: 0.02,
+          excluded_days: [day(now - 4 * DAY)],
+          excluded_days_in_fit: 1,
+        },
       },
     },
   };
@@ -563,4 +584,247 @@ export function startRunMock(
   const started = { startedAt: now };
   const running = makeRun(now, scenario, started);
   return { result: { status: 202, body: running.body }, started };
+}
+
+function constraints(doc: ConfigDoc): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [id, field] of Object.entries(doc.fields)) {
+    if (!id.startsWith('house_') || id.startsWith('house_learn_')) continue;
+    if (field.value !== null && field.value !== undefined) out[id] = field.value;
+  }
+  return out;
+}
+
+const round10 = (value: number) => Math.round(value / 10) * 10;
+
+function notFound(code: string, message: string): MockResult {
+  return { status: 404, body: { detail: { code, message, params: {} } } };
+}
+
+/**
+ * Sunshine on the ground (W/m2) at a time of day: a smooth bell between 07:00 and 17:00.
+ */
+export function sunAt(ms: number): number {
+  const date = new Date(ms);
+  const hour = date.getHours() + date.getMinutes() / 60;
+  if (hour < 7 || hour > 17) return 0;
+  return Math.round(260 * Math.sin(((hour - 7) / 10) * Math.PI));
+}
+
+function usesEstimate(scenario: Scenario): boolean {
+  return (
+    scenario.balance === 'estimate' || scenario.house === 'learning' || scenario.house === 'notrun'
+  );
+}
+
+/**
+ * `GET insight/house/balance`: the heat flows of the house now, computed from the mock's own
+ * constants (loss = UA x (room - outside)); storage = pump + sun + internal - loss, and null while
+ * the stove burns or when the sun is unknown. `404 house_model_missing` for `balance:missing`.
+ */
+export function makeBalance(now: number, scenario: Scenario, stoveActive: boolean): MockResult {
+  if (scenario.balance === 'missing')
+    return notFound('house_model_missing', 'no house model and no house facts to estimate from');
+  const estimate = usesEstimate(scenario);
+  const ua = estimate ? TOLD.ua_w_per_k : UA;
+  const aperture = estimate ? TOLD.solar_aperture_m2 : SOLAR_APERTURE_M2;
+  const internal = estimate ? TOLD.internal_gain_w : INTERNAL_W;
+  const room = round(roomAt(now), 1);
+  const outside = round(outsideAt(now), 1);
+  const sunKnown = scenario.balance !== 'nosun';
+  const sun = sunAt(now);
+  const loss = round10(ua * (room - outside));
+  const sunW = sunKnown ? round10(aperture * sun) : null;
+  const wobble = 400 * Math.sin(now / 7_200_000);
+  const stoveW = stoveActive ? 3000 : 0;
+  const defrosting = scenario.pump === 'defrost';
+  const hotWater = scenario.pump === 'dhw';
+  const pump = hotWater
+    ? null
+    : defrosting
+      ? -round10(300)
+      : Math.max(0, round10(loss - (sunW ?? 0) - internal - stoveW + wobble));
+  const known = sunW !== null && !stoveActive && pump !== null;
+  const credible = !estimate && scenario.house !== 'uncredible';
+  const notes = [
+    ...(estimate ? ['estimate'] : []),
+    ...(!credible ? ['not_credible'] : []),
+    ...(sunKnown ? [] : ['sun_unknown']),
+    ...(stoveActive ? ['stove_active'] : []),
+    ...(hotWater ? ['dhw_active'] : []),
+    ...(defrosting ? ['defrost'] : []),
+  ];
+  return {
+    status: 200,
+    body: {
+      at: iso(now),
+      source: estimate ? 'estimate' : 'model',
+      credible,
+      room_c: room,
+      outside_c: outside,
+      sun_wm2: sunKnown ? sun : null,
+      flows: {
+        heat_pump_w: pump,
+        loss_w: loss,
+        sun_w: sunW,
+        internal_w: internal,
+        stove_active: stoveActive,
+        storage_w: known ? (pump ?? 0) + (sunW ?? 0) + internal - loss : null,
+      },
+      ua_w_per_k: ua,
+      notes,
+    },
+  };
+}
+
+const SERIES_STEP_S = 900;
+
+/**
+ * `GET insight/house/series`: measured room temperature and the temperature the model predicted
+ * 24 h ahead, every 15 minutes over the last 14 days, with a three-hour gap in both.
+ */
+export function makeHouseSeries(now: number, scenario: Scenario): MockResult {
+  if (
+    scenario.balance === 'missing' ||
+    scenario.house === 'learning' ||
+    scenario.house === 'notrun'
+  )
+    return notFound('house_series_missing', 'no model has predicted the room yet');
+  const stepMs = SERIES_STEP_S * 1000;
+  const to = Math.floor(now / stepMs) * stepMs;
+  const from = to - 14 * DAY;
+  const gapFrom = to - 5 * DAY;
+  const points: [string, number | null, number | null][] = [];
+  for (let at = from, i = 0; at <= to; at += stepMs, i += 1) {
+    const inGap = at >= gapFrom && at < gapFrom + 3 * HOUR;
+    const measured = roomAt(at) + 0.05 * noise(i);
+    const predicted = measured + 0.08 * Math.sin(i / 37) + 0.06 * noise(i + 5) - 0.03;
+    const noPrediction = at < from + DAY;
+    points.push([
+      iso(at),
+      inGap ? null : round(measured, 2),
+      inGap || noPrediction ? null : round(predicted, 2),
+    ]);
+  }
+  return {
+    status: 200,
+    body: {
+      model: modelName(now - DAY),
+      step_s: SERIES_STEP_S,
+      from: iso(from),
+      to: iso(to),
+      points,
+    },
+  };
+}
+
+function interpolate(curve: Curve, x: number): number {
+  const sorted = [...curve].sort((a, b) => a[0] - b[0]);
+  const first = sorted[0] as [number, number];
+  const last = sorted[sorted.length - 1] as [number, number];
+  if (x <= first[0]) return first[1];
+  if (x >= last[0]) return last[1];
+  for (let i = 1; i < sorted.length; i += 1) {
+    const [x1, y1] = sorted[i] as [number, number];
+    const [x0, y0] = sorted[i - 1] as [number, number];
+    if (x <= x1) return y0 + ((y1 - y0) * (x - x0)) / (x1 - x0);
+  }
+  return last[1];
+}
+
+const WHATIF_RANGES: Record<string, [number, number]> = {
+  outside_c: [-30, 30],
+  comfort_c: [5, 30],
+  sun_wm2: [0, 1000],
+  stove_w: [0, 15000],
+};
+
+/**
+ * `GET insight/house/whatif`: a steady-state heat balance at the asked conditions (loss = UA x
+ * (comfort - outside), free heat = aperture x sun + internal gains + stove), the water
+ * temperature that carries the remaining demand and an exponential drift of the room with the
+ * heating off. `422` outside the ranges.
+ */
+export function makeWhatIf(
+  now: number,
+  scenario: Scenario,
+  doc: ConfigDoc,
+  query: URLSearchParams,
+): MockResult {
+  if (scenario.balance === 'missing')
+    return notFound('house_model_missing', 'no house model and no house facts to estimate from');
+  const inputs: Record<string, number> = {
+    outside_c: 0,
+    comfort_c: numberField(doc, 'control_comfort_c', COMFORT_C),
+    sun_wm2: 0,
+    stove_w: 0,
+  };
+  for (const [key, [lo, hi]] of Object.entries(WHATIF_RANGES)) {
+    const raw = query.get(key);
+    if (raw === null) continue;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < lo || value > hi)
+      return {
+        status: 422,
+        body: {
+          detail: [
+            { loc: ['query', key], msg: `must be between ${lo} and ${hi}`, type: 'value_error' },
+          ],
+        },
+      };
+    inputs[key] = value;
+  }
+  const estimate = usesEstimate(scenario);
+  const ua = estimate ? TOLD.ua_w_per_k : UA;
+  const aperture = estimate ? TOLD.solar_aperture_m2 : SOLAR_APERTURE_M2;
+  const internal = estimate ? TOLD.internal_gain_w : INTERNAL_W;
+  const tau = estimate ? null : TIME_CONSTANT_H;
+  const { outside_c: outside, comfort_c: comfort } = inputs as {
+    outside_c: number;
+    comfort_c: number;
+  };
+  const free = round10(
+    aperture * (inputs['sun_wm2'] as number) + internal + (inputs['stove_w'] as number),
+  );
+  const loss = Math.max(0, round10(ua * (comfort - outside)));
+  const demand = Math.max(0, loss - free);
+  const maxSupply = numberField(doc, 'control_max_supply_c', 40);
+  const limited: string[] = [];
+  let mean = comfort;
+  let supply = comfort;
+  if (demand === 0) limited.push('no_heat_needed');
+  else {
+    mean = comfort + demand / EMITTER_W_PER_K;
+    supply = mean + DELTA_T_K / 2;
+    if (supply > maxSupply) {
+      supply = maxSupply;
+      limited.push('max_supply');
+    }
+  }
+  const equilibrium = outside + free / ua;
+  const decay = (hours: number) => Math.exp(-hours / (tau ?? 48));
+  const steps = (8 * 3600) / SERIES_STEP_S;
+  const room = Array.from({ length: steps + 1 }, (_, i) =>
+    round(equilibrium + (comfort - equilibrium) * decay((i * SERIES_STEP_S) / 3600), 2),
+  );
+  return {
+    status: 200,
+    body: {
+      source: estimate ? 'estimate' : 'model',
+      model: estimate ? null : modelName(now - DAY),
+      credible: !estimate && scenario.house !== 'uncredible',
+      inputs,
+      heat_demand_w: demand,
+      free_heat_w: free,
+      loss_w: loss,
+      loop_mean_c: round(mean, 1),
+      supply_c: round(supply, 1),
+      curve_c: round(interpolate(currentCurve(doc), outside), 1),
+      max_supply_c: maxSupply,
+      limited_by: limited,
+      balance_outside_c: round(comfort - free / ua, 1),
+      drift: { hours: 8, step_s: SERIES_STEP_S, room_c: room },
+      time_constant_h: tau,
+    },
+  };
 }

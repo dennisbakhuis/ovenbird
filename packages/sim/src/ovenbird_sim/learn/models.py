@@ -8,6 +8,8 @@ to disk, renamed over the target, and the directory synced)::
                                 provenance (schema ovenbird.plant-params/1, so the
                                 simulator can load it)
       insight-<YYYYMMDD>.json   what the House page shows (schema ovenbird.house-insight/1)
+      series-<YYYYMMDD>.json    the last 14 days of the room, measured and predicted 24 h ahead
+                                (schema ovenbird.house-series/1, :mod:`ovenbird_sim.learn.series`)
       current.json              the champion: {"model", "house", "insight", "promoted_at"}
       index.json                every run, promoted or not (UA, score, held-out errors)
       status.json               the last run: outcome, reasons, what is missing, runtime,
@@ -117,6 +119,11 @@ def free_name(models: Path, base: str, champion_name: str | None, *, promote: bo
 def insight_name(model: str) -> str:
     """Return the insight file name of a model name."""
     return model.replace("house-", "insight-", 1) + ".json"
+
+
+def series_name(model: str) -> str:
+    """Return the series file name of a model name."""
+    return model.replace("house-", "series-", 1) + ".json"
 
 
 def champion(models: Path) -> dict[str, Any] | None:

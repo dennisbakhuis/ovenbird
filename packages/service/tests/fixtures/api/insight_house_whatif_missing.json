@@ -1,0 +1,1 @@
+{"detail":{"code":"house_model_missing","message":"no house model has been learned yet and the facts do not give a heat-loss estimate: state the build period (house_build_period) and the heated floor area (house_floor_area_m2) or the volume (house_volume_m3) in the house settings","params":{}}}
