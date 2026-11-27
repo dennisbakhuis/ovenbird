@@ -162,6 +162,8 @@ FIELDS: Final[dict[str, FieldMeta]] = {
     "weather_longitude": FieldMeta("weather", B, "°", step=0.01),
     "weather_location_source": FieldMeta("weather", B),
     "house_floor_area_m2": FieldMeta("house", B, "m²", step=1.0, soft_min=30.0, soft_max=1000.0),
+    "house_learn_enabled": FieldMeta("house", B),
+    "house_learn_interval_h": FieldMeta("house", A, "h", step=24.0, soft_min=24.0, soft_max=336.0),
     "history_raw_days": FieldMeta(
         "history", A, "d", step=1.0, soft_min=1.0, soft_max=90.0, kind="retention"
     ),

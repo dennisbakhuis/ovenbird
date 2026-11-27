@@ -75,6 +75,7 @@ from ovenbird.history.journal import (
 )
 from ovenbird.history.query import HistoryQueryError, default_step, query_series
 from ovenbird.insight.learner import keep_learner_config
+from ovenbird.insight.learnrun import LearnRunner
 from ovenbird.mqttsetup import MqttSetup
 from ovenbird.payloads import Json
 from ovenbird.pump.settings import PumpSettings
@@ -370,6 +371,7 @@ def create_app(
     ha_check: HaCheck = check_connection,
     writer: HistoryWriter | None = None,
     mqtt: MqttSetup | None = None,
+    learn: LearnRunner | None = None,
 ) -> FastAPI:
     """Build the FastAPI application.
 
@@ -403,6 +405,9 @@ def create_app(
     mqtt
         Broker test and change (``config/mqtt``); without it those endpoints
         answer 404.
+    learn
+        Learner runner (``insight/house/run``); without it the learner is reported
+        as unavailable.
 
     Returns
     -------
@@ -467,6 +472,7 @@ def create_app(
             settings=settings,
             config=config,
             audit=audit,
+            learn=learn,
         ),
         prefix=API_PREFIX,
     )

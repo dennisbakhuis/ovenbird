@@ -40,6 +40,8 @@
   "insight_house_ready": 200,
   "insight_house_history": 200,
   "proposal_draft": 200,
+  "insight_house_run": 200,
+  "insight_house_run_unavailable": 409,
   "divergence": 200,
   "explain": 200,
   "trial_status": 200,

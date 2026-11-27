@@ -8,7 +8,8 @@ server. The components are the MQTT ingest, the history writer, the HA input (id
 until a URL and a token are configured; it follows every configuration change), the
 control loop, the weather component (idle unless the forecast is opted
 in), the learner hand-off (keeps the house-model learner's history export current,
-:mod:`ovenbird.insight.house`), the notifier and dead-man ping when configured and,
+:mod:`ovenbird.insight.house`), the learner runner (starts the learner as a low-priority child
+process, :mod:`ovenbird.insight.learnrun`), the notifier and dead-man ping when configured and,
 only when the publish guard
 permits it, the command worker (the single publishing connection). Stopping (SIGTERM)
 shuts HTTP down gracefully, cancels the components, flushes history and releases the data directory
@@ -59,6 +60,7 @@ from ovenbird.history.archive import AlarmHook, ConfigSource, MonthArchiver, cle
 from ovenbird.history.journal import latest_decision
 from ovenbird.hotwater import dhw_installed
 from ovenbird.insight.house import run_handoff
+from ovenbird.insight.learnrun import LearnRunner
 from ovenbird.instance import Endpoint, InstanceLock, probe_host
 from ovenbird.mqtt import MqttIngest, SubscribeOnlyClient
 from ovenbird.mqttsetup import MqttSetup
@@ -610,6 +612,8 @@ def build_service(
     components.append(
         Component("learner", functools.partial(run_handoff, lambda: manager.settings))
     )
+    learn_runner = LearnRunner(lambda: manager.settings, facts)
+    components.append(Component("learner-run", learn_runner.run))
     mqtt_setup = MqttSetup(manager, mqtt, runtime, lambda: control.guard.installed, control.alarms)
     components.append(Component("mqtt-trial", mqtt_setup.run))
     if worker is not None:
@@ -631,6 +635,7 @@ def build_service(
         supervision=supervision,
         writer=writer,
         mqtt=mqtt_setup,
+        learn=learn_runner,
     )
     config = uvicorn.Config(
         app,

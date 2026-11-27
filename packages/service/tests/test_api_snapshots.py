@@ -164,6 +164,8 @@ CASES = (
     Case("insight_house_ready", "GET", "/insight/house"),
     Case("insight_house_history", "GET", "/insight/house/history"),
     Case("proposal_draft", "POST", "/insight/house/proposal/draft", body={}),
+    Case("insight_house_run", "GET", "/insight/house/run"),
+    Case("insight_house_run_unavailable", "POST", "/insight/house/run", body={}),
     Case("divergence", "GET", "/shadow/divergence", WINDOW),
     Case(
         "explain",

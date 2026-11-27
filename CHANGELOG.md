@@ -15,6 +15,14 @@ All notable changes to this project are documented here. The format follows
   outdoor temperature at the start, the `defrost_stuck` limit).
 - System → About this installation shows the heat pump model and whether ovenbird knows
   its defrost facts.
+- The service runs the house model learner itself: a low-priority child process that refits
+  the model every `house_learn_interval_h` (a week by default) in the night window, or at
+  once with Run now (`POST api/v1/insight/house/run`). New settings `house_learn_enabled`
+  and `house_learn_interval_h` (Settings → House). The separate learner container stays
+  possible; run one of the two, not both.
+- House page tabs (Overview, Model, Learning), a run card with the learner's state, next
+  scheduled run and Run now, and a learning timeline of the models so far.
+- House in the desktop navigation, with Settings as an icon.
 
 ### Changed
 
@@ -24,6 +32,8 @@ All notable changes to this project are documented here. The format follows
   of its entities hold the current values of three different HeishaMon `main/*` signals;
   `api/v1/config/signals` marks them `pump_mirror`.
 - Settings → Home Assistant says that the heat pump itself is read over MQTT.
+- The image carries numpy and scipy for the learner and grows from about 146 MB to about
+  356 MB.
 
 ## [0.4.1] - 2026-11-26
 

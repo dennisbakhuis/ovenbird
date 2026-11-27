@@ -265,6 +265,7 @@ export const codes = {
   alarmText_room_unit_refused:
     'The room sensor reports no temperature unit and Home Assistant does not use °C, so its value is not used.',
   audit_archive_delete: 'Deleted from the yearly archive',
+  audit_house_learn_run: 'House model learner started by hand',
   audit_ha_connection: 'Home Assistant connection changed',
   alarm_outside_sensor_stale: 'Outside sensor not fresh',
   alarmText_outside_sensor_stale:

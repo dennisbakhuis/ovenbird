@@ -263,6 +263,7 @@ def test_shadow_service_has_no_publisher_and_records_would_be_commands(
         "safety",
         "weather",
         "learner",
+        "learner-run",
         "mqtt-trial",
     ]
     _feed(service)

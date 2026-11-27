@@ -1,16 +1,23 @@
 <!--
-  House: what the learned house model says. The indicative insulation score, the other learned
-  figures, the energy signature, the curve suggestion (opened as a settings draft, never applied
-  here) and the model's quality. Before a model exists, or on an older service, one card says so.
-  Loads insight/house and insight/house/history, refreshed every 30 minutes.
+  House: what the learned house model says, in three tabs. Overview: the indicative insulation
+  score, the other learned figures and a line about the model in use. Model: the energy signature
+  and the model's quality. Learning: the learner and its run now button, how the model is learned
+  (errors, left-out periods, data) and the curve suggestion (opened as a settings draft, never
+  applied here). Before a model exists the page shows what is missing and the learner; on an
+  older service one card says so. Loads insight/house and insight/house/history, refreshed
+  every 30 minutes and after a learner run.
 -->
 <script lang="ts">
   import FactsCard from '$components/house/FactsCard.svelte';
   import LearningCard from '$components/house/LearningCard.svelte';
   import ProposalCard from '$components/house/ProposalCard.svelte';
   import QualityCard from '$components/house/QualityCard.svelte';
+  import RunCard from '$components/house/RunCard.svelte';
   import ScoreCard from '$components/house/ScoreCard.svelte';
   import SignatureChart from '$components/house/SignatureChart.svelte';
+  import StatusLine from '$components/house/StatusLine.svelte';
+  import TimelineCard from '$components/house/TimelineCard.svelte';
+  import Tabs from '$ui/Tabs.svelte';
   import type { ControlStore } from '$lib/core/control.svelte';
   import {
     fetchHouse,
@@ -19,18 +26,32 @@
     type HouseResult,
   } from '$lib/house/house';
   import type { LiveStore } from '$lib/core/live.svelte';
+  import { buildHash, router } from '$lib/core/router.svelte';
   import { t } from '$lib/core/settings.svelte';
 
   let { live, ctl }: { live: LiveStore; ctl: ControlStore } = $props();
 
   const REFRESH_MS = 1_800_000;
+  const TABS = ['overview', 'model', 'learning'] as const;
+  type Tab = (typeof TABS)[number];
+
+  const active = $derived<Tab>(TABS.find((tab) => tab === router.location.sub[0]) ?? 'overview');
+  const items = $derived(
+    TABS.map((tab) => ({
+      id: tab,
+      label: t(`houseTab_${tab}` as 'houseTab_overview'),
+      href: buildHash('house', tab === 'overview' ? [] : [tab]),
+    })),
+  );
 
   let result = $state<HouseResult | null>(null);
   let history = $state<HouseHistory | null>(null);
   let failed = $state(false);
+  let reload = $state(0);
 
   $effect(() => {
     void live.configVersion;
+    void reload;
     const controller = new AbortController();
     let timer: number | undefined;
     const load = async () => {
@@ -66,18 +87,33 @@
 {:else if result.kind === 'missing'}
   <LearningCard kind="missing" />
 {:else if result.kind === 'learning'}
-  <LearningCard
-    kind={result.data.state === 'not_run' ? 'not_run' : 'learning'}
-    data={result.data}
-  />
-{:else}
-  <div class="grid" data-testid="house-page">
-    <ScoreCard house={result.data} />
-    <FactsCard house={result.data} />
-    <SignatureChart house={result.data} />
-    <ProposalCard house={result.data} {ctl} />
-    <QualityCard house={result.data} {history} />
+  <div class="grid">
+    <LearningCard
+      kind={result.data.state === 'not_run' ? 'not_run' : 'learning'}
+      data={result.data}
+    />
+    <RunCard waiting onsettled={() => (reload += 1)} />
   </div>
+{:else}
+  <Tabs {items} {active} label={t('houseTabs')} />
+  {#if active === 'model'}
+    <div class="grid" data-testid="house-page" data-tab="model">
+      <SignatureChart house={result.data} />
+      <QualityCard house={result.data} {history} />
+    </div>
+  {:else if active === 'learning'}
+    <div class="grid" data-testid="house-page" data-tab="learning">
+      <RunCard credibility={result.data.credibility} onsettled={() => (reload += 1)} />
+      <TimelineCard house={result.data} />
+      <ProposalCard house={result.data} {ctl} />
+    </div>
+  {:else}
+    <StatusLine house={result.data} />
+    <div class="grid" data-testid="house-page" data-tab="overview">
+      <ScoreCard house={result.data} />
+      <FactsCard house={result.data} />
+    </div>
+  {/if}
 {/if}
 
 <style>

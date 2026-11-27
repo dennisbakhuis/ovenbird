@@ -267,6 +267,11 @@ class Settings(
     house_floor_area_m2
         Heated floor area for the house model's indicative insulation score (W/m²
         at design conditions); unset leaves the score without W/m² and band.
+    house_learn_enabled
+        Whether the service refits the house model itself on a schedule (a
+        low-priority child process in the night window); off leaves only "run now".
+    house_learn_interval_h
+        Hours between scheduled refits (24 to 720; a weekly refit by default).
     hot_water
         Whether the app shows hot water (DHW): ``auto`` (default) follows the pump's
         ``main/DHW_Installed`` and shows it while that is unknown, ``on`` or ``off``.

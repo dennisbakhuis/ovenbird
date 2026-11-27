@@ -94,7 +94,17 @@ const ROUTES: RouteSpec[] = [
   {
     name: 'house',
     hash: '#/house',
-    landmarks: ['house-page', 'house-score', 'house-facts', 'house-signature', 'house-proposal'],
+    landmarks: ['house-page', 'house-status', 'house-score', 'house-facts'],
+  },
+  {
+    name: 'house-model',
+    hash: '#/house/model',
+    landmarks: ['house-page', 'house-signature', 'house-quality'],
+  },
+  {
+    name: 'house-learning',
+    hash: '#/house/learning',
+    landmarks: ['house-page', 'house-run', 'house-timeline', 'house-proposal'],
   },
   { name: 'settings-house', hash: '#/settings/house', landmarks: ['house-section'] },
   { name: 'settings-ha', hash: '#/settings/ha', landmarks: ['ha-card', 'ha-sensors'] },
@@ -399,7 +409,7 @@ test.describe('shell', () => {
       );
       for (const width of [641, 700, 780, 860, 1000]) {
         await page.setViewportSize({ width, height: 900 });
-        await page.goto('./#/settings');
+        await page.goto('./#/house');
         const nav = page.getByTestId('top-nav');
         await expect(nav).toBeVisible();
         const fit = await nav.evaluate((element) => {

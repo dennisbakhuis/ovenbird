@@ -820,6 +820,24 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/insight/house/run': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** House Run */
+    get: operations['house_run_api_v1_insight_house_run_get'];
+    put?: never;
+    /** Start House Run */
+    post: operations['start_house_run_api_v1_insight_house_run_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/insight/runs': {
     parameters: {
       query?: never;
@@ -2006,6 +2024,30 @@ export interface components {
       validation?: unknown;
     };
     HouseReport: components['schemas']['HouseWaiting'] | components['schemas']['HouseReady'];
+    /** @description ``GET`` and ``POST insight/house/run``: the embedded learner's state and schedule. */
+    HouseRun: {
+      enabled: boolean;
+      failure: components['schemas']['HouseRunFailure'] | null;
+      interval_h: number;
+      last: components['schemas']['HouseRunLast'] | null;
+      next_due_at: string | null;
+      started_at: string | null;
+      state: components['schemas']['RunState'];
+    };
+    /** @description The service's last failed attempt to run the learner. */
+    HouseRunFailure: {
+      at: string;
+      detail: string;
+      reason: components['schemas']['RunFailureReason'];
+    };
+    /** @description The learner's last run as ``status.json`` reports it. */
+    HouseRunLast: {
+      at: string;
+      message: string | null;
+      model: string | null;
+      outcome: string;
+      runtime_s: number | null;
+    };
     /** @description The indicative insulation score, recomputed for the current floor area. */
     HouseScore: {
       band?: string;
@@ -2692,6 +2734,10 @@ export interface components {
       short_share: number | null;
       to: string;
     };
+    /** @enum {string} */
+    RunFailureReason: 'timeout' | 'memory' | 'exit' | 'spawn';
+    /** @enum {string} */
+    RunState: 'idle' | 'running' | 'unavailable';
     /** @description Compressor run statistics of a span. */
     RunStats: {
       censored: number;
@@ -4239,6 +4285,46 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ProposalDraft'];
+        };
+      };
+    };
+  };
+  house_run_api_v1_insight_house_run_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HouseRun'];
+        };
+      };
+    };
+  };
+  start_house_run_api_v1_insight_house_run_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HouseRun'];
         };
       };
     };

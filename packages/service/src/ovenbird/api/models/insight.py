@@ -272,3 +272,37 @@ class ProposalDraft(ApiModel):
     credible: bool
     points: Any
     validation: ValidateResult | None
+
+
+type RunState = Literal["idle", "running", "unavailable"]
+type RunFailureReason = Literal["timeout", "memory", "exit", "spawn"]
+
+
+class HouseRunLast(ApiModel):
+    """The learner's last run as ``status.json`` reports it."""
+
+    at: str
+    outcome: str
+    message: str | None
+    runtime_s: Number | None
+    model: str | None
+
+
+class HouseRunFailure(ApiModel):
+    """The service's last failed attempt to run the learner."""
+
+    at: str
+    reason: RunFailureReason
+    detail: str
+
+
+class HouseRun(ApiModel):
+    """``GET`` and ``POST insight/house/run``: the embedded learner's state and schedule."""
+
+    state: RunState
+    enabled: bool
+    started_at: str | None
+    next_due_at: str | None
+    interval_h: Number
+    last: HouseRunLast | None
+    failure: HouseRunFailure | None

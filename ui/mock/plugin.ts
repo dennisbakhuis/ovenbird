@@ -64,7 +64,14 @@ import {
   sendDownload,
   seriesExport,
 } from './data.ts';
-import { makeHouse, makeHouseHistory, makeProposalDraft } from './house.ts';
+import {
+  makeHouse,
+  makeHouseHistory,
+  makeProposalDraft,
+  makeRun,
+  startRunMock,
+  type RunMockState,
+} from './house.ts';
 import { archiveDelete, archiveDownload, makeArchive } from './archive.ts';
 import { explainEpisode, makeDivergence, withExplained, type LiveMinute } from './shadow.ts';
 import {
@@ -122,6 +129,7 @@ const WAVE3_PATHS = [
   '/insight/house',
   '/insight/house/history',
   '/insight/house/proposal/draft',
+  '/insight/house/run',
   '/history/signals',
   '/history/storage',
   '/history/compact',
@@ -684,6 +692,7 @@ export function mockApi(): Plugin {
   const configState = initialConfigState();
   const pump = initialPumpState();
   const pausedKeys = new Set<string>();
+  const learnerRuns = new Map<string, RunMockState>();
   const stoveRequests = new Map<string, StoveRequestState>();
   const brokers = new Map<string, MqttMock>();
   return {
@@ -920,6 +929,11 @@ export function mockApi(): Plugin {
               if (scenario.role === 'viewer')
                 return send({ detail: 'this action needs the admin role' }, 403);
               return send(compact(now, key), 202);
+            }
+            if (path.endsWith('/api/v1/insight/house/run')) {
+              const outcome = startRunMock(now, scenario, learnerRuns.get(key));
+              if (outcome.started) learnerRuns.set(key, outcome.started);
+              return send(outcome.result.body, outcome.result.status);
             }
             if (path.endsWith('/api/v1/insight/house/proposal/draft')) {
               const result = makeProposalDraft(now, scenario, doc());
@@ -1253,6 +1267,10 @@ export function mockApi(): Plugin {
             return [];
           };
           return sendDownload(res, journalExport(kind, url.searchParams, now, rows));
+        }
+        if (path.endsWith('/api/v1/insight/house/run')) {
+          const result = makeRun(now, scenario, learnerRuns.get(key));
+          return send(result.body, result.status);
         }
         if (path.endsWith('/api/v1/insight/house/history')) {
           const result = makeHouseHistory(now, scenario, doc());

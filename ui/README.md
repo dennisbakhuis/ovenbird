@@ -2,7 +2,7 @@
 
 Web UI of ovenbird: Svelte 5 (runes) + TypeScript + Vite, no SvelteKit. Hash routing
 (`#/home`, `#/setpoint`, `#/weather`, `#/pump`, `#/settings/<section>`, `#/activity/<tab>`,
-`#/system`, `#/system/signals`, `#/system/shadow`, `#/system/trial`, `#/house`, `#/more`; the
+`#/system`, `#/system/signals`, `#/system/shadow`, `#/system/trial`, `#/house`, `#/house/model`, `#/house/learning`, `#/more`; the
 aliases `#/shadow` and `#/trial` open the System tabs), `base: './'`, and relative API calls (`api/v1/...`)
 so it works behind any path prefix such as Home Assistant ingress. The WebSocket URL is derived
 from `location`. No CDN assets; system font stack; hand-rolled SVG charts (no chart library).
@@ -57,6 +57,7 @@ example `pump:defrost.weather:stale`):
 | `mode`         | `shadow` (Shadow, another controller writes the pump 2 K above ovenbird), `paused`     |
 | `hold`         | `latched`, `timed`                                                                     |
 | `house`        | `learning` (200 with `state`), `notrun`, `noarea` (no floor area), `uncredible`        |
+| `learner`      | `running`, `unavailable` (no built-in learner), `failed`, `disabled`                   |
 | `notify`       | `off` (no ntfy), `failing` (last test failed, watchdog unhealthy)                      |
 | `snapshot`     | `none` (no go-live snapshot yet)                                                       |
 | `envelope`     | `proven` (rule seen acting), `none` (not declared); default: declared                  |
@@ -74,7 +75,8 @@ The mock also answers the wave-3 endpoints: `shadow/divergence`, `trial/status`,
 `control/release` (GET and POST, per browser; a rehearsal never touches the global pause;
 `{"rehearsal": true, "dry": true}` plans without sending), `shadow/episodes/explain`
 (per browser), `notifications/status` and `POST notifications/test`, `system/about`,
-`diagnostics` (JSON only), `insight/house`, `insight/house/history` and
+`diagnostics` (JSON only), `insight/house`, `insight/house/history`,
+`GET` and `POST insight/house/run` (a manual run lasts four seconds, kept per scenario cookie) and
 `POST insight/house/proposal/draft`. `PUT config/ha` stores the Home Assistant connection
 (shared, token write-only) and `POST config/ha/test` answers deterministically: the host
 `unreachable.local` cannot be reached, the token `wrong-token` is rejected, anything else

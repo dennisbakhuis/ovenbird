@@ -322,10 +322,23 @@ even a safety correction; the publishing connection stays open but idle.
 
 ## House-model learner
 
-The optional learner (`python -m ovenbird_sim.learn`, root `Dockerfile` target `learner`)
-refits the house model weekly and writes JSON that the service serves under
-`api/v1/insight/house` (`docs/design.md`, House insight). It is untrusted code with the
-scientific stack, so it gets only what it needs:
+The learner (`python -m ovenbird_sim.learn`) refits the house model weekly and writes
+JSON that the service serves under `api/v1/insight/house` (`docs/design.md`, House
+insight). By default the service runs it itself: the runtime image carries it through the
+`learner` extra (numpy and scipy, which the service process never imports), and
+`ovenbird.insight.learnrun` starts it as a low-priority child process (building model only,
+about 11 s of CPU and 240 MB), one run at a time, with a 30 minute timeout and a 768 MB
+memory cap. It runs every `house_learn_interval_h` (168 by default) between 02:00 and
+05:00 in `control_timezone`, and on request through `POST api/v1/insight/house/run` (the
+House page's Run now). `house_learn_enabled` off stops the schedule and keeps Run now. A
+service installed without the extra answers `learner_unavailable`. The child runs as the
+service's user, so it sees the whole data directory.
+
+The separate learner container (root `Dockerfile` target `learner`) remains for an
+install that wants the learner isolated, or whose image lacks the extra. Use one of the
+two, not both: they write the same `models/` directory. Set `house_learn_enabled` to
+false when the container runs. It is untrusted code with the scientific stack, so it gets
+only what it needs:
 
 - `<data_dir>/learner/` (mode 0750, files 0640), written by the service, **read-only**
   for the learner: `learner-config.json` (the effective `control_*` and `house_*`

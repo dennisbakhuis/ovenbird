@@ -18,7 +18,7 @@ test('a page that failed to load says so and loads on the next visit', async ({ 
   await expect(page.getByTestId('page-load-failed').getByRole('button')).toHaveText('Reload');
   blocked = false;
   await page.getByTestId('top-nav').getByRole('link', { name: 'Home' }).click();
-  await page.getByTestId('top-nav').getByRole('link', { name: 'Settings' }).click();
+  await page.getByTestId('nav-settings').click();
   await expect(page.getByTestId('page-load-failed')).toHaveCount(0);
   await expect(
     page.getByTestId('settings-picker').or(page.locator('main h1')).first(),

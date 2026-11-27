@@ -163,6 +163,27 @@ function signature(now: number, cold: boolean): Record<string, unknown>[] {
 }
 
 const LEARNER_INTERVAL_H = 168;
+const HOUR = 3_600_000;
+
+/**
+ * One wood-stove period as the learner reports it (`ovenbird_sim.data.events.Event.to_json`).
+ */
+function stoveEvent(startMs: number): Record<string, unknown> {
+  const local = (ms: number) => `${iso(ms).slice(0, 16)}+00:00`;
+  return {
+    kind: 'stove',
+    start_local: local(startMs),
+    end_local: local(startMs + 5 * HOUR),
+    tail_end_local: local(startMs + 17 * HOUR),
+    hours: 5,
+    excluded_hours: 17,
+    peak_k: 3.4,
+    rise_k_per_h: 2.6,
+    utc_days: [day(startMs), day(startMs + 17 * HOUR)],
+    reason:
+      'wood stove: living room 3.4 K above its usual excess over hall and bedroom, rising 2.6 K/h; the model has no stove heat',
+  };
+}
 
 /**
  * The `learner` block: when the learner last ran and whether that is too long ago (twice its
@@ -191,7 +212,7 @@ export function makeHouse(now: number, scenario: Scenario, doc: ConfigDoc): Mock
       body: {
         state: 'not_run',
         missing: [
-          'the house model learner has not run yet; it runs weekly in the optional learner container (docs/design.md, House insight)',
+          'the house model learner has not run yet; it refits weekly by default, in the service or in a separate learner container (docs/design.md, House insight)',
         ],
         last_run: null,
         learner: learner(now, null),
@@ -234,7 +255,7 @@ export function makeHouse(now: number, scenario: Scenario, doc: ConfigDoc): Mock
         outcome: 'promoted',
         model,
         champion: model,
-        message: 'promoted: challenger 0.093 K <= champion 0.101 K',
+        message: null,
         runtime_s: 275.7,
         interval_h: LEARNER_INTERVAL_H,
       },
@@ -316,7 +337,7 @@ export function makeHouse(now: number, scenario: Scenario, doc: ConfigDoc): Mock
         origins: 9,
       })),
       proposal: proposal(doc, credible),
-      events: [{ kind: 'stove', from: iso(now - 4 * DAY), to: iso(now - 4 * DAY + 5 * 3_600_000) }],
+      events: [stoveEvent(now - 4 * DAY)],
       limits: [
         'single room sensor: the UA is apparent (ventilation and the other rooms are in it)',
         'solar aperture from global horizontal irradiance only (no orientation)',
@@ -329,7 +350,7 @@ export function makeHouse(now: number, scenario: Scenario, doc: ConfigDoc): Mock
         step_s: 60,
         config_hash: '35767f480b5ce141',
         code_version: '0.4.1',
-        method: 'full_plant',
+        method: 'building_only',
         fallback_reason: null,
         seed: 0,
         bootstrap: 20,
@@ -395,4 +416,151 @@ export function makeProposalDraft(now: number, scenario: Scenario, doc: ConfigDo
       validation: null,
     },
   };
+}
+
+export const RUN_MS = 4_000;
+
+/**
+ * The mock learner of one scenario cookie: when the last manual run started (it finishes
+ * `RUN_MS` later, after which the run endpoint answers a fresh `last`).
+ */
+export interface RunMockState {
+  startedAt: number;
+}
+
+interface RunLast {
+  at: string;
+  outcome: string;
+  message: string | null;
+  runtime_s: number | null;
+  model: string | null;
+}
+
+function baselineLast(now: number, scenario: Scenario): RunLast | null {
+  const at = iso(now - 2 * HOUR);
+  if (scenario.house === 'notrun') return null;
+  if (scenario.learner === 'failed')
+    return {
+      at: iso(now - 3 * HOUR),
+      outcome: 'failed',
+      message: 'the learner stopped after 1800 s',
+      runtime_s: 1800,
+      model: null,
+    };
+  if (scenario.house === 'learning')
+    return {
+      at,
+      outcome: 'learning',
+      message: '9 more days of 1 min history (have 13.0, the fit needs 22)',
+      runtime_s: 1.4,
+      model: null,
+    };
+  const model = modelName(now - DAY);
+  return {
+    at,
+    outcome: 'promoted',
+    message: null,
+    runtime_s: 275.7,
+    model,
+  };
+}
+
+function runningAt(
+  now: number,
+  scenario: Scenario,
+  state: RunMockState | undefined,
+): number | null {
+  if (scenario.learner === 'running') return now - 90_000;
+  if (state && now >= state.startedAt && now < state.startedAt + RUN_MS) return state.startedAt;
+  return null;
+}
+
+/**
+ * `GET insight/house/run`: the embedded learner's state, per scenario (`learner` key) and per
+ * scenario cookie after a manual run (`state`).
+ */
+export function makeRun(
+  now: number,
+  scenario: Scenario,
+  state: RunMockState | undefined,
+): MockResult {
+  const base = { enabled: scenario.learner !== 'disabled', interval_h: LEARNER_INTERVAL_H };
+  if (scenario.learner === 'unavailable')
+    return {
+      status: 200,
+      body: {
+        ...base,
+        state: 'unavailable',
+        started_at: null,
+        next_due_at: null,
+        last: null,
+        failure: null,
+      },
+    };
+  const startedAt = runningAt(now, scenario, state);
+  const finished =
+    state && startedAt === null && now >= state.startedAt + RUN_MS
+      ? ({
+          at: iso(state.startedAt + RUN_MS),
+          outcome: scenario.house === 'learning' ? 'learning' : 'kept_champion',
+          message:
+            scenario.house === 'learning'
+              ? '9 more days of 1 min history (have 13.0, the fit needs 22)'
+              : null,
+          runtime_s: RUN_MS / 1000,
+          model: null,
+        } satisfies RunLast)
+      : null;
+  const last = finished ?? baselineLast(now, scenario);
+  const failure =
+    scenario.learner === 'failed' && finished === null
+      ? { at: iso(now - 3 * HOUR), reason: 'timeout', detail: 'stopped after 1800 s' }
+      : null;
+  const next =
+    scenario.learner === 'disabled'
+      ? null
+      : last === null
+        ? iso(now + 20 * 60_000)
+        : iso(Date.parse(last.at) + LEARNER_INTERVAL_H * HOUR);
+  return {
+    status: 200,
+    body: {
+      ...base,
+      state: startedAt === null ? 'idle' : 'running',
+      started_at: startedAt === null ? null : iso(startedAt),
+      next_due_at: startedAt === null ? next : null,
+      last,
+      failure,
+    },
+  };
+}
+
+function refusal(code: string, message: string): MockResult {
+  return { status: 409, body: { detail: { code, message, params: {} } } };
+}
+
+/**
+ * `POST insight/house/run`: `202` with the running state; `409` `learner_running` or
+ * `learner_unavailable`; `403` for a read-only login. The new state is `started` when a run began.
+ */
+export function startRunMock(
+  now: number,
+  scenario: Scenario,
+  state: RunMockState | undefined,
+): { result: MockResult; started: RunMockState | null } {
+  if (scenario.role === 'viewer')
+    return {
+      result: { status: 403, body: { detail: 'this action needs the operate role' } },
+      started: null,
+    };
+  if (scenario.learner === 'unavailable')
+    return {
+      result: refusal('learner_unavailable', 'this install has no built-in learner'),
+      started: null,
+    };
+  if (runningAt(now, scenario, state) !== null)
+    return { result: refusal('learner_running', 'a learner run is already going'), started: null };
+  const started = { startedAt: now };
+  const running = makeRun(now, scenario, started);
+  return { result: { status: 202, body: running.body }, started };
 }

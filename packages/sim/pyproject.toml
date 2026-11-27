@@ -8,9 +8,13 @@ license = "Apache-2.0"
 authors = [{ name = "Dennis Bakhuis" }]
 dependencies = [
     "ovenbird-core",
-    "climate-manager-capture",
     "numpy>=2.3",
     "scipy>=1.16",
+]
+
+[project.optional-dependencies]
+tools = [
+    "climate-manager-capture",
     "pyarrow>=22",
     "aiomqtt>=2.5.1",
 ]

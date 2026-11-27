@@ -822,6 +822,20 @@
       "stored": 130,
       "value": 130.0
     },
+    "house_learn_enabled": {
+      "default": true,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": true
+    },
+    "house_learn_interval_h": {
+      "default": 168.0,
+      "locked": false,
+      "source": "default",
+      "stored": null,
+      "value": 168.0
+    },
     "http_allowed_origins": {
       "default": [],
       "locked": true,
