@@ -484,4 +484,10 @@ export const settings = {
   haTest_timeout: 'Home Assistant did not answer in time.',
   haTest_websocket: 'The live connection to Home Assistant failed.',
   pickerSameDevice: 'same device as the room sensor',
+  pickerMirrorGroup: 'Heat pump, via Home Assistant ({n})',
+  pickerMirrorHint: 'ovenbird already reads these directly from HeishaMon over MQTT',
+  pickerMirrorSelected:
+    'This is a heat pump value that Home Assistant copies; ovenbird already reads it directly from HeishaMon over MQTT.',
+  haPumpViaMqtt:
+    'The heat pump itself is read over MQTT (Settings → MQTT); Home Assistant only supplies room sensors and the location for the weather.',
 };

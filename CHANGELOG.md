@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The app names the deice mode of a running defrost when the heat pump model is known:
+  "Defrosting · mode 2" on Home and on the Pump page, with what it means for the water
+  pump (mode 1: reverse cycle, water pump running; mode 2: hot gas, water pump off by
+  design). `api/v1/snapshot` carries the live `defrost` (active, mode, start, inlet and
+  outdoor temperature at the start, the `defrost_stuck` limit).
+- System → About this installation shows the heat pump model and whether ovenbird knows
+  its defrost facts.
+
+### Changed
+
+- The sensor pickers list Home Assistant entities that only copy the heat pump (such as
+  Home Assistant's own HeishaMon integration) last, grouped as "Heat pump, via Home
+  Assistant". They stay selectable. A device counts as such a copy when at least three
+  of its entities hold the current values of three different HeishaMon `main/*` signals;
+  `api/v1/config/signals` marks them `pump_mirror`.
+- Settings → Home Assistant says that the heat pump itself is read over MQTT.
+
 ## [0.4.1] - 2026-11-26
 
 ### Fixed

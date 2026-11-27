@@ -39,6 +39,7 @@
 <HaConnectionCard {config} {schema} {linkUp} onsaved={saved} />
 
 <Card bare as="div" class="ha-sensors" data-testid="ha-sensors" data-help="settings/ha.sensors">
+  <p class="muted" data-testid="ha-pump-mqtt">{t('haPumpViaMqtt')}</p>
   <p class="muted">{t('haSensorsHint')}</p>
   <a href={buildHash('settings', ['room'])} data-testid="ha-sensors-link"
     >{t('haSensorsLink')}<Icon name="chevronRight" size={16} /></a

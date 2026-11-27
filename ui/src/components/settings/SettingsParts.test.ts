@@ -5,7 +5,7 @@ import config from '$mock/fixtures/config.json';
 import schema from '$mock/fixtures/schema.json';
 import MiniCurve from './MiniCurve.svelte';
 import QuietBar from './QuietBar.svelte';
-import type { ConfigDoc, ConfigSchema, RoomStatus } from '$lib/core/types';
+import type { ConfigDoc, ConfigSchema, RoomStatus, SignalCandidate } from '$lib/core/types';
 import DiffTable from './DiffTable.svelte';
 import PresetDiff from './PresetDiff.svelte';
 import RoomStatusCard from './RoomStatusCard.svelte';
@@ -179,6 +179,7 @@ describe('SignalPicker', () => {
           value: 21.9,
           held_s: 60,
           source: 'mqtt',
+          pump_mirror: false,
         },
       ],
     });
@@ -189,6 +190,106 @@ describe('SignalPicker', () => {
       'signal id room_temperature · climate_manager_capture/room_temp',
     );
     expect(screen.getByTestId('signal-live').querySelector('code')).toBeNull();
+  });
+});
+
+describe('SignalPicker with heat pump mirrors', () => {
+  const candidate = (signal: string, mirror: boolean, value = 21): SignalCandidate => ({
+    signal,
+    name: signal.replace('ha/sensor.', ''),
+    unit: '°C',
+    value,
+    held_s: 30,
+    source: 'ha',
+    pump_mirror: mirror,
+    entity_id: signal.replace('ha/', ''),
+    device_id: mirror ? 'pump' : 'room',
+  });
+  const candidates = [
+    candidate('ha/sensor.hp_inlet', true, 28),
+    candidate('ha/sensor.living_room', false),
+    candidate('ha/sensor.hp_outlet', true, 32.5),
+    candidate('ha/sensor.bedroom', false),
+  ];
+
+  it('lists the mirrors last in their own group of the select', () => {
+    render(SignalPicker, { id: 'pick', state: 'ok', value: null, candidates });
+    const select = screen.getByTestId('signal-select') as HTMLSelectElement;
+    const values = [...select.options].map((option) => option.value);
+    expect(values).toEqual([
+      '',
+      'ha/sensor.living_room',
+      'ha/sensor.bedroom',
+      'ha/sensor.hp_inlet',
+      'ha/sensor.hp_outlet',
+    ]);
+    const group = screen.getByTestId('signal-mirror-group') as HTMLOptGroupElement;
+    expect(group.tagName).toBe('OPTGROUP');
+    expect(group.label).toBe('Heat pump, via Home Assistant (2)');
+    expect([...group.querySelectorAll('option')].map((option) => option.value)).toEqual([
+      'ha/sensor.hp_inlet',
+      'ha/sensor.hp_outlet',
+    ]);
+    expect(screen.queryByTestId('signal-mirror-note')).toBeNull();
+  });
+
+  it('notes a chosen mirror and keeps it selectable', () => {
+    render(SignalPicker, { id: 'pick', state: 'ok', value: 'ha/sensor.hp_outlet', candidates });
+    const select = screen.getByTestId('signal-select') as HTMLSelectElement;
+    expect(select.value).toBe('ha/sensor.hp_outlet');
+    expect(screen.getByTestId('signal-mirror-note').textContent).toContain(
+      'ovenbird already reads it directly from HeishaMon over MQTT',
+    );
+    expect(screen.queryByTestId('signal-unknown')).toBeNull();
+  });
+
+  it('has no group without mirrors', () => {
+    render(SignalPicker, {
+      id: 'pick',
+      state: 'ok',
+      candidates: candidates.filter((c) => !c.pump_mirror),
+    });
+    expect(screen.queryByTestId('signal-mirror-group')).toBeNull();
+  });
+
+  it('folds the mirrors under the checkboxes, open when one is ticked', async () => {
+    const onchangeMany = vi.fn();
+    const { unmount } = render(SignalPicker, {
+      id: 'pick',
+      state: 'ok',
+      multiple: true,
+      values: [],
+      candidates,
+      onchangeMany,
+    });
+    const list = screen.getByTestId('signal-multi');
+    expect(list.querySelectorAll('input[type=checkbox]')).toHaveLength(2);
+    const details = screen.getByTestId('signal-mirror-details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.querySelector('summary')?.textContent).toContain(
+      'Heat pump, via Home Assistant (2)',
+    );
+    expect(details.querySelectorAll('input[type=checkbox]')).toHaveLength(0);
+    unmount();
+
+    render(SignalPicker, {
+      id: 'pick',
+      state: 'ok',
+      multiple: true,
+      values: ['ha/sensor.hp_inlet'],
+      candidates,
+      onchangeMany,
+    });
+    const open = screen.getByTestId('signal-mirror-details') as HTMLDetailsElement;
+    expect(open.open).toBe(true);
+    expect(open.textContent).toContain(
+      'ovenbird already reads these directly from HeishaMon over MQTT',
+    );
+    const boxes = open.querySelectorAll<HTMLInputElement>('input[type=checkbox]');
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0]?.checked).toBe(true);
+    await fireEvent.click(boxes[1]!);
+    expect(onchangeMany).toHaveBeenCalledWith(['ha/sensor.hp_inlet', 'ha/sensor.hp_outlet']);
   });
 });
 

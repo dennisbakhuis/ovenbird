@@ -117,7 +117,9 @@ is older than 3 h); it never affects `ready`.
     "defrost_active": {"value": false, "reason": null},
     "dhw_active": {"value": false, "reason": null},
     "heat_delivered_w": {"value": 8400.0, "reason": null}
-  }
+  },
+  "defrost": {"active": true, "mode": 2, "since": "2026-01-14T17:56:40Z",
+              "inlet_at_start_c": 25.5, "outside_at_start_c": -2.0, "max_s": 2100.0}
 }
 ```
 
@@ -129,6 +131,18 @@ the limit in effect: for a room sensor with the `on_change` profile it is the si
 limit while the source link is up and the source default (1800 s) otherwise. `links`
 reports whether each source link is up: `ha` while connected and a `get_states` re-read
 succeeded within 900 s, `mqtt` while the broker is connected.
+
+`defrost` is the current defrost as the safety monitor latched it when
+`Defrosting_State` turned on: `active` follows `Defrosting_State` in the same snapshot;
+`mode` is the deice mode the unit picks by its model profile (`1`: reverse cycle with the
+water pump running, `2`: hot-gas defrost with the water pump off by design; `null` for a
+model without a profile, see `profile` in `GET api/v1/pump/settings`); `since` is when
+the monitor saw the defrost start, `inlet_at_start_c` and `outside_at_start_c` are
+`Main_Inlet_Temp` and `Outside_Temp` at that moment and `max_s` is the `defrost_stuck`
+limit in effect (in mode 2 at least the profile's longest mode 2 defrost + 300 s).
+Until the monitor's next evaluation (every 5 s) latched a new defrost, `active` is
+already true while the rest is `null`; outside a defrost everything but `active` is
+`null`.
 
 Home Assistant temperatures in °F or K are converted to °C when they arrive: `unit` is
 then `°C` and `source_unit` (present only for a converted value) the unit HA reported.
@@ -771,16 +785,21 @@ Candidates for the signal pickers:
 {"ha": {"enabled": true, "link_up": true, "temperature_unit": "°C"},
  "room": [{"signal": "ha/sensor.living_room_temperature", "name": "Living room climate",
            "unit": "°C", "value": 21.9, "held_s": 7800.0, "source": "ha",
-           "entity_id": "sensor.living_room_temperature", "area": "Living room",
-           "device_id": "5f0c..."},
+           "pump_mirror": false, "entity_id": "sensor.living_room_temperature",
+           "area": "Living room", "device_id": "5f0c..."},
           {"signal": "ha/climate.living_room#current_temperature", "name": "Thermostaat",
            "unit": "°C", "value": 21.5, "held_s": 60.0, "source": "ha",
-           "entity_id": "climate.living_room", "area": "Living room"}],
+           "pump_mirror": false, "entity_id": "climate.living_room", "area": "Living room"},
+          {"signal": "ha/sensor.panasonic_heat_pump_main_dhw_temp", "name": "...",
+           "unit": "°C", "value": 48.0, "held_s": 30.0, "source": "ha",
+           "pump_mirror": true, "entity_id": "sensor.panasonic_heat_pump_main_dhw_temp",
+           "device_id": "9a1b..."}],
  "liveness": [{"signal": "ha/sensor.living_room_humidity", "name": "...", "unit": "%",
-               "value": 54.0, "held_s": 120.0, "source": "ha",
+               "value": 54.0, "held_s": 120.0, "source": "ha", "pump_mirror": false,
                "entity_id": "sensor.living_room_humidity", "device_id": "5f0c..."}],
  "crosscheck": [{"signal": "main/Room_Thermostat_Temp", "name": null, "unit": "°C",
-                 "value": 22, "held_s": 600.0, "source": "heishamon"}]}
+                 "value": 22, "held_s": 600.0, "source": "heishamon",
+                 "pump_mirror": false}]}
 ```
 
 Home Assistant candidates come from the `get_states` result the HA input re-reads every
@@ -796,6 +815,18 @@ unit system temperature unit (absent until known). MQTT inputs come
 from the settings (temperature units for `room` and `crosscheck`, all for
 `liveness`), `main/Room_Thermostat_Temp` from the catalogue; their values and held
 times from the state store.
+
+`pump_mirror` marks a Home Assistant entity on a device that copies the heat pump, such
+as Home Assistant's own HeishaMon integration: ovenbird already reads those values over
+MQTT, so the pickers list them apart, last and grouped (still selectable). A device
+counts as a mirror when at least 3 of its entities hold pairwise different numbers
+(a state, or a thermostat's `current_temperature`), each within 0.05 of the current
+value of a different HeishaMon `main/*` signal in the state store. A number that more
+than 3 `main/*` signals hold at once (the `0` and `1` of flags and modes) proves nothing
+and is not counted. Entities without a device are never marked, and without HeishaMon
+values nothing is. The test runs on the current values at every request, without any
+list of names or models. `pump_mirror` is always false for MQTT and HeishaMon
+candidates.
 
 ### `PUT api/v1/config/ha` (admin)
 

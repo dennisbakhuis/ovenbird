@@ -9,9 +9,11 @@ from typing import Any
 import pytest
 from pydantic import SecretStr
 
+from ovenbird.clock import iso_z
 from ovenbird.config import DefrostLowFlowMode, Settings
 from ovenbird.control.alarms import AlarmBoard, AlarmCode, AlarmEventKind, Severity
 from ovenbird.control.monitors import (
+    DEICE_MARGIN_S,
     LOGGED_AS_ALARM,
     LOGGED_ONLY,
     DeiceOnset,
@@ -483,6 +485,64 @@ def test_a_model_reported_after_the_start_selects_its_profile(plant: Plant) -> N
     assert monitor.deice == MODE2
     found = {finding.code: finding for finding in monitor.findings}
     assert found[AlarmCode.LOW_FLOW_DEFROST].message == MODE2_MESSAGE
+
+
+def test_the_snapshot_shows_the_latched_defrost_and_its_mode(plant: Plant) -> None:
+    monitor = SafetyMonitor(CONFIG, AlarmBoard(), plant.runtime)
+    plant.runtime.defrost = monitor.defrost_state
+    plant.topics["Heat_Pump_Model"] = KNOWN_MODEL
+    check_for(plant, monitor, 0.0)
+    idle = plant.runtime.snapshot()["defrost"]
+    assert idle == {
+        "active": False,
+        "mode": None,
+        "since": None,
+        "inlet_at_start_c": None,
+        "outside_at_start_c": None,
+        "max_s": None,
+    }
+    plant.topics.update(MODE2_DEFROST)
+    plant.feed()
+    assert plant.runtime.snapshot()["defrost"] == {**idle, "active": True, "max_s": 1200.0}
+    start = plant.clock().wall
+    check_for(plant, monitor, 60.0)
+    assert plant.runtime.snapshot()["defrost"] == {
+        "active": True,
+        "mode": 2,
+        "since": iso_z(start),
+        "inlet_at_start_c": 25.5,
+        "outside_at_start_c": 3.0,
+        "max_s": 1800.0 + DEICE_MARGIN_S,
+    }
+    plant.topics["Defrosting_State"] = "0"
+    check_for(plant, monitor, 30.0)
+    assert plant.runtime.snapshot()["defrost"] == idle
+
+
+def test_the_snapshot_defrost_has_no_mode_for_an_unknown_model(plant: Plant) -> None:
+    monitor = SafetyMonitor(CONFIG, AlarmBoard(), plant.runtime)
+    plant.runtime.defrost = monitor.defrost_state
+    plant.topics.update(Heat_Pump_Model=UNKNOWN_MODEL, **MODE2_DEFROST)
+    check_for(plant, monitor, 0.0)
+    defrost = plant.runtime.snapshot()["defrost"]
+    assert defrost["active"] is True
+    assert defrost["mode"] is None
+    assert defrost["inlet_at_start_c"] == 25.5
+    assert defrost["max_s"] == 1200.0
+
+
+def test_the_snapshot_defrost_without_a_monitor_follows_the_flag(plant: Plant) -> None:
+    plant.topics.update(MODE2_DEFROST)
+    plant.feed()
+    defrost = plant.runtime.snapshot()["defrost"]
+    assert defrost == {
+        "active": True,
+        "mode": None,
+        "since": None,
+        "inlet_at_start_c": None,
+        "outside_at_start_c": None,
+        "max_s": None,
+    }
 
 
 @pytest.mark.parametrize(

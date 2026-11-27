@@ -491,4 +491,10 @@ export const settings: Record<keyof typeof en, string> = {
   haTest_timeout: 'Home Assistant antwoordde niet op tijd.',
   haTest_websocket: 'De live verbinding met Home Assistant mislukte.',
   pickerSameDevice: 'zelfde apparaat als de kamersensor',
+  pickerMirrorGroup: 'Warmtepomp, via Home Assistant ({n})',
+  pickerMirrorHint: 'ovenbird leest deze al rechtstreeks van HeishaMon via MQTT',
+  pickerMirrorSelected:
+    'Dit is een waarde van de warmtepomp die Home Assistant overneemt; ovenbird leest die al rechtstreeks van HeishaMon via MQTT.',
+  haPumpViaMqtt:
+    'De warmtepomp zelf leest ovenbird via MQTT (Instellingen → MQTT); Home Assistant levert alleen kamersensoren en de locatie voor het weer.',
 };

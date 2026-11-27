@@ -10,7 +10,7 @@ export const topic: HelpTopic = {
       id: 'loop',
       kind: 'see',
       title: 'Water loop',
-      body: 'Left is the outdoor unit: its state, the [[compressor]] speed in Hz, electricity in, heat out and the [[cop|COP]]. Water leaves at the [[outlet]] temperature, gives off its heat in your floor or radiators and comes back at the [[inlet]] temperature.\n\nIn the middle: the [[flow]], the [[delta-t|ΔT]] next to the value it is set to, and the [[pump-duty|pump duty]] against its maximum.',
+      body: 'Left is the outdoor unit: its state, the [[compressor]] speed in Hz, electricity in, heat out and the [[cop|COP]]. Water leaves at the [[outlet]] temperature, gives off its heat in your floor or radiators and comes back at the [[inlet]] temperature.\n\nIn the middle: the [[flow]], the [[delta-t|ΔT]] next to the value it is set to, and the [[pump-duty|pump duty]] against its maximum.\n\nDuring a [[defrost]] of a recognised model a line under the diagram names the deice mode: mode 1 keeps the water pump running, mode 2 stops it by design.',
       target: 'pump.loop',
     },
     {

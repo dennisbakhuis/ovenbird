@@ -1,6 +1,8 @@
 <!--
   PumpCard: pump state chip (defrost > hot water > running > idle > off; with hot water hidden a
-  hot-water run reads "Pump busy elsewhere" under a gear), power flow with COP,
+  hot-water run reads "Pump busy elsewhere" under a gear; a defrost of a known model reads
+  "Defrosting · mode 2" with the long form as its title and a caption line saying what the mode
+  means for the water pump), power flow with COP,
   water loop and the water setpoint with a link to its explanation. While ovenbird sends, the line
   reads "Water setpoint 29 °C"; in every other state "Would send 29 °C · Pump has 31 °C", both at
   the same weight.
@@ -75,6 +77,10 @@
   const look = $derived(
     state.kind === 'dhw' && !hotWater.shown ? { ...LOOK.dhw, icon: BUSY_ICON } : LOOK[state.kind],
   );
+  const deice = $derived(state.kind === 'defrost' ? (state.deice ?? null) : null);
+  const stateText = $derived(
+    deice === null ? t(look.key) : t('pumpStateDefrostMode', { mode: deice }),
+  );
   const delta = $derived(inletC !== null && outletC !== null ? outletC - inletC : null);
   const num = (value: number, digits = 1) => minus(formatNumber(value, digits, locale));
   const water = $derived(
@@ -112,7 +118,13 @@
 <Card title={t('homePumpTitle')} icon="pump" span={7} testid="pump-card" help="home.pump">
   {#snippet actions()}
     <span class="state" data-testid="pump-state" data-state={state.kind}>
-      <Pill tone={look.tone} icon={look.icon} size="md">{t(look.key)}</Pill>
+      <Pill
+        tone={look.tone}
+        icon={look.icon}
+        size="md"
+        title={deice === null ? undefined : t(`deiceMode_${deice}`)}
+        data-deice={deice ?? undefined}>{stateText}</Pill
+      >
       {#if state.frequencyHz !== null && state.kind !== 'idle' && state.kind !== 'off'}
         <span class="hz">{num(state.frequencyHz, 0)} Hz</span>
       {/if}
@@ -122,6 +134,11 @@
   <PowerFlow {electricW} {heatW} compact />
   {#if loop}
     <p class="caption loop">{loop}</p>
+  {/if}
+  {#if deice !== null}
+    <p class="caption deice" data-testid="pump-deice" data-deice={deice}>
+      {t(`deiceNote_${deice}`)}
+    </p>
   {/if}
   {#if runLine && state.kind !== 'defrost' && state.kind !== 'dhw'}
     <p class="caption runs" data-testid="pump-runs">{runLine}</p>
@@ -173,7 +190,8 @@
     font-size: var(--fs-body);
   }
   .loop,
-  .runs {
+  .runs,
+  .deice {
     margin: 0;
   }
   @media (--narrow) {

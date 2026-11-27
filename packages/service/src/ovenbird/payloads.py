@@ -93,19 +93,63 @@ def derived_payload[T](derived: Derived[T], decimals: int | None = None) -> Json
     return {"value": value, "reason": None}
 
 
-def snapshot_payload(snapshot: Snapshot) -> Json:
+def defrost_payload(
+    active: bool,
+    *,
+    mode: int | None = None,
+    since: str | None = None,
+    inlet_c: float | None = None,
+    outside_c: float | None = None,
+    max_s: float | None = None,
+) -> Json:
+    """Return the snapshot's ``defrost`` object.
+
+    Parameters
+    ----------
+    active
+        Whether the pump defrosts now.
+    mode
+        Deice mode the unit picks (1 or 2); ``None`` for an unknown model or outside
+        a defrost.
+    since
+        When the safety monitor saw the defrost start (ISO 8601).
+    inlet_c, outside_c
+        ``Main_Inlet_Temp`` and ``Outside_Temp`` at the start.
+    max_s
+        Duration after which the defrost counts as stuck (``defrost_stuck``).
+
+    Returns
+    -------
+    dict
+        ``active``, ``mode``, ``since``, ``inlet_at_start_c``, ``outside_at_start_c``
+        and ``max_s``; all but ``active`` ``None`` outside a defrost.
+    """
+    return {
+        "active": active,
+        "mode": mode if active else None,
+        "since": since if active else None,
+        "inlet_at_start_c": inlet_c if active else None,
+        "outside_at_start_c": outside_c if active else None,
+        "max_s": max_s if active else None,
+    }
+
+
+def snapshot_payload(snapshot: Snapshot, defrost: Json | None = None) -> Json:
     """Return the body of ``GET api/v1/snapshot``.
 
     Parameters
     ----------
     snapshot
         State snapshot from the core's store.
+    defrost
+        The safety monitor's view of the current defrost (:func:`defrost_payload`);
+        without a monitor only ``active``, from ``Defrosting_State``.
 
     Returns
     -------
     dict
         ``at``, ``heishamon``, ``links`` (source kind to up), ``signals`` (sorted by
-        id) and ``derived``.
+        id), ``derived`` and ``defrost``.
     """
     status = snapshot.heishamon
     lwt = None if status.lwt_online is None else ("Online" if status.lwt_online else "Offline")
@@ -126,6 +170,9 @@ def snapshot_payload(snapshot: Snapshot) -> Json:
             "dhw_active": derived_payload(dhw_active(snapshot)),
             "heat_delivered_w": derived_payload(heat_delivered_w(snapshot), POWER_DECIMALS),
         },
+        "defrost": defrost
+        if defrost is not None
+        else defrost_payload(defrost_active(snapshot).value is True),
     }
 
 

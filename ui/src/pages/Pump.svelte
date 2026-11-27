@@ -311,6 +311,7 @@
         electricW={num('main/Heat_Power_Consumption')}
         heatW={num('main/Heat_Power_Production')}
         setDeltaK={setDelta}
+        deice={pump.deice ?? null}
       />
       {#if runLine}<p class="caption runs" data-testid="loop-runs">{runLine}</p>{/if}
     </Card>

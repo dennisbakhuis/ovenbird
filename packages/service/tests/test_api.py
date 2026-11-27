@@ -131,7 +131,7 @@ def test_snapshot_shape(client: TestClient, runtime: Runtime, clock: FakeClock) 
     feed_pump(runtime, clock)
     clock.advance(12.04)
     body = client.get("/api/v1/snapshot").json()
-    assert set(body) == {"at", "heishamon", "links", "signals", "derived"}
+    assert set(body) == {"at", "heishamon", "links", "signals", "derived", "defrost"}
     assert body["at"].endswith("Z")
     assert body["heishamon"] == {"alive": True, "last_heartbeat_age": 12.0, "lwt": "Online"}
     outside = body["signals"]["main/Outside_Temp"]
@@ -154,6 +154,14 @@ def test_snapshot_shape(client: TestClient, runtime: Runtime, clock: FakeClock) 
     assert derived["compressor_running"] == {"value": True, "reason": None}
     assert derived["defrost_active"]["value"] is None
     assert "main/Defrosting_State" in derived["defrost_active"]["reason"]
+    assert body["defrost"] == {
+        "active": False,
+        "mode": None,
+        "since": None,
+        "inlet_at_start_c": None,
+        "outside_at_start_c": None,
+        "max_s": None,
+    }
     assert derived["heat_delivered_w"]["value"] is None
     assert derived["heat_delivered_w"]["reason"].startswith("missing")
 
@@ -439,7 +447,14 @@ def test_websocket_initial_messages_and_coalescing(
     with TestClient(app) as test_client, test_client.websocket_connect("/api/v1/ws") as ws:
         first = ws.receive_json()
         assert first["type"] == "snapshot"
-        assert set(first["data"]) == {"at", "heishamon", "links", "signals", "derived"}
+        assert set(first["data"]) == {
+            "at",
+            "heishamon",
+            "links",
+            "signals",
+            "derived",
+            "defrost",
+        }
         assert ws.receive_json()["type"] == "health"
         for value in range(1, 6):
             runtime.apply(reading(clock, "main/Outside_Temp", value, "°C"))

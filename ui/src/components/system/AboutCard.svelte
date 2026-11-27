@@ -1,11 +1,13 @@
 <!--
   AboutCard: "About this installation" from `system/about`: version, service time and time zone,
-  uptime and starts, then (in a Details) the control loop, connections, setpoint register,
+  uptime, the heat pump model and whether ovenbird knows its defrost facts (from `pump/settings`),
+  then (in a Details) the control loop, connections, setpoint register,
   simulation and clock speed. "Download diagnostics" (admin) saves the redacted bundle for an
   issue report.
 
   Props: about (SystemAbout; null when the service does not offer it, undefined while loading),
-  failed (the last load failed).
+  failed (the last load failed), pump (model and profile from `pump/settings`; null when not
+  offered or not loaded: no model row).
 -->
 <script lang="ts">
   import ActionRow from '$ui/ActionRow.svelte';
@@ -13,6 +15,7 @@
   import { DOWNLOAD_PREFIX } from '$lib/core/brand';
   import type { SystemAbout } from '$lib/system/about';
   import type { FailureKind } from '$lib/core/api';
+  import type { PumpSettingsResponse } from '$lib/core/types';
   import { downloadFrom } from '$lib/core/download';
   import { formatDateTime, formatDuration, formatNumber } from '$lib/core/format';
   import { settings, t } from '$lib/core/settings.svelte';
@@ -23,9 +26,23 @@
   interface Props {
     about: SystemAbout | null | undefined;
     failed?: boolean;
+    pump?: Pick<PumpSettingsResponse, 'model' | 'profile'> | null;
   }
 
-  let { about, failed = false }: Props = $props();
+  let { about, failed = false, pump = null }: Props = $props();
+
+  const pumpModel = $derived(
+    pump === null
+      ? null
+      : pump.profile
+        ? t('aboutPumpProfile', { name: pump.profile.name })
+        : pump.model === null || pump.model === ''
+          ? t('aboutPumpUnreported')
+          : t('aboutPumpGeneric'),
+  );
+  const pumpTitle = $derived(
+    pump?.profile?.source ?? (pump?.model != null ? String(pump.model) : undefined),
+  );
 
   const lang = $derived(settings.language);
   const when = (iso: string | null | undefined) => (iso ? formatDateTime(iso, lang) : '–');
@@ -73,6 +90,16 @@
         {formatDuration(about.uptime_s, lang)}
         <span class="muted">· {t('aboutSince', { when: when(about.started_at) })}</span>
       </dd>
+      {#if pumpModel !== null}
+        <dt>{t('aboutPumpModel')}</dt>
+        <dd
+          title={pumpTitle}
+          data-testid="about-pump-model"
+          data-profile={pump?.profile?.name ?? undefined}
+        >
+          {pumpModel}
+        </dd>
+      {/if}
       {#if failing.length > 0}
         <dt>{t('aboutFailing')}</dt>
         <dd class="err-text">{failing.join(', ')}</dd>

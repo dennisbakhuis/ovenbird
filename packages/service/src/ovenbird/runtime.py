@@ -19,7 +19,15 @@ from ovenbird.history.database import (
     sample_from_reading,
 )
 from ovenbird.payloads import Json, health_payload, snapshot_payload
-from ovenbird_core import Instant, ParseError, ParseResult, Reading, SourceKind, StateStore
+from ovenbird_core import (
+    Instant,
+    ParseError,
+    ParseResult,
+    Reading,
+    Snapshot,
+    SourceKind,
+    StateStore,
+)
 
 LOGGER = logging.getLogger("ovenbird.runtime")
 CRASH_LIMIT: Final = 5
@@ -74,6 +82,7 @@ class Runtime:
         self.crashes: dict[str, int] = {}
         self.alarm_level: str | None = None
         self.weather_check: Callable[[Instant], str] | None = None
+        self.defrost: Callable[[Snapshot], Json] | None = None
 
     def apply(self, item: ParseResult) -> None:
         """Apply one parse result to the store and pass it on to history.
@@ -160,5 +169,7 @@ class Runtime:
         )
 
     def snapshot(self, now: Instant | None = None) -> Json:
-        """Return the snapshot body at ``now``."""
-        return snapshot_payload(self.store.snapshot(now or self.clock()))
+        """Return the snapshot body at ``now``, with the safety monitor's defrost when set."""
+        snapshot = self.store.snapshot(now or self.clock())
+        defrost = self.defrost(snapshot) if self.defrost is not None else None
+        return snapshot_payload(snapshot, defrost)

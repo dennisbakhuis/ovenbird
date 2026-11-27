@@ -1,6 +1,7 @@
 <!--
   SystemTiles: the second row of System → Overview: Notifications, Safety net and About this
-  installation, loaded from `notifications/status` and `system/about` (refreshed every minute).
+  installation, loaded from `notifications/status`, `system/about` and (for the heat pump model)
+  `pump/settings`, refreshed every minute.
   An older service without these endpoints gets a calm "not offered yet" line per tile.
 -->
 <script lang="ts">
@@ -14,7 +15,8 @@
     type NotificationStatus,
     type SystemAbout,
   } from '$lib/system/about';
-  import { failureKind } from '$lib/core/api';
+  import { failureKind, fetchPumpSettings } from '$lib/core/api';
+  import type { PumpSettingsResponse } from '$lib/core/types';
   import type { ControlStore } from '$lib/core/control.svelte';
   import type { LiveStore } from '$lib/core/live.svelte';
   import { retryAfter, type TestFailure } from '$lib/notify/notify';
@@ -26,6 +28,7 @@
 
   let about = $state<SystemAbout | null | undefined>(undefined);
   let notifications = $state<NotificationStatus | null | undefined>(undefined);
+  let pump = $state<Pick<PumpSettingsResponse, 'model' | 'profile'> | null>(null);
   let aboutFailed = $state(false);
   let notifyFailed = $state(false);
 
@@ -34,15 +37,18 @@
     const controller = new AbortController();
     let timer: number | undefined;
     const load = async () => {
-      const [aboutResult, notifyResult] = await Promise.allSettled([
+      const [aboutResult, notifyResult, pumpResult] = await Promise.allSettled([
         fetchAbout(controller.signal),
         fetchNotifications(controller.signal),
+        fetchPumpSettings(controller.signal),
       ]);
       if (controller.signal.aborted) return;
       if (aboutResult.status === 'fulfilled') {
         about = aboutResult.value;
         aboutFailed = false;
       } else aboutFailed = true;
+      if (pumpResult.status === 'fulfilled')
+        pump = { model: pumpResult.value.model, profile: pumpResult.value.profile };
       if (notifyResult.status === 'fulfilled') {
         notifications = notifyResult.value;
         notifyHealth.set(notifyResult.value);
@@ -79,7 +85,7 @@
       failed={aboutFailed}
     />
   </div>
-  <div class="span-12"><AboutCard {about} failed={aboutFailed} /></div>
+  <div class="span-12"><AboutCard {about} failed={aboutFailed} {pump} /></div>
 </div>
 
 <style>

@@ -67,7 +67,7 @@ export const glossary: GlossaryEntry[] = [
     term: 'Defrost',
     short:
       'A few minutes in which the pump melts ice off its outdoor unit, using heat from the water.',
-    body: 'Ice forms in cold, damp weather. During a defrost the water cools for a moment and the pump drives its own circulation pump. ovenbird then freezes room feedback and does not lower the setpoint, so it does not over-react to the dip.',
+    body: 'Ice forms in cold, damp weather. During a defrost the water cools for a moment and the pump drives its own circulation pump. ovenbird then freezes room feedback and does not lower the setpoint, so it does not over-react to the dip.\n\nFor a heat pump model it recognises (System → About this installation), ovenbird also names the **deice mode** the pump picks. **Mode 1** is a reverse cycle: the pump runs its refrigerant backwards and the water pump keeps running. **Mode 2** is a hot-gas defrost: the water pump stops by design, so the flow drops to zero and the defrost can last up to 30 minutes. The service manual has the pump pick mode 2 when the return water is cold: below 27 °C, or below 60 °C in frost below −10 °C.',
     related: ['pump-duty', 'cop', 'dhw'],
   },
   {

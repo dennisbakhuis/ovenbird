@@ -466,6 +466,7 @@ def test_signal_candidates(secured: Settings) -> None:
         "value": 21.9,
         "held_s": 7800.0,
         "source": "ha",
+        "pump_mirror": False,
         "entity_id": "sensor.living_room_temperature",
         "area": "Living room",
         "device_id": "dev-1",
@@ -477,6 +478,7 @@ def test_signal_candidates(secured: Settings) -> None:
         "value": 69.8,
         "held_s": 60.0,
         "source": "ha",
+        "pump_mirror": False,
         "entity_id": "climate.living_room",
         "area": "Living room",
     }

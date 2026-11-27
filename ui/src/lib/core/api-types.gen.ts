@@ -1606,6 +1606,22 @@ export interface components {
       limit: number;
       to: string;
     };
+    /**
+     * @description The live defrost as the safety monitor latched it at its start.
+     *
+     *     ``mode`` is the deice mode the unit picks (1: reverse cycle, water pump running;
+     *     2: hot gas, water pump off by design); ``None`` for an unknown model. Everything
+     *     but ``active`` is ``None`` outside a defrost; ``max_s`` is the ``defrost_stuck``
+     *     limit in effect.
+     */
+    DefrostState: {
+      active: boolean;
+      inlet_at_start_c: number | null;
+      max_s: number | null;
+      mode: (1 | 2) | null;
+      outside_at_start_c: number | null;
+      since: string | null;
+    };
     /** @description The last notification ntfy accepted. */
     Delivery: {
       at: string;
@@ -2743,7 +2759,9 @@ export interface components {
      *
      *     Home Assistant candidates also carry their entity id and, when Home Assistant's
      *     registry could be read, the area name and the device id (the liveness picker
-     *     lists the room sensor's own device first).
+     *     lists the room sensor's own device first). ``pump_mirror`` is true for a Home
+     *     Assistant entity on a device whose entities copy the heat pump's HeishaMon values;
+     *     the pickers list those apart.
      */
     SignalCandidate: {
       area?: string | null;
@@ -2751,6 +2769,7 @@ export interface components {
       entity_id?: string | null;
       held_s: number | null;
       name: string | null;
+      pump_mirror: boolean;
       signal: string;
       source: components['schemas']['SourceName'];
       unit: string | null;
@@ -2765,9 +2784,10 @@ export interface components {
       points: number;
       step: number;
     };
-    /** @description ``GET snapshot``: every signal and the derived values at one instant. */
+    /** @description ``GET snapshot``: every signal, the derived values and the defrost at one instant. */
     Snapshot: {
       at: string;
+      defrost: components['schemas']['DefrostState'];
       derived: {
         [key: string]: components['schemas']['Derived'];
       };

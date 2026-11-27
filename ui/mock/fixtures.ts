@@ -1,4 +1,4 @@
-import type { Health, History, Signal, Snapshot } from '../src/lib/core/types';
+import type { DefrostState, Health, History, Signal, Snapshot } from '../src/lib/core/types';
 import { outsideAt, roomAt, roomFacts } from './decisions.ts';
 import type { PumpPhase, Scenario } from './scenario.ts';
 
@@ -193,6 +193,9 @@ export function pumpStateAt(
   };
 }
 
+/** Return water at a mode 2 defrost: below the 27 °C of the WH-MXC12J9E8's deice rule. */
+const MODE2_INLET_C = 25.5;
+
 function scenarioStateAt(ms: number, nowMs: number, scenario: Scenario): PumpState {
   const recent = nowMs - ms <= FORCE_WINDOW_MS;
   const forced: { phase?: PumpPhase; quiet?: boolean; tank?: boolean } = {
@@ -200,7 +203,10 @@ function scenarioStateAt(ms: number, nowMs: number, scenario: Scenario): PumpSta
   };
   if (recent && scenario.pump) forced.phase = scenario.pump;
   if (recent && scenario.quiet) forced.quiet = scenario.quiet === 'on';
-  return pumpStateAt(ms, forced);
+  const state = pumpStateAt(ms, forced);
+  if (scenario.deice === '2' && state.phase === 'defrost')
+    return { ...state, inlet: MODE2_INLET_C, flow: 0 };
+  return state;
 }
 
 type Kind = 'mean' | 'last';
@@ -365,6 +371,37 @@ export function makeSnapshot(nowMs: number, scenario?: Scenario): Snapshot {
         reason: delivered === null ? 'domestic hot water run' : null,
       },
     },
+    defrost: defrostOf(nowMs, s, scenario),
+  };
+}
+
+const DEFROST_MAX_S = 1200;
+const DEICE_MODE2_LIMIT_S = 2100;
+const DEFROST_SHOWN_FOR_MS = 3 * 60_000;
+
+/**
+ * The snapshot's `defrost` as the service latches it: a mode only for the known model
+ * (`deice:1|2`), with the inlet and outdoor temperature at the start.
+ */
+function defrostOf(nowMs: number, s: PumpState, scenario?: Scenario): DefrostState {
+  if (s.phase !== 'defrost')
+    return {
+      active: false,
+      mode: null,
+      since: null,
+      inlet_at_start_c: null,
+      outside_at_start_c: null,
+      max_s: null,
+    };
+  const mode = scenario?.deice === '2' ? 2 : scenario?.deice === '1' ? 1 : null;
+  const startMs = nowMs - DEFROST_SHOWN_FOR_MS;
+  return {
+    active: true,
+    mode,
+    since: new Date(startMs).toISOString(),
+    inlet_at_start_c: round(s.inlet),
+    outside_at_start_c: round(outsideAt(startMs)),
+    max_s: mode === 2 ? DEICE_MODE2_LIMIT_S : DEFROST_MAX_S,
   };
 }
 

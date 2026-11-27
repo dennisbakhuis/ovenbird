@@ -259,7 +259,9 @@ class SignalCandidate(ApiModel):
 
     Home Assistant candidates also carry their entity id and, when Home Assistant's
     registry could be read, the area name and the device id (the liveness picker
-    lists the room sensor's own device first).
+    lists the room sensor's own device first). ``pump_mirror`` is true for a Home
+    Assistant entity on a device whose entities copy the heat pump's HeishaMon values;
+    the pickers list those apart.
     """
 
     signal: str
@@ -268,6 +270,7 @@ class SignalCandidate(ApiModel):
     value: Number | None
     held_s: Number | None
     source: SourceName
+    pump_mirror: bool
     entity_id: str | None = absent()
     area: str | None = absent()
     device_id: str | None = absent()
