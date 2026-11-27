@@ -196,7 +196,7 @@ export const codes: Record<keyof typeof en, string> = {
   alarmText_room_report_overdue: 'De melding van de kamersensor is te laat.',
   alarmText_command_hold: 'ovenbird wacht: er gaan geen opdrachten naar de pomp.',
   alarm_stove_mode: 'Houtkachelmodus',
-  alarm_model_plan: 'Bewaker van het modelplan',
+  alarm_model_plan: 'Modelplan tegengehouden',
   alarmText_setpoint_above_max: 'De gevraagde aanvoertemperatuur ligt boven het maximum.',
   alarmText_outlet_overshoot: 'Het aanvoerwater is warmer dan de grens.',
   alarmText_low_flow: 'Het debiet is te laag terwijl de compressor draait.',
@@ -212,7 +212,7 @@ export const codes: Record<keyof typeof en, string> = {
   alarmText_room_sensor_quiet: 'De kamersensor geeft al uren geen teken van leven.',
   alarmText_stove_mode: 'Houtkachelmodus is begonnen of gestopt.',
   alarmText_model_plan:
-    'Begonnen: een bewaker blokkeert het modelplan. Vrijgegeven: alle bewakers laten het weer door. Alleen ter informatie.',
+    'Begonnen: een controle houdt het modelplan tegen. Vrijgegeven: alle controles laten het weer door. Alleen ter informatie.',
   alarm_envelope_mismatch: 'Waarde buiten de veiligheidsregel',
   alarmText_envelope_mismatch:
     'ovenbird stelde een watertemperatuur in buiten de band van de veiligheidsregel op de HeishaMon; de regel heeft hem gecorrigeerd.',
@@ -273,7 +273,7 @@ export const codes: Record<keyof typeof en, string> = {
   alarmText_room_unit_refused:
     'De kamersensor meldt geen temperatuureenheid en Home Assistant gebruikt geen °C, dus de waarde wordt niet gebruikt.',
   audit_archive_delete: 'Verwijderd uit het jaararchief',
-  audit_house_learn_run: 'Leerprogramma van het huismodel met de hand gestart',
+  audit_house_learn_run: 'Leerronde van het huismodel met de hand gestart',
   audit_ha_connection: 'Verbinding met Home Assistant gewijzigd',
   alarm_outside_sensor_stale: 'Buitensensor niet vers',
   alarmText_outside_sensor_stale:

@@ -35,7 +35,7 @@ def test_config_parsing_reads_every_fact() -> None:
             "control_comfort_c": 21.0,
         }
     )
-    assert facts == HouseFacts(130.0, 340.0, "1975_1991", 0.6, 22.5, "south", 3)
+    assert facts == HouseFacts(130.0, 340.0, "1975_1991", 22.5, "south", 3)
     assert facts.stated
 
 
@@ -49,7 +49,6 @@ def test_config_parsing_reads_every_fact() -> None:
         ("house_volume_m3", float("nan")),
         ("house_build_period", "1900"),
         ("house_build_period", 1960),
-        ("house_floor_heating_share", 1.5),
         ("house_window_area_m2", -1.0),
         ("house_window_orientation", "up"),
         ("house_occupants", 2.5),
@@ -126,10 +125,12 @@ def test_internal_gains_from_occupants() -> None:
     assert gains[-1] <= 2000.0
 
 
-def test_floor_share_is_passed_through() -> None:
-    assert estimate(HouseFacts(floor_heating_share=0.25)).floor_share == 0.25
+def test_a_retired_floor_heating_share_is_ignored() -> None:
+    facts = facts_from_config({"house_floor_heating_share": 0.25, "house_occupants": 2})
+    assert facts == HouseFacts(occupants=2)
+    assert not hasattr(estimate(facts), "floor_share")
 
 
 def test_estimate_is_deterministic() -> None:
-    facts = HouseFacts(150.0, 400.0, "1945_1974", 1.0, 30.0, "west", 4)
+    facts = HouseFacts(150.0, 400.0, "1945_1974", 30.0, "west", 4)
     assert estimate(facts) == estimate(facts)

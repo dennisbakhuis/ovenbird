@@ -37,9 +37,10 @@ Internal gains (W, daily mean)
     losses, and per occupant the sensible body heat over the hours at home together
     with the cooking, appliance and hot-water losses one person brings.
 
-Floor-heating share
-    Passed through: the share of the emitters that is floor heating (the rest are
-    radiators).
+The share of floor heating among the emitters is not a fact: the learned model cannot
+separate the two conductances it would split (the loop to the emitter and the loop to
+the room directly), so it holds the direct path (``house_floor_heating_share`` is gone;
+a stored value is ignored).
 """
 
 from __future__ import annotations
@@ -61,7 +62,6 @@ BUILD_PERIODS: Final = (
 ORIENTATIONS: Final = ("north", "east", "south", "west", "mixed")
 FLOOR_AREA_RANGE: Final = (0.0, 10_000.0)
 VOLUME_RANGE: Final = (50.0, 5000.0)
-SHARE_RANGE: Final = (0.0, 1.0)
 WINDOW_AREA_RANGE: Final = (0.0, 200.0)
 OCCUPANTS_RANGE: Final = (0, 12)
 AIR_HEAT_J_PER_M3_K: Final = 1206.0
@@ -133,8 +133,6 @@ class HouseFacts:
         Heated volume.
     build_period
         One of :data:`BUILD_PERIODS`.
-    floor_heating_share
-        Share of the emitters that is floor heating (0 radiators only, 1 floor only).
     window_area_m2
         Total window area.
     window_orientation
@@ -146,7 +144,6 @@ class HouseFacts:
     floor_area_m2: float | None = None
     volume_m3: float | None = None
     build_period: str | None = None
-    floor_heating_share: float | None = None
     window_area_m2: float | None = None
     window_orientation: str | None = None
     occupants: int | None = None
@@ -170,14 +167,11 @@ class FactEstimate:
         Effective aperture for global horizontal irradiance (window area).
     internal_gain_w
         Mean internal gains (occupants).
-    floor_share
-        Share of floor heating among the emitters.
     """
 
     ua_w_per_k: float | None = None
     solar_aperture_m2: float | None = None
     internal_gain_w: float | None = None
-    floor_share: float | None = None
 
 
 def _number(value: object, low: float, high: float, *, low_open: bool = False) -> float | None:
@@ -223,7 +217,6 @@ def facts_from_config(effective: Mapping[str, object]) -> HouseFacts:
         ),
         volume_m3=_number(effective.get("house_volume_m3"), *VOLUME_RANGE),
         build_period=_choice(effective.get("house_build_period"), BUILD_PERIODS),
-        floor_heating_share=_number(effective.get("house_floor_heating_share"), *SHARE_RANGE),
         window_area_m2=_number(effective.get("house_window_area_m2"), *WINDOW_AREA_RANGE),
         window_orientation=_choice(effective.get("house_window_orientation"), ORIENTATIONS),
         occupants=_count(effective.get("house_occupants"), *OCCUPANTS_RANGE),
@@ -291,11 +284,10 @@ def estimate(facts: HouseFacts) -> FactEstimate:
     Returns
     -------
     FactEstimate
-        UA, solar aperture, internal gains and floor-heating share.
+        UA, solar aperture and internal gains.
     """
     return FactEstimate(
         ua_w_per_k=ua_estimate(facts),
         solar_aperture_m2=solar_estimate(facts),
         internal_gain_w=gains_estimate(facts),
-        floor_share=facts.floor_heating_share,
     )

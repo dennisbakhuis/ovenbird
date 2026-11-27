@@ -23,6 +23,28 @@ The priors and bounds are the module constants (:data:`DEFAULT_PRIORS`) unless a
 owner states), narrow a parameter's bounds within the hard ones, pin a parameter
 (held at the value, through the same mechanism as :attr:`FitConfig.fixed`) or bound
 the slowest time constant, a derived quantity (see :func:`fit_building`).
+
+Structure: the chain (:data:`CHAIN_FIXED`)
+    By default four parameters are held, not fitted, so the network is a chain: loop
+    water to the emitter node (``mass``: floor loop and screed, the fast node) to the
+    building node (``air``: room air with the bulk of the building's capacity, the slow
+    node the room sensor observes) to outside, with eight free parameters. On real
+    autumn data the held values are where the free fit ends anyway, or what the data
+    cannot tell apart:
+
+    * ``h_water_air`` (a direct loop-to-room path) trades one for one against the
+      emitter-to-room conductance and ends on its lower bound; it is held at that
+      bound, 5 W/K, which keeps it a finite point of the fit's log space, inside
+      every validation, and equal to what the free fits produced;
+    * ``solar_mass_fraction`` is identified at 0 (the sun warms the building node);
+    * ``q_int_modulation`` ran to its upper bound with a night peak, a stand-in for
+      slow dynamics rather than occupancy; the gains are held constant (0), so
+      ``q_int_peak_hour`` drops out and keeps its prior mean.
+
+    The internal gains that remain are net free heat: they are not separable from the
+    heat-loss coefficient (the balance temperature fixes their ratio).
+    :meth:`Priors.with_free` releases held parameters (the earlier twelve-parameter
+    model, for tests and studies).
 """
 
 from __future__ import annotations
@@ -30,6 +52,8 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields, replace
+from types import MappingProxyType
+from typing import Final
 
 import numpy as np
 from numpy.typing import NDArray
@@ -92,6 +116,14 @@ PRIOR_SD: dict[str, float] = {
     "q_int_modulation": 0.5,
     "q_int_peak_hour": 6.0,
 }
+CHAIN_FIXED: Final[Mapping[str, float]] = MappingProxyType(
+    {
+        "h_water_air": BOUNDS["h_water_air"][0],
+        "solar_mass_fraction": 0.0,
+        "q_int_modulation": 0.0,
+        "q_int_peak_hour": PRIOR_MEAN["q_int_peak_hour"],
+    }
+)
 NUISANCE_BOUNDS = (5.0, 45.0)
 TAU_PENALTY_SCALE = 0.02
 TAU_TOLERANCE = 0.02
@@ -140,11 +172,24 @@ class Priors:
         Range of the slowest time constant in hours (``lower == upper``: pinned), or
         ``None``. It is a property of several parameters together, so it is enforced
         by a penalty (see :func:`fit_building`), not by bounds.
+    fixed
+        Parameters the model structure holds (:data:`CHAIN_FIXED` by default); they
+        cannot be pinned or bounded. :meth:`with_free` releases them.
     """
 
     params: Mapping[str, ParamPrior]
     pinned: Mapping[str, float] = field(default_factory=dict)
     time_constant_h: tuple[float, float] | None = None
+    fixed: Mapping[str, float] = field(default_factory=lambda: CHAIN_FIXED)
+
+    def with_free(self, *names: str) -> Priors:
+        """Return a copy that fits the held ``names`` (every held parameter when none are given)."""
+        free = set(names) if names else set(self.fixed)
+        return replace(self, fixed={n: v for n, v in self.fixed.items() if n not in free})
+
+    def _settable(self, name: str) -> None:
+        if name in self.fixed:
+            raise ConstraintError(f"{name} is held by the model structure")
 
     def with_prior(self, name: str, mean: float, sd: float) -> Priors:
         """Return a copy with the prior mean and spread of ``name`` replaced.
@@ -164,8 +209,10 @@ class Priors:
         Raises
         ------
         ConstraintError
-            When the range does not overlap the current bounds or ``lower > upper``.
+            When the range does not overlap the current bounds, ``lower > upper`` or
+            the structure holds ``name``.
         """
+        self._settable(name)
         old = self.params[name]
         lo = old.lower if lower is None else max(old.lower, lower)
         hi = old.upper if upper is None else min(old.upper, upper)
@@ -186,8 +233,10 @@ class Priors:
         Raises
         ------
         ConstraintError
-            When ``value`` lies outside the parameter's bounds.
+            When ``value`` lies outside the parameter's bounds or the structure holds
+            ``name``.
         """
+        self._settable(name)
         old = self.params[name]
         if not old.lower <= value <= old.upper:
             raise ConstraintError(
@@ -568,6 +617,8 @@ def fit_building(
       the start value is moved just inside them;
     * a pinned parameter is held at its value like :attr:`FitConfig.fixed` (no prior
       term); the others are fitted around it, so a wrong pin moves its error into them;
+    * a parameter the structure holds (:attr:`Priors.fixed`) is held at its value as
+      well, unless ``config.fixed`` names it (then its start value is kept);
     * a time-constant range adds one residual, ``e / s`` with ``e`` the signed log
       distance of the slowest time constant outside the range (:func:`tau_excess`, 0
       inside) and ``s`` = :data:`TAU_PENALTY_SCALE`, computed from the candidate
@@ -607,6 +658,10 @@ def fit_building(
     priors = DEFAULT_PRIORS if priors is None else priors
     base = start or BuildingParams()
     fixed = config.fixed
+    structural = {n: v for n, v in priors.fixed.items() if n not in fixed}
+    if structural:
+        base = base.replace(**structural)
+        fixed = (*fixed, *structural)
     if priors.pinned:
         base = base.replace(**priors.pinned)
         fixed = (*fixed, *(n for n in priors.pinned if n not in fixed))
@@ -700,10 +755,31 @@ class Bootstrap:
         return float(lo), float(hi)
 
 
-def _value(p: BuildingParams, name: str) -> float:
+def emitter_time_constant_h(p: BuildingParams) -> float:
+    """Return the emitter node's own time constant in hours.
+
+    The emitter (``mass``) capacity over the two conductances that couple it, to the
+    loop water and to the building node: how fast the floor loop and screed follow a
+    change, about an hour on real data (the building node takes days).
+    """
+    total = p.h_water_mass + p.h_mass_air
+    return p.c_mass / total / 3600.0 if total > 0 else math.inf
+
+
+DERIVED: Final = ("time_constant_h", "emitter_time_constant_h")
+
+
+def derived_value(p: BuildingParams, name: str) -> float:
+    """Return a parameter or a derived quantity (:data:`DERIVED`) of ``p``."""
     if name == "time_constant_h":
         return p.time_constant_h
+    if name == "emitter_time_constant_h":
+        return emitter_time_constant_h(p)
     return float(getattr(p, name))
+
+
+def _value(p: BuildingParams, name: str) -> float:
+    return derived_value(p, name)
 
 
 def bootstrap_building(

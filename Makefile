@@ -40,6 +40,7 @@ RECORDED_ROOM_SOURCE ?= auto
 PUMP_DUTY_HEAT ?= 159
 PUMP_DUTY_IDLE ?= 102
 ROOM_MAX_AGE ?= 1800
+CONVERT_ROOM_MAX_AGE ?=
 CONVERT_CONFIG ?= dev/config-seed.json
 CONVERT_OUT ?= capture/captures/replay-db
 ROOM_CONFIRM ?= inf
@@ -91,7 +92,7 @@ help:
 	@echo "  evaluate-identify        Fit the plant (all days and one train-only file per rolling-origin fold) into $(MODELS) [FOLDS=2 CF_TO=last day]."
 	@echo "  evaluate-open-loop       Open-loop run with the install profile [RECORDED_ROOM_SOURCE=auto|datalake|mirror ROOM_MAX_AGE=1800 OUT=dir]."
 	@echo "  evaluate-counterfactual  Closed loop on the fitted plant: ovenbird vs the recorded setpoints [BOOTSTRAP=50 ROOM_PROFILE=on_change CROSSCHECK=main/Room_Thermostat_Temp CF_FROM=first day CF_TO=last day MODELS=dir OUT=dir CF_ARGS=--no-known-events]."
-	@echo "  convert-capture          Convert a recorded period into an ovenbird history.db for System -> Replay: CF_FROM= CF_TO= [CONVERT_CONFIG=dev/config-seed.json CONVERT_OUT=capture/captures/replay-db RECORDED_ROOM_SOURCE=auto ROOM_MAX_AGE=1800 CONVERT_ARGS=--force]."
+	@echo "  convert-capture          Convert a recorded period into an ovenbird history.db for System -> Replay: CF_FROM= CF_TO= [CONVERT_CONFIG=dev/config-seed.json CONVERT_OUT=capture/captures/replay-db RECORDED_ROOM_SOURCE=auto CONVERT_ROOM_MAX_AGE=s, default the room profile's silence limit CONVERT_ARGS=--force]."
 	@echo "  evaluate-sensorcheck     Propose a room sensor profile from the Datalake HA states [SENSOR_ENTITY= SENSOR_LIVENESS=]."
 	@echo "  fullrun        B1: stepped closed-loop run of the whole service over the recorded span [ARGS=--from/--to/--out]."
 	@echo "  fullrun-faults B1 with every fault scenario injected [ARGS=]."
@@ -275,7 +276,7 @@ evaluate-counterfactual:
 	uv run python -m ovenbird_sim.evaluate counterfactual --capture capture/captures/live --params $(MODELS)/plant_params.json --bootstrap $(BOOTSTRAP) --comfort $(COMFORT_C) --ovenbird-target $(COMFORT_C) --ovenbird-min-setpoint $(MIN_SETPOINT_C) --pump-duty --pump-duty-heat $(PUMP_DUTY_HEAT) --pump-duty-idle $(PUMP_DUTY_IDLE) --room-confirm-s $(ROOM_CONFIRM) --room-profile $(ROOM_PROFILE) --room-crosscheck "$(CROSSCHECK)" $(if $(CF_FROM),--from $(CF_FROM),) $(if $(CF_TO),--to $(CF_TO),) --out $(OUT) $(CF_ARGS)
 
 convert-capture:
-	uv run python -m ovenbird_harness.convert --capture capture/captures/live --datalake capture/captures/datalake --from $(CF_FROM) --to $(CF_TO) --config $(CONVERT_CONFIG) --room $(RECORDED_ROOM_SOURCE) --room-max-age $(ROOM_MAX_AGE) --out $(CONVERT_OUT) $(CONVERT_ARGS)
+	uv run python -m ovenbird_harness.convert --capture capture/captures/live --datalake capture/captures/datalake --from $(CF_FROM) --to $(CF_TO) --config $(CONVERT_CONFIG) --room $(RECORDED_ROOM_SOURCE) $(if $(CONVERT_ROOM_MAX_AGE),--room-max-age $(CONVERT_ROOM_MAX_AGE),) --out $(CONVERT_OUT) $(CONVERT_ARGS)
 
 evaluate-sensorcheck:
 	uv run python -m ovenbird_sim.sensorcheck --datalake capture/captures/datalake --entity $(SENSOR_ENTITY) $(if $(SENSOR_LIVENESS),--liveness $(SENSOR_LIVENESS),)

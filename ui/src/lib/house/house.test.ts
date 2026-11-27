@@ -27,15 +27,8 @@ function credibility(needed: Credibility['needed'], credible = false): Credibili
     credible,
     days: 38,
     heating_days: 37,
-    cold_days: 6,
     outside_span_k: 13.4,
-    rules: {
-      heating_days: 30,
-      heating_day_w: 300,
-      cold_days: 10,
-      cold_day_below_c: 5,
-      outside_span_k: 10,
-    },
+    rules: { heating_days: 30, heating_day_w: 300, outside_span_k: 10 },
     needed,
     reasons: [],
     low_confidence: false,
@@ -70,34 +63,38 @@ describe('bandLimits', () => {
 
 describe('learning needs', () => {
   it('lists only what is missing, in order', () => {
-    expect(
-      learningNeeds(credibility({ heating_days: 0, cold_days: 4, outside_span_k: 0 })),
-    ).toEqual([{ kind: 'cold_days', amount: 4 }]);
-    expect(
-      learningNeeds(credibility({ heating_days: 2.2, cold_days: 1, outside_span_k: 1.25 })),
-    ).toEqual([
+    expect(learningNeeds(credibility({ heating_days: 0, outside_span_k: 2.4 }))).toEqual([
+      { kind: 'outside_span_k', amount: 2.4 },
+    ]);
+    expect(learningNeeds(credibility({ heating_days: 2.2, outside_span_k: 1.25 }))).toEqual([
       { kind: 'heating_days', amount: 3 },
-      { kind: 'cold_days', amount: 1 },
       { kind: 'outside_span_k', amount: 1.3 },
     ]);
-    expect(
-      learningNeeds(credibility({ heating_days: 0, cold_days: 0, outside_span_k: 0 }, true)),
-    ).toEqual([]);
+    expect(learningNeeds(credibility({ heating_days: 0, outside_span_k: 0 }, true))).toEqual([]);
   });
 
   it('builds the sentence from the numbers in both languages', () => {
-    const c = credibility({ heating_days: 0, cold_days: 4, outside_span_k: 0 });
-    expect(needsText(learningNeeds(c), c, en, fmt)).toBe(
-      'Still learning: 4 more cold days (daily mean below 5 °C) needed.',
+    const c = credibility({ heating_days: 6, outside_span_k: 0 });
+    expect(needsText(learningNeeds(c), en, fmt)).toBe(
+      'Still learning: 6 more heating days needed.',
     );
-    expect(needsText(learningNeeds(c), c, nl, fmt)).toBe(
-      'Nog aan het leren: nog 4 koude dagen (daggemiddelde onder 5 °C) nodig.',
+    expect(needsText(learningNeeds(c), nl, fmt)).toBe('Nog aan het leren: nog 6 stookdagen nodig.');
+    const one = credibility({ heating_days: 1, outside_span_k: 2 });
+    expect(needsText(learningNeeds(one), en, fmt)).toBe(
+      'Still learning: 1 more heating day, 2 K more spread in outside temperature needed.',
     );
-    const one = credibility({ heating_days: 1, cold_days: 1, outside_span_k: 2 });
-    expect(needsText(learningNeeds(one), one, en, fmt)).toBe(
-      'Still learning: 1 more heating day, 1 more cold day (daily mean below 5 °C), 2 K more spread in outside temperature needed.',
-    );
-    expect(needsText([], c, en, fmt)).toBe('Still learning: not enough data for a score yet.');
+    expect(needsText([], en, fmt)).toBe('Still learning: not enough data for a score yet.');
+  });
+
+  it('never mentions cold days any more', () => {
+    for (const language of ['en', 'nl'] as const) {
+      const text = [
+        translate(language, 'houseStillLearning', { list: 'x' }),
+        translate(language, 'houseGateNeed_more_heating_days'),
+        translate(language, 'houseProposalNotCredible'),
+      ].join(' ');
+      expect(text).not.toMatch(/cold day|koude dag/i);
+    }
   });
 });
 

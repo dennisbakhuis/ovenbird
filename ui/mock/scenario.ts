@@ -39,16 +39,23 @@ export type PumpPhase = 'idle' | 'heating' | 'defrost' | 'dhw';
  *   30 min ago, until 3.5 h from now) | waiting (no episode; the detection waits after an
  *   episode that reached its longest time) | disabled (wood-stove mode switched off)
  * - `house`: learning (no model promoted yet: 200 with `state: learning`) | notrun (the learner
- *   never ran) | noarea (no floor area: no band) | uncredible (a model, but too few cold days for a
- *   score and a credible proposal) | facts (a ready model, with house facts, a heat-loss limit
+ *   never ran) | noarea (no floor area: no band) | uncredible (a model, but too little heating
+ *   weather for a score and a credible proposal) | not-excited (the fit window has too few heating
+ *   days: `checks.excitation` false, with the amounts needed) | no-skill (a kept champion that
+ *   no longer beats "the room stays as it is": `checks.predictive` false, re-validated, with a
+ *   data warning) | no-sun (the sun gate does not pass: `more_sunny_days`) | legacy (a model made
+ *   before the gates: source `legacy`, the sun gate not passing with `legacy_model`, no chain
+ *   structure) | pin-cost (a pinned heat loss that costs accuracy: `constraint_cost.worse` and
+ *   an owner `at_bound`) | facts (a ready model, with house facts, a heat-loss limit
  *   and a left-out day already stored in the configuration) | changed (the model was promoted
  *   because the house settings changed, although its error is higher); default: a ready, credible
  *   model
  * - `balance`: estimate (the heat balance and the what-if come from the owner's facts, not a model)
  *   | nosun (the sun is unknown: no sun flow, no storage) | missing (404 `house_model_missing` on
  *   the balance and the what-if, `house_series_missing` on the series) | absent (only those three
- *   endpoints answer 404, as an older service does); a wood-stove episode
- *   (`stove:active`) makes the storage unknown
+ *   endpoints answer 404, as an older service does) | tail (a wood-stove episode ended 5 h ago:
+ *   note `stove_tail`, storage unknown); a wood-stove episode (`stove:active`) makes the storage
+ *   unknown
  * - `modelplan`: shadow (the switch is forced to shadow and the planner issued a set-back of 0.3 K
  *   for the room target) | preheat (shadow, a pre-heat of 0.3 K) | dead (shadow, the expected change
  *   stays inside the dead zone) | blocked (shadow, but the model is not credible and a wood stove
@@ -104,8 +111,19 @@ export interface Scenario {
   hold?: 'latched' | 'timed' | 'none';
   simulation?: 'on';
   stove?: 'active' | 'manual' | 'waiting' | 'disabled';
-  house?: 'learning' | 'notrun' | 'noarea' | 'uncredible' | 'facts' | 'changed';
-  balance?: 'estimate' | 'nosun' | 'missing' | 'absent';
+  house?:
+    | 'learning'
+    | 'notrun'
+    | 'noarea'
+    | 'uncredible'
+    | 'not-excited'
+    | 'no-skill'
+    | 'pin-cost'
+    | 'no-sun'
+    | 'legacy'
+    | 'facts'
+    | 'changed';
+  balance?: 'estimate' | 'nosun' | 'missing' | 'absent' | 'tail';
   modelplan?: 'shadow' | 'preheat' | 'dead' | 'blocked' | 'on' | 'missing';
   learner?: 'running' | 'unavailable' | 'failed' | 'disabled';
   notify?: 'off' | 'failing';
@@ -136,8 +154,20 @@ export const SCENARIO_OPTIONS: {
   hold: ['latched', 'timed', 'none'],
   simulation: ['on'],
   stove: ['active', 'manual', 'waiting', 'disabled'],
-  house: ['learning', 'notrun', 'noarea', 'uncredible', 'facts', 'changed'],
-  balance: ['estimate', 'nosun', 'missing', 'absent'],
+  house: [
+    'learning',
+    'notrun',
+    'noarea',
+    'uncredible',
+    'not-excited',
+    'no-skill',
+    'pin-cost',
+    'no-sun',
+    'legacy',
+    'facts',
+    'changed',
+  ],
+  balance: ['estimate', 'nosun', 'missing', 'absent', 'tail'],
   modelplan: ['shadow', 'preheat', 'dead', 'blocked', 'on', 'missing'],
   learner: ['running', 'unavailable', 'failed', 'disabled'],
   notify: ['off', 'failing'],

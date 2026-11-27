@@ -40,7 +40,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from ovenbird.api.auth import Role
-from ovenbird.api.deps import RefusalAudit, read_json, require_role
+from ovenbird.api.deps import RefusalAudit, principal, read_json, require_role
 from ovenbird.api.models.base import returns
 from ovenbird.api.models.insight import (
     HouseBalance,
@@ -236,8 +236,10 @@ def build_insight_router(
         return await asyncio.to_thread(runner.report, ctx)
 
     @router.get("/insight/house/run", **returns(HouseRun))
-    async def house_run() -> Json:
-        return await asyncio.to_thread(runner.payload)
+    async def house_run(request: Request) -> Json:
+        who = principal(request, settings or current())
+        full = who.role.rank >= Role.OPERATE.rank
+        return await asyncio.to_thread(partial(runner.payload, full_detail=full))
 
     @router.post("/insight/house/run", status_code=202, **returns(HouseRun, encoder=True))
     async def start_house_run(request: Request) -> JSONResponse:
@@ -251,7 +253,9 @@ def build_insight_router(
             return _refusal(RUNNING, str(exc))
         if config is not None:
             config.audit(who.actor, RUN_AUDIT, {})
-        return JSONResponse(await asyncio.to_thread(runner.payload), status_code=202)
+        return JSONResponse(
+            await asyncio.to_thread(partial(runner.payload, full_detail=True)), status_code=202
+        )
 
     return router
 

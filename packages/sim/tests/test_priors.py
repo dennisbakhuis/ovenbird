@@ -51,7 +51,6 @@ def test_facts_shape_the_priors() -> None:
         floor_area_m2=120.0,
         volume_m3=1000.0,
         build_period="1992_2005",
-        floor_heating_share=1.0,
         window_area_m2=20.0,
         window_orientation="north",
         occupants=2,
@@ -66,9 +65,8 @@ def test_facts_shape_the_priors() -> None:
     assert solar.sd == 2.0
     gains = priors.params["q_int_w"]
     assert (gains.mean, gains.sd) == (280.0, 150.0)
-    floor, radiators = priors.params["h_water_mass"], priors.params["h_water_air"]
-    assert floor.mean == pytest.approx(0.95 * 550.0)
-    assert radiators.mean == pytest.approx(0.05 * 550.0)
+    assert priors.params["h_water_mass"] == DEFAULT_PRIORS.params["h_water_mass"]
+    assert priors.fixed == DEFAULT_PRIORS.fixed
     assert priors.params["c_air"].lower == pytest.approx(1206.0 * 1000.0)
     assert priors.params["c_air"].mean == PRIOR_MEAN["c_air"]
     assert priors.pinned == {}
@@ -76,7 +74,6 @@ def test_facts_shape_the_priors() -> None:
         "house_floor_area_m2",
         "house_volume_m3",
         "house_build_period",
-        "house_floor_heating_share",
         "house_window_area_m2",
         "house_window_orientation",
         "house_occupants",

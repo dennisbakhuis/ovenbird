@@ -166,7 +166,6 @@ FIELDS: Final[dict[str, FieldMeta]] = {
     "house_floor_area_m2": FieldMeta("house", B, "m²", step=1.0, soft_min=30.0, soft_max=1000.0),
     "house_volume_m3": FieldMeta("house", A, "m³", step=10.0),
     "house_build_period": FieldMeta("house", B),
-    "house_floor_heating_share": FieldMeta("house", B, "ratio", "%", step=0.05),
     "house_window_area_m2": FieldMeta("house", A, "m²", step=1.0),
     "house_window_orientation": FieldMeta("house", A),
     "house_occupants": FieldMeta("house", B, step=1.0),

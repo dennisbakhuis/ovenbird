@@ -40,8 +40,10 @@ import math
 import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Final
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
@@ -277,8 +279,26 @@ def read_forecast_weather(conn: sqlite3.Connection, start: float, end: float) ->
     return out
 
 
-def read_stove_journal(conn: sqlite3.Connection, start: float, end: float) -> tuple[ev.Event, ...]:
-    """Wood-stove mode episodes from the service's alarm journal, as known events."""
+def read_stove_journal(
+    conn: sqlite3.Connection,
+    start: float,
+    end: float,
+    capped: list[float] | None = None,
+) -> tuple[ev.Event, ...]:
+    """Wood-stove mode episodes from the service's alarm journal, as known events.
+
+    An episode without a recorded end (a service restart lost it) is closed at the next
+    ``started`` or :data:`OPEN_EPISODE_MAX_S` after its start, whichever comes first.
+
+    Parameters
+    ----------
+    conn
+        Open history database.
+    start, end
+        Span in unix seconds.
+    capped
+        When given, receives the start of every open episode that was closed this way.
+    """
     has_table = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'alarm'"
     ).fetchone()
@@ -290,17 +310,27 @@ def read_stove_journal(conn: sqlite3.Connection, start: float, end: float) -> tu
     ).fetchall()
     found: list[ev.Event] = []
     began: float | None = None
+
+    def close_open(opened: float, limit: float, final: bool = False) -> None:
+        stop = min(limit, opened + OPEN_EPISODE_MAX_S)
+        if capped is not None and (stop < limit or not final):
+            capped.append(opened)
+        found.append(ev.Event(ev.STOVE_MODE, opened, stop, stop + ev.TAIL_S, *_NAN2))
+
     for ts, kind in rows:
         if kind == STOVE_STARTED:
-            began = float(ts) if began is None else began
+            if began is not None:
+                close_open(began, float(ts))
+            began = float(ts)
         elif began is not None:
             found.append(ev.Event(ev.STOVE_MODE, began, float(ts), float(ts) + ev.TAIL_S, *_NAN2))
             began = None
     if began is not None:
-        found.append(ev.Event(ev.STOVE_MODE, began, end, end + ev.TAIL_S, *_NAN2))
+        close_open(began, end, True)
     return tuple(e for e in found if e.tail_end > start)
 
 
+OPEN_EPISODE_MAX_S: Final = 24 * 3600.0
 _NAN2: Final = (math.nan, math.nan)
 
 
@@ -384,10 +414,11 @@ def history_dataset(
         room = read_rollup(conn, ids.get(roles.room) if roles.room else None, grid)
         refs = [read_rollup(conn, ids.get(sig), grid) for sig in roles.references]
         wx = dict(weather) if weather is not None else read_forecast_weather(conn, t0, t1)
-        journal = read_stove_journal(conn, t0, t1)
+        capped_starts: list[float] = []
+        journal = read_stove_journal(conn, t0, t1, capped_starts)
     if all(rollups[name].coverage.max(initial=0.0) == 0.0 for name in LOOP):
         raise ValueError(f"{path} holds no HeishaMon loop signals")
-    return _assemble(
+    data = _assemble(
         grid,
         rollups,
         defrost,
@@ -411,6 +442,16 @@ def history_dataset(
             else ("stored forecasts (shortest lead)" if wx else "none"),
         },
     )
+    if capped_starts:
+        data.notes["stove_journal"] = (
+            f"{len(capped_starts)} wood-stove episode(s) without a recorded end capped at "
+            f"{OPEN_EPISODE_MAX_S / 3600:.0f} h or the next start: "
+            + ", ".join(
+                datetime.fromtimestamp(start, ZoneInfo(roles.timezone)).strftime("%Y-%m-%d %H:%M")
+                for start in capped_starts
+            )
+        )
+    return data
 
 
 def _running_share(hz: Rollup) -> FloatArray:

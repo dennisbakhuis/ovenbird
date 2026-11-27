@@ -39,6 +39,17 @@ def test_learner_imports_without_tool_dependencies() -> None:
     assert result.returncode == 0, result.stderr
 
 
+def test_learner_import_loads_no_tool_modules_even_when_installed() -> None:
+    result = _run(f"""
+        import sys
+        import ovenbird_sim.learn.run
+
+        loaded = sorted(m for m in sys.modules if m.split(".")[0] in {BLOCKED!r})
+        assert not loaded, loaded
+        """)
+    assert result.returncode == 0, result.stderr
+
+
 def test_controller_imports_stay_free_of_numpy_and_scipy() -> None:
     result = _run("""
         import sys

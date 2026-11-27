@@ -1,23 +1,35 @@
 <!--
   PredictionChart: the room temperature the sensor measured against what the house model had
   predicted 24 hours earlier, over the last 3, 7 or 14 days (the series is loaded once, the range
-  switch only cuts it). A gap in either line is a gap in the data. One sentence says how far off
-  the prediction typically was and at most; the chart kit adds the table and CSV.
+  switch only cuts it). A gap in either line is a gap in the data. Periods the model cannot
+  represent are shaded and the predicted line is broken there: a wood stove with its recovery
+  (hatched, then lighter) and a day the owner left out (dotted); a legend line says which is which
+  and the table lists them. One sentence gives the typical error on days the model had not seen
+  (the service's own figure, with the lean to cold or warm in plain words) and the largest
+  difference of the window, events left out; a quiet marker shows where the days the model had seen
+  end. The chart kit adds the table and CSV.
 
   Hidden on an older service without the endpoint; a short line when the service has no series yet.
-  A11y: the chart's role="img" summary is the same sentence.
+  A11y: the chart's role="img" summary is the same sentence; shading never carries meaning alone.
 -->
 <script lang="ts">
-  import TimeChart, { type PanelSpec } from '$components/charts/TimeChart.svelte';
+  import TimeChart, {
+    type MarkerSpec,
+    type PanelSpec,
+    type SpanSpec,
+  } from '$components/charts/TimeChart.svelte';
   import { SERIES } from '$components/charts/palette';
   import { formatNum } from '$lib/core/chartSummary';
-  import { formatDateTime } from '$lib/core/format';
+  import { formatDateTime, formatNumber } from '$lib/core/format';
   import { settings, t } from '$lib/core/settings.svelte';
   import {
     SERIES_RANGES,
     differences,
+    eventKinds,
+    eventSpans,
     fetchHouseSeries,
     lastDays,
+    typicalErrorSentence,
     type SeriesRange,
     type SeriesResult,
   } from '$lib/house/series';
@@ -51,9 +63,12 @@
 
   const series = $derived(result?.kind === 'ready' ? result.data : null);
   const points = $derived(series ? lastDays(series, range) : []);
-  const diff = $derived(differences(points));
+  const events = $derived(series?.events ?? []);
+  const diff = $derived(differences(points, events, series?.out_of_sample_from ?? null));
   const to = $derived(series ? Date.parse(series.to) : 0);
   const from = $derived(to - range * 86_400_000);
+  const spans = $derived(eventSpans(events, from, to));
+  const kinds = $derived(eventKinds(spans));
   const options = $derived(
     SERIES_RANGES.map((days) => ({
       value: days,
@@ -61,16 +76,64 @@
       testid: `house-pred-range-${days}`,
     })),
   );
+  const unseenAt = $derived.by(() => {
+    const first = series?.out_of_sample_from ? Date.parse(series.out_of_sample_from) : NaN;
+    const at = first + 86_400_000;
+    return Number.isFinite(first) && at > from && at < to ? at : null;
+  });
 
-  const sentence = $derived(
+  const typical = $derived(
+    series
+      ? typicalErrorSentence(series.rmse_k, series.bias_k, t, (value, digits) =>
+          formatNumber(value, digits, lang),
+        )
+      : '',
+  );
+  const largest = $derived(
     diff
-      ? t('housePredSummary', {
-          days: range,
-          typical: formatNum(diff.typicalK, 1, lang),
+      ? t('housePredLargest', {
           largest: formatNum(diff.largestK, 1, lang),
           when: formatDateTime(diff.largestAt, lang),
         })
-      : t('housePredNone'),
+      : '',
+  );
+  const sentence = $derived(
+    typical
+      ? `${typical} ${largest}`.trim()
+      : diff
+        ? t('housePredSummary', {
+            days: range,
+            typical: formatNum(diff.typicalK, 1, lang),
+            largest: formatNum(diff.largestK, 1, lang),
+            when: formatDateTime(diff.largestAt, lang),
+          })
+        : t('housePredNone'),
+  );
+
+  const spanSpecs = $derived<SpanSpec[]>(
+    spans.flatMap((span): SpanSpec[] => {
+      if (span.kind === 'excluded_day')
+        return [
+          {
+            from: span.from,
+            to: span.tailTo,
+            pattern: 'dots',
+            label: t('housePredEventDay', { day: formatDateTime(span.from, lang) }),
+          },
+        ];
+      const label = t('housePredEventStove', {
+        from: formatDateTime(span.from, lang),
+        to: formatDateTime(span.to, lang),
+        tail: formatDateTime(span.tailTo, lang),
+      });
+      return [
+        { from: span.from, to: span.to, pattern: 'hatch', label },
+        { from: span.to, to: span.tailTo, opacity: 0.1 },
+      ];
+    }),
+  );
+  const markers = $derived<MarkerSpec[]>(
+    unseenAt === null ? [] : [{ t: unseenAt, label: t('housePredUnseen') }],
   );
 
   const panels = $derived<PanelSpec[]>([
@@ -131,16 +194,33 @@
         testid="house-pred-range"
       />
     {/snippet}
-    {#if diff}
+    {#if points.length > 0}
       <TimeChart
         {from}
         {to}
         {panels}
+        {markers}
+        spans={spanSpecs}
+        spansTitle={t('housePredEventsTitle')}
         title={t('housePredTitle')}
         summary={sentence}
         maxGapMs={series.step_s * 1500}
         legend="chips"
       />
+    {/if}
+    {#if kinds.length > 0}
+      <p class="events caption" data-testid="house-pred-events">
+        {#if kinds.includes('stove')}
+          <span class="key"
+            ><span class="swatch hatch" aria-hidden="true"></span>{t('housePredLegendStove')}</span
+          >
+        {/if}
+        {#if kinds.includes('excluded_day')}
+          <span class="key"
+            ><span class="swatch dots" aria-hidden="true"></span>{t('housePredLegendDay')}</span
+          >
+        {/if}
+      </p>
     {/if}
     <p class="sentence" data-testid="house-pred-summary">{sentence}</p>
   </Card>
@@ -149,5 +229,28 @@
 <style>
   .sentence {
     margin: var(--space-2) 0 0;
+  }
+  .events {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    margin: var(--space-2) 0 0;
+  }
+  .key {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  .swatch {
+    display: inline-block;
+    width: 1.4rem;
+    height: 0.8rem;
+    border: 1px solid var(--muted);
+  }
+  .hatch {
+    background: repeating-linear-gradient(135deg, var(--muted) 0 1.5px, transparent 1.5px 5px);
+  }
+  .dots {
+    background: radial-gradient(var(--muted) 1.2px, transparent 1.4px) 0 0 / 5px 5px;
   }
 </style>

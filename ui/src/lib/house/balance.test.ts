@@ -36,6 +36,13 @@ function balance(flows: Partial<HouseBalance['flows']> = {}): HouseBalance {
   };
 }
 
+describe('balanceSentence after a wood stove', () => {
+  it('says the building still releases the stove heat', () => {
+    const b = { ...balance({ storage_w: null }), notes: ['stove_tail' as const] };
+    expect(balanceSentence(b, tr, 'en')).toContain('burned in the last 12 hours');
+  });
+});
+
 describe('flowWeight', () => {
   it('grows with the power and is clamped', () => {
     expect(flowWeight(0)).toBe(MIN_ARROW_PX);
@@ -77,7 +84,7 @@ describe('wrapLabel', () => {
 describe('balanceSentence', () => {
   it('says the flows and what the building does with the difference', () => {
     expect(balanceSentence(balance(), tr, 'en')).toBe(
-      'Right now the house loses about 2.1\u202fkW to outside; the heat pump delivers 2.4\u202fkW, the sun adds about 300\u202fW and people and appliances add about 300\u202fW, so the building is storing about 900\u202fW.',
+      'Right now the house loses about 2.1\u202fkW to outside; the heat pump delivers 2.4\u202fkW, the sun adds about 300\u202fW and free heat from people and appliances adds about 300\u202fW, so the building is storing about 900\u202fW.',
     );
   });
 

@@ -14,6 +14,11 @@ options and left-out days (:mod:`ovenbird_sim.learn.priors`); ``--fit-days``,
 ``house_learn_test_days`` and ``house_learn_tolerance_k`` when given, and the
 defaults (60, 14, 0) apply when neither is set.
 
+``--low-priority <cpu-seconds>`` lowers the process's own scheduling priority, caps its
+CPU time and makes the kernel pick it first when memory runs out; it is applied before
+numpy and scipy are imported. A run holds an exclusive lock on ``<models>/.learner.lock``;
+when another learner has it the process exits with 75 and changes nothing.
+
 ``--every-h`` keeps the process running and repeats the run (the optional
 ``learner`` container); the first run starts after ``--delay-s``.
 """
@@ -21,16 +26,45 @@ defaults (60, 14, 0) apply when neither is set.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
+import os
+import sys
 import time
 from pathlib import Path
+from types import ModuleType
+from typing import TYPE_CHECKING, Final
 
-from ovenbird_sim.data.historydb import load_config
-from ovenbird_sim.data.weather import load_weather
-from ovenbird_sim.learn.run import DEFAULT_LEARN, LearnOptions, learn
+from ovenbird_sim.learn import models as store
+
+if TYPE_CHECKING:
+    from ovenbird_sim.learn.run import LearnOptions
+
+RESOURCE: ModuleType | None = None
+try:
+    import resource
+
+    RESOURCE = resource
+except ImportError:
+    pass
 
 LOGGER = logging.getLogger("ovenbird_sim.learn")
+NICE: Final = 15
+CPU_GRACE_S: Final = 60
+OOM_SCORE_ADJ: Final = "/proc/self/oom_score_adj"
+BUSY_EXIT: Final = 75
+
+
+def apply_low_priority(cpu_seconds: int) -> None:
+    """Lower the priority, cap the CPU time and volunteer for the OOM killer (best effort)."""
+    with contextlib.suppress(OSError, AttributeError):
+        os.nice(NICE)
+    if RESOURCE is not None and cpu_seconds > 0:
+        with contextlib.suppress(OSError, ValueError):
+            RESOURCE.setrlimit(RESOURCE.RLIMIT_CPU, (cpu_seconds, cpu_seconds + CPU_GRACE_S))
+    with contextlib.suppress(OSError), open(OOM_SCORE_ADJ, "w", encoding="ascii") as handle:
+        handle.write("1000")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -61,12 +95,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--every-h", type=float, help="repeat every this many hours")
     parser.add_argument("--delay-s", type=float, default=0.0, help="wait before the first run")
+    parser.add_argument(
+        "--low-priority",
+        type=int,
+        metavar="CPU_SECONDS",
+        help="lower the priority and cap the CPU time at this many seconds",
+    )
     parser.add_argument("--log-level", default="INFO")
     return parser
 
 
 def options_from_args(args: argparse.Namespace) -> LearnOptions:
     """Learner options from the command line; flags given explicitly win over the configuration."""
+    from ovenbird_sim.data.weather import load_weather
+    from ovenbird_sim.learn.run import DEFAULT_LEARN, LearnOptions
+
     given = {
         name: getattr(args, name)
         for name in ("fit_days", "test_days", "tolerance_k")
@@ -90,6 +133,9 @@ def options_from_args(args: argparse.Namespace) -> LearnOptions:
 
 def run_once(args: argparse.Namespace) -> dict[str, object]:
     """Load the configuration and run the learner once."""
+    from ovenbird_sim.data.historydb import load_config
+    from ovenbird_sim.learn.run import learn
+
     options = options_from_args(args)
     try:
         config = load_config(args.config)
@@ -102,13 +148,20 @@ def run_once(args: argparse.Namespace) -> dict[str, object]:
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI."""
     args = build_parser().parse_args(argv)
+    if args.low_priority is not None:
+        apply_low_priority(args.low_priority)
     logging.basicConfig(
         level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s"
     )
     if args.delay_s > 0:
         time.sleep(args.delay_s)
     while True:
-        status = run_once(args)
+        with store.learner_lock(args.models) as held:
+            if not held:
+                print("another learner is running", file=sys.stderr)
+                return BUSY_EXIT
+            status = run_once(args)
+            store.prune(args.models)
         print(json.dumps(status, indent=2, default=str))
         if args.every_h is None:
             return 1 if status.get("outcome") == "failed" else 0

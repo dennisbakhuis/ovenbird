@@ -52,6 +52,24 @@ function navigate(hash: string): void {
 
 const svg = () => screen.getByTestId('house-schematic-svg');
 
+describe('HouseSchematic heat storage', () => {
+  it('names the total heat capacity of the model instead of a mass node', () => {
+    render(HouseSchematic, { balance: balance(), capacity: 7.75 });
+    const text = svg().textContent ?? '';
+    expect(text).toContain('7.8 kWh per K in total');
+    expect(text).not.toContain('Building mass');
+  });
+
+  it('says a wood stove burned lately when the tail runs', () => {
+    render(HouseSchematic, {
+      balance: balance({ notes: ['stove_tail'] }, { storage_w: null }),
+    });
+    expect(screen.getByTestId('house-balance-note-stove_tail').textContent).toContain(
+      'last 12 hours',
+    );
+  });
+});
+
 describe('HouseSchematic', () => {
   it('draws the flows of the model and says them as the label of the picture', () => {
     render(HouseSchematic, { balance: balance() });
@@ -127,7 +145,12 @@ function whatif(over: Partial<HouseWhatIf> = {}): HouseWhatIf {
     max_supply_c: 40,
     limited_by: [],
     balance_outside_c: 19.7,
-    drift: { hours: 8, step_s: 900, room_c: Array.from({ length: 33 }, (_, i) => 21 - i * 0.08) },
+    drift: {
+      credible: true,
+      hours: 8,
+      step_s: 900,
+      room_c: Array.from({ length: 33 }, (_, i) => 21 - i * 0.08),
+    },
     time_constant_h: 52.6,
     ...over,
   };
@@ -203,6 +226,22 @@ describe('WhatIfCard', () => {
     expect(screen.getByTestId('whatif-source').textContent?.trim()).toBe(
       'Estimate from your answers, not measured.',
     );
+  });
+
+  it('guards the steady state with the heat-loss gate and the cool-down with the dynamics gate', async () => {
+    stubFetch(() => whatif({ credible: true, drift: { ...whatif().drift, credible: false } }));
+    render(WhatIfCard, {});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.queryByTestId('whatif-learning')).toBeNull();
+    expect(screen.getByTestId('whatif-drift-uncredible').textContent).toContain(
+      'cool-down is not trusted yet',
+    );
+    cleanup();
+    stubFetch(() => whatif({ credible: false }));
+    render(WhatIfCard, {});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByTestId('whatif-learning').textContent).toContain('heat-loss check');
+    expect(screen.queryByTestId('whatif-drift-uncredible')).toBeNull();
   });
 
   it('reads the inputs from the URL query', async () => {

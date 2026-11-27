@@ -1,6 +1,7 @@
 <!--
   FactsCard: what the model learned besides the heat loss: time constant, balance temperature,
-  solar aperture and internal gains, each with its 90 % range and one plain sentence.
+  solar aperture and net free heat (people, appliances and other sources; not separable from the
+  heat loss with this data, so 0 W is not a fault), each with its 90 % range and one plain sentence.
 
   Props: house (HouseInsight).
 -->
@@ -51,7 +52,7 @@
         id: 'tau',
         label: 'houseTau',
         estimate: tau,
-        unit: 'h',
+        unit: t('unitHour'),
         digits: 0,
         text: t('houseTauText', {
           hours: num(tau.value / Math.max(comfort, 1), 1),
@@ -86,7 +87,9 @@
         estimate: gains,
         unit: 'W',
         digits: 0,
-        text: t('houseGainsText', { value: num(gains.value, 0) }),
+        text: gains.at_zero
+          ? t('houseGainsZero')
+          : t('houseGainsText', { value: num(gains.value, 0) }),
       });
     return out;
   });

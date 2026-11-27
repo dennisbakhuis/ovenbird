@@ -12,6 +12,7 @@
   import type { HouseHistory, HouseHistoryModel, HouseInsight } from '$lib/house/house';
   import { settings, t } from '$lib/core/settings.svelte';
   import EvolutionChart from './EvolutionChart.svelte';
+  import GateDetails from './GateDetails.svelte';
   import Card from '$ui/Card.svelte';
   import Details from '$ui/Details.svelte';
   import Icon from '$ui/Icon.svelte';
@@ -49,6 +50,30 @@
       : t('houseSettingsChangedPlain'),
   );
   const run = $derived(house.last_run);
+  const capacities = $derived(house.capacities_kwh_per_k ?? null);
+  const responseText = $derived.by(() => {
+    const building = house.time_constant_h;
+    if (!building) return null;
+    const emitter = house.emitter_time_constant_h;
+    return emitter
+      ? t('houseResponseText', { floor: num(emitter.value, 1), house: num(building.value, 0) })
+      : t('houseResponseHouseOnly', { house: num(building.value, 0) });
+  });
+  const structure = $derived(house.structure ?? null);
+  const ua = $derived(house.ua);
+  const folds = $derived(ua.fold_w_per_k ?? []);
+  const rangeSplit = $derived(
+    ua.interval_90 && ua.bootstrap_interval_90 && folds.length > 0
+      ? {
+          lo: num(ua.interval_90[0], 0),
+          hi: num(ua.interval_90[1], 0),
+          blo: num(ua.bootstrap_interval_90[0], 0),
+          bhi: num(ua.bootstrap_interval_90[1], 0),
+          flo: num(Math.min(...folds), 0),
+          fhi: num(Math.max(...folds), 0),
+        }
+      : null,
+  );
 </script>
 
 <Card title={t('houseQualityTitle')} icon="check" testid="house-quality" help="house.quality">
@@ -97,6 +122,27 @@
           <dd data-testid="house-rmse">{rmseText}</dd>
         </div>
       {/if}
+      {#if house.heat_capacity_kwh_per_k != null}
+        <div>
+          <dt>{t('houseCapacityLabel')}</dt>
+          <dd data-testid="house-capacity">
+            {t('houseCapacityText', { value: num(house.heat_capacity_kwh_per_k, 1) })}
+            {#if capacities}<span class="caption" data-testid="house-capacity-parts"
+                >{t('houseCapacityParts', {
+                  loop: num(capacities.loop, 2),
+                  emitter: num(capacities.emitter, 2),
+                  building: num(capacities.building, 2),
+                })}</span
+              >{/if}
+          </dd>
+        </div>
+      {/if}
+      {#if responseText}
+        <div>
+          <dt>{t('houseResponseLabel')}</dt>
+          <dd data-testid="house-response">{responseText}</dd>
+        </div>
+      {/if}
       {#if validation}
         <div>
           <dt>{t('houseValidationLabel')}</dt>
@@ -131,6 +177,23 @@
           <dd>{formatDateTime(run.at, lang)}</dd>
         </div>
       {/if}
+      {#if rangeSplit}
+        <div>
+          <dt>{t('houseUaRangeLabel')}</dt>
+          <dd data-testid="house-ua-range">{t('houseUaRangeText', rangeSplit)}</dd>
+        </div>
+      {/if}
+      {#if structure && structure.name === 'chain'}
+        <div>
+          <dt>{t('houseStructureLabel')}</dt>
+          <dd data-testid="house-structure">
+            {t('houseStructureText', {
+              free: structure.free.length,
+              fixed: Object.keys(structure.fixed).length,
+            })}
+          </dd>
+        </div>
+      {/if}
       <div>
         <dt>{t('houseDataLabel')}</dt>
         <dd>
@@ -146,6 +209,7 @@
         </dd>
       </div>
     </dl>
+    <GateDetails {house} />
     {#if house.limits.length > 0}
       <h3 class="limits-title">{t('houseLimitsTitle')}</h3>
       <ul class="limits">

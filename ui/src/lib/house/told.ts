@@ -25,7 +25,7 @@ export function differsByFactor(a: number, b: number, factor = DIFFERS_FACTOR): 
 
 /**
  * What the owner's answers imply next to what the model measured, for the heat loss, the solar
- * aperture and the internal gains; a row only where both numbers exist.
+ * aperture and the net free heat; a row only where both numbers exist.
  */
 export function toldRows(house: HouseInsight): ToldRow[] {
   const told = house.provenance.told;

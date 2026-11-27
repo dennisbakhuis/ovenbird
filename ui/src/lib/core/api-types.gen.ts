@@ -1390,7 +1390,8 @@ export interface components {
       | 'dhw_active'
       | 'heat_unknown'
       | 'defrost'
-      | 'stove_active';
+      | 'stove_active'
+      | 'stove_tail';
     /** @description Today's write budget. */
     Budget: {
       day: string | null;
@@ -1404,6 +1405,39 @@ export interface components {
     Champion: {
       model: string | null;
       promoted_at: string | null;
+    };
+    /**
+     * @description The latest run's check of the model ``current.json`` names (``status.json``).
+     *
+     *     ``source`` is ``held_out`` when that run promoted the model (its own held-out
+     *     validation) and ``revalidated`` when the run kept it and scored it again on the
+     *     newest held-out days (``from`` to ``to``; ``in_sample`` when the model had seen
+     *     part of them). ``gates`` are the model's three gates as of that run (``null`` from
+     *     a learner before the gates); ``credible`` is its heat-loss gate and ``reasons``
+     *     say what fails there. Errors are room RMSE in K over the first 24 h, ``skill`` is
+     *     ``1 - model / persistence`` over ``skill_horizon_h``, ``series_*`` the 24 h-ahead
+     *     error and bias of the model's room series.
+     */
+    ChampionRevalidation: {
+      at: string | null;
+      credible: boolean;
+      data_to: string | null;
+      fitted_to: string | null;
+      from: string | null;
+      gates: components['schemas']['LearnedGates'] | null;
+      in_sample: boolean;
+      model: string;
+      origins: number;
+      persistence_room_rmse_k: number | null;
+      reasons: string[];
+      room_rmse_k: number | null;
+      series_bias_k: number | null;
+      series_rmse_k: number | null;
+      skill: number | null;
+      skill_horizon_h: number | null;
+      /** @enum {string} */
+      source: 'held_out' | 'revalidated';
+      to: string | null;
     };
     /** @description Checklist items per status. */
     CheckCounts: {
@@ -1933,6 +1967,21 @@ export interface components {
     };
     /** @enum {string} */
     Format: 'json' | 'csv';
+    /** @enum {string} */
+    GateNeed:
+      | 'no_signature'
+      | 'more_heating_days'
+      | 'more_outside_spread'
+      | 'ua_interval_wide'
+      | 'ua_disagrees'
+      | 'ua_unstable'
+      | 'no_dynamics_skill'
+      | 'more_sunny_days'
+      | 'no_sun_skill'
+      | 'sun_response_off'
+      | 'legacy_model';
+    /** @enum {string} */
+    GateSource: 'fitted' | 'revalidated' | 'legacy';
     /** @description The Home Assistant link (``connected`` ``null`` when not configured). */
     HaConnection: {
       configured: boolean;
@@ -2057,7 +2106,11 @@ export interface components {
       setting: 'auto' | 'on' | 'off';
       shown: boolean;
     };
-    /** @description ``GET insight/house/balance``: the heat balance of the house right now. */
+    /**
+     * @description ``GET insight/house/balance``: the heat balance of the house right now.
+     *
+     *     ``credible`` is the model's heat-loss gate.
+     */
     HouseBalance: {
       at: string;
       credible: boolean;
@@ -2078,6 +2131,18 @@ export interface components {
       now: components['schemas']['ModelPlanNow'] | null;
       use: components['schemas']['ModelUse'];
       verdict: components['schemas']['ModelPlanVerdict'];
+    };
+    /**
+     * @description The champion's gates now, one per use.
+     *
+     *     ``heat_loss`` (U) guards the insulation score, the curve proposal, the what-if
+     *     steady state and the live balance; ``dynamics`` (D) the what-if cool-down and the
+     *     room-target planner; ``sun`` (S) the water planner.
+     */
+    HouseGates: {
+      dynamics: components['schemas']['ModelGate'];
+      heat_loss: components['schemas']['ModelGate'];
+      sun: components['schemas']['ModelGate'];
     };
     /** @description ``GET insight/house/history``: every promoted model. */
     HouseHistory: {
@@ -2101,18 +2166,33 @@ export interface components {
      * @description ``GET insight/house`` with a promoted model: the learner's insight and the score.
      *
      *     The learner's keys are passed through; ``proposal`` gains ``current_curve`` and
-     *     ``stale`` (whether the curve changed since the run).
+     *     ``stale`` (whether the curve changed since the run). ``revalidation`` is the last
+     *     run's check of this model (``null`` when the last run checked another or none).
+     *     ``gates`` are the model's three gates now (:class:`HouseGates`): the
+     *     re-validation's when there is one, else the insight's frozen
+     *     ``credibility.gates``. ``credible`` is the heat-loss gate; the score and the
+     *     proposal follow it. The learner's ``credibility`` holds ``credible`` (the heat-loss
+     *     gate as fitted), ``gates`` (:class:`LearnedGates`) and the detail.
      */
     HouseReady: {
+      at_bound?: unknown;
       balance_temperature_c?: unknown;
+      capacities_kwh_per_k?: unknown;
       champion: components['schemas']['Champion'];
       credibility?: {
         [key: string]: unknown;
       };
+      credible: boolean;
       daily_error?: unknown;
       data?: unknown;
+      emitter_time_constant_h?: unknown;
       error_trend?: unknown;
       events?: unknown;
+      excitation?: {
+        [key: string]: unknown;
+      };
+      gates: components['schemas']['HouseGates'];
+      heat_capacity_kwh_per_k?: unknown;
       internal_gains_w?: unknown;
       last_run: components['schemas']['LastRun'] | null;
       learner: components['schemas']['LearnerHealth'];
@@ -2122,12 +2202,14 @@ export interface components {
         [key: string]: unknown;
       };
       provenance?: unknown;
+      revalidation: components['schemas']['ChampionRevalidation'] | null;
       schema?: unknown;
       score: components['schemas']['HouseScore'];
       signature?: unknown;
       solar_aperture_m2?: unknown;
       /** @constant */
       state: 'ready';
+      structure?: unknown;
       time_constant_h?: unknown;
       ua?: {
         [key: string]: unknown;
@@ -2178,14 +2260,23 @@ export interface components {
     /**
      * @description ``GET insight/house/series``: the room, measured and as predicted 24 h earlier.
      *
-     *     ``points`` are ``[time, measured, predicted]`` rows, oldest first; either value is
-     *     ``null`` where it is unknown (the prediction exists only inside the learner's
-     *     held-out block).
+     *     ``points`` are ``[time, measured, predicted]`` rows, oldest first, starting at the
+     *     first prediction; either value is ``null`` where it is unknown. The prediction is
+     *     also ``null`` where its 24 h path touches an event of ``events`` (shade them).
+     *     Predictions from origins before ``out_of_sample_from`` are in-sample (the model had
+     *     seen those days). ``rmse_k`` and ``bias_k`` (predicted minus measured) summarise
+     *     the ``compared_points`` out-of-sample points with both values; ``null`` without any
+     *     (and for files of older learners).
      */
     HouseSeries: {
+      bias_k: number | null;
+      compared_points: number;
+      events: components['schemas']['SeriesEvent'][];
       from: string;
       model: string;
+      out_of_sample_from: string | null;
       points: [string, number | null, number | null][];
+      rmse_k: number | null;
       step_s: number;
       to: string;
     };
@@ -2199,7 +2290,12 @@ export interface components {
       /** @enum {string} */
       state: 'learning' | 'not_run';
     };
-    /** @description ``GET insight/house/whatif``: what the house needs to hold comfort in a scenario. */
+    /**
+     * @description ``GET insight/house/whatif``: what the house needs to hold comfort in a scenario.
+     *
+     *     ``credible`` is the model's heat-loss gate (the steady state);
+     *     ``drift.credible`` its dynamics gate (the cool-down).
+     */
     HouseWhatIf: {
       balance_outside_c: number;
       credible: boolean;
@@ -2287,10 +2383,17 @@ export interface components {
       reason: string;
       value: number;
     };
-    /** @description The allow-listed essentials of the learner's last run (``status.json``). */
+    /**
+     * @description The allow-listed essentials of the learner's last run (``status.json``).
+     *
+     *     ``warnings`` are data notes the owner should see (a wood-stove episode without a
+     *     recorded end that was capped); ``champion_revalidation`` is ``null`` when the run
+     *     had no champion or the learner wrote none that the service accepts.
+     */
     LastRun: {
       at?: string | null;
       champion?: string | null;
+      champion_revalidation?: components['schemas']['ChampionRevalidation'] | null;
       error?: string | null;
       interval_h?: number | null;
       message?: string | null;
@@ -2298,9 +2401,33 @@ export interface components {
       model?: string | null;
       outcome?: string | null;
       runtime_s?: number | null;
+      warnings?: string[] | null;
     };
     /** @enum {string} */
     LayoutName: 'long' | 'wide';
+    /**
+     * @description One credibility gate as the learner wrote it (checked by the service).
+     *
+     *     ``checks`` maps each check to ``{ok, value, limit, ...}`` (the learner's format);
+     *     ``needed`` holds the codes of what fails (codes the service does not know are
+     *     dropped); ``uses`` names what the gate guards.
+     */
+    LearnedGate: {
+      checks: {
+        [key: string]: unknown;
+      };
+      message: string | null;
+      needed: components['schemas']['GateNeed'][];
+      ok: boolean;
+      reasons: string[];
+      uses: string[];
+    };
+    /** @description The three credibility gates of a model as the learner judged it. */
+    LearnedGates: {
+      dynamics: components['schemas']['LearnedGate'];
+      heat_loss: components['schemas']['LearnedGate'];
+      sun: components['schemas']['LearnedGate'];
+    };
     /** @description When the learner last ran and whether that is too long ago. */
     LearnerHealth: {
       age_h: number | null;
@@ -2318,6 +2445,21 @@ export interface components {
     ModeChange: {
       control: components['schemas']['ControlStatus'] | null;
       mode: components['schemas']['ConfigMode'];
+    };
+    /**
+     * @description One gate of the champion now.
+     *
+     *     ``source`` is ``revalidated`` (the last run's check of this model), ``fitted``
+     *     (its own gates when it was fitted) or ``legacy`` (a model fitted before the gates:
+     *     its old credibility as the heat-loss gate, its old prediction check as the dynamics
+     *     gate, the sun gate not judged until the next run). ``message`` says what fails
+     *     (``null`` when ``ok``).
+     */
+    ModelGate: {
+      message: string | null;
+      needed: components['schemas']['GateNeed'][];
+      ok: boolean;
+      source: components['schemas']['GateSource'];
     };
     /** @enum {string} */
     ModelGuard:
@@ -2995,6 +3137,15 @@ export interface components {
     };
     /** @enum {string} */
     ScoreState: 'learning' | 'no_floor_area' | 'ready';
+    /** @description A known event in reach of the series: the anomaly ``from``-``to`` and its tail. */
+    SeriesEvent: {
+      from: string;
+      kind: components['schemas']['SeriesEventKind'];
+      tail_to: string;
+      to: string;
+    };
+    /** @enum {string} */
+    SeriesEventKind: 'stove' | 'stove_mode' | 'excluded_day';
     ServerMessage:
       | components['schemas']['SnapshotMessage']
       | components['schemas']['HealthMessage']
@@ -3335,8 +3486,13 @@ export interface components {
     };
     WeatherPoint: [string, number | null];
     WeatherReport: components['schemas']['WeatherOff'] | components['schemas']['WeatherOn'];
-    /** @description The room temperature with the heating off, from the comfort steady state. */
+    /**
+     * @description The room temperature with the heating off, from the comfort steady state.
+     *
+     *     ``credible`` is the model's dynamics gate (always ``false`` for an estimate).
+     */
     WhatIfDrift: {
+      credible: boolean;
       hours: number;
       room_c: number[];
       step_s: number;

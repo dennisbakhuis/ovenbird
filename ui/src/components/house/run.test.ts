@@ -108,23 +108,16 @@ describe('RunCard', () => {
         credible: false,
         days: 38,
         heating_days: 37,
-        cold_days: 6,
         outside_span_k: 12,
-        rules: {
-          heating_days: 30,
-          heating_day_w: 300,
-          cold_days: 10,
-          cold_day_below_c: 5,
-          outside_span_k: 10,
-        },
-        needed: { heating_days: 0, cold_days: 4, outside_span_k: 0 },
+        rules: { heating_days: 30, heating_day_w: 300, outside_span_k: 10 },
+        needed: { heating_days: 4, outside_span_k: 0 },
         reasons: [],
         low_confidence: false,
         message: null,
       },
     });
     await settle();
-    expect(screen.getByTestId('run-learning').textContent).toContain('4 more cold days');
+    expect(screen.getByTestId('run-learning').textContent).toContain('4 more heating days');
   });
 
   it('starts a run, polls every 5 s until idle and then tells the page', async () => {
@@ -163,5 +156,51 @@ describe('RunCard', () => {
     await fireEvent.click(screen.getByTestId('run-now'));
     await settle();
     expect(screen.getByTestId('run-error').textContent).toContain('operate or admin role');
+  });
+});
+
+describe('RunCard revalidation', () => {
+  const revalidation = {
+    model: 'house-1',
+    at: '2026-11-27T10:00:00Z',
+    source: 'revalidated',
+    credible: true,
+    reasons: [],
+    skill: 0.2,
+    room_rmse_k: 0.14,
+    persistence_room_rmse_k: 0.2,
+  } as never;
+
+  it('says the model is still good after the last check against new data', async () => {
+    service([() => answer(200, idle)]);
+    render(RunCard, { revalidation });
+    await settle();
+    const text = screen.getByTestId('house-revalidation-text').textContent ?? '';
+    expect(text).toContain('Last checked against new data on');
+    expect(text).toContain('still good');
+    expect(screen.getByTestId('house-revalidation').textContent).toContain('0.14 K');
+  });
+
+  it('says why the model is no longer trusted, and lists the data notes', async () => {
+    service([() => answer(200, idle)]);
+    render(RunCard, {
+      revalidation: { ...(revalidation as object), credible: false, skill: -0.05 } as never,
+      warnings: ['a stove episode has no recorded end'],
+    });
+    await settle();
+    expect(screen.getByTestId('house-revalidation-text').textContent).toContain(
+      'no longer trusted because it no longer predicts the room better than "the room stays as it is"',
+    );
+    expect(screen.getByTestId('house-data-warnings').textContent).toContain(
+      'a stove episode has no recorded end',
+    );
+  });
+
+  it('shows neither without a re-validation or notes', async () => {
+    service([() => answer(200, idle)]);
+    render(RunCard);
+    await settle();
+    expect(screen.queryByTestId('house-revalidation')).toBeNull();
+    expect(screen.queryByTestId('house-data-warnings')).toBeNull();
   });
 });

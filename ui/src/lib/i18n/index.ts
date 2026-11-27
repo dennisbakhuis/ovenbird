@@ -18,6 +18,7 @@ import { shadow as enShadow } from './en/shadow';
 import { trial as enTrial } from './en/trial';
 import { house as enHouse } from './en/house';
 import { houseControl as enHouseControl } from './en/houseControl';
+import { houseGates as enHouseGates } from './en/houseGates';
 import { houseModel as enHouseModel } from './en/houseModel';
 import { weather as enWeather } from './en/weather';
 import { activity as nlActivity } from './nl/activity';
@@ -40,6 +41,7 @@ import { shadow as nlShadow } from './nl/shadow';
 import { trial as nlTrial } from './nl/trial';
 import { house as nlHouse } from './nl/house';
 import { houseControl as nlHouseControl } from './nl/houseControl';
+import { houseGates as nlHouseGates } from './nl/houseGates';
 import { houseModel as nlHouseModel } from './nl/houseModel';
 import { weather as nlWeather } from './nl/weather';
 
@@ -62,6 +64,7 @@ export const en = {
   ...enHouse,
   ...enHouseModel,
   ...enHouseControl,
+  ...enHouseGates,
   ...enData,
   ...enReplay,
   ...enHotwater,
@@ -90,6 +93,7 @@ export const nl: Dictionary = {
   ...nlHouse,
   ...nlHouseModel,
   ...nlHouseControl,
+  ...nlHouseGates,
   ...nlData,
   ...nlReplay,
   ...nlHotwater,

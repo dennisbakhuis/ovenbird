@@ -220,8 +220,8 @@ export const glossary: GlossaryEntry[] = [
     id: 'model-plan',
     term: 'Modelplan',
     short:
-      'Een kleine verschuiving van het kamerdoel, uitgerekend uit het huismodel, de zon en de weersverwachting.',
-    body: 'Elke 15 minuten voorspelt de planner hoe de kamer de komende uren beweegt. Hij zet het doel een beetje terug voordat gratis warmte van de zon binnenkomt en verhoogt het een beetje voor een koude omslag, binnen vaste grenzen (standaard hooguit 0,5 K omlaag en 0,3 K omhoog). De schakelaar heeft drie standen: **Uit**, **Schaduw** (hij rekent en legt vast wat hij zou doen, en verandert niets) en **Aan** (de verschuiving wordt toegepast; voorlopig vergrendeld). Zie [Huis → Regeling](#/house).',
+      'Een kleine verschuiving van het kamerdoel, berekend uit het huismodel, de zon en de weersverwachting.',
+    body: 'Elke 15 minuten voorspelt de planner hoe de kamertemperatuur de komende uren verloopt. Hij zet het kamerdoel een beetje lager voordat er vrije warmte van de zon binnenkomt, en een beetje hoger voordat het kouder wordt, binnen vaste grenzen (standaard hooguit 0,5 K omlaag en 0,3 K omhoog). De schakelaar heeft drie standen: **Uit**, **Schaduw** (de planner rekent en legt vast wat hij zou doen, maar verandert niets) en **Aan** (de verschuiving wordt toegepast; voorlopig vergrendeld). Zie [Huis → Regeling](#/house).',
     related: ['forecast', 'shadow', 'room-feedback'],
     aliases: ['schaduw', 'modelgebruik', 'planner', 'terugzetten', 'voorverwarmen'],
   },

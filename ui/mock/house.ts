@@ -8,7 +8,12 @@ const DAY = 86_400_000;
 const LABEL = 'Suggested by the house model';
 const DESIGN_DELTA_K = 30;
 const UA = 240.4;
-const UA_INTERVAL: [number, number] = [229.8, 251.3];
+const UA_BOOTSTRAP: [number, number] = [229.8, 251.3];
+const UA_FOLDS: number[] = [224.9, 238.6];
+const UA_INTERVAL: [number, number] = [224.9, 251.3];
+const CAPACITIES = { loop: 0.35, emitter: 1.25, building: 6.15 };
+const EMITTER_TIME_CONSTANT_H = 0.6;
+const GAINS_COUPLING_W_PER_K_PER_100_W = 9.0;
 const BALANCE_C = 16.5;
 const COMFORT_C = 21.0;
 const DEFAULT_CURVE: Curve = [
@@ -35,6 +40,156 @@ const TIME_CONSTANT_H = 52.6;
 const TOLD = { ua_w_per_k: 340, solar_aperture_m2: 5.0, internal_gain_w: 300 };
 const EMITTER_W_PER_K = 410;
 const DELTA_T_K = 5;
+
+const PIN_UA = 300;
+
+type House = NonNullable<Scenario['house']>;
+const HEAT_LOSS_FAILS: readonly House[] = ['uncredible', 'not-excited'];
+
+type GateName = 'heat_loss' | 'dynamics' | 'sun';
+type GateNeedCode =
+  | 'no_signature'
+  | 'more_heating_days'
+  | 'more_outside_spread'
+  | 'no_dynamics_skill'
+  | 'more_sunny_days'
+  | 'legacy_model';
+
+interface GateState {
+  ok: boolean;
+  needed: GateNeedCode[];
+  source: 'fitted' | 'revalidated' | 'legacy';
+}
+
+/**
+ * The three gates of the champion of a scenario: all pass by default; `uncredible` and
+ * `not-excited` fail the heat-loss gate, `no-skill` the dynamics gate (a re-validated kept
+ * champion), `no-sun` the sun gate and `legacy` is a model made before the gates.
+ */
+export function houseGates(scenario: Scenario): Record<GateName, GateState> {
+  const house = scenario.house;
+  const source = house === 'no-skill' ? 'revalidated' : house === 'legacy' ? 'legacy' : 'fitted';
+  const heatLoss: GateNeedCode[] =
+    house === 'uncredible'
+      ? ['no_signature', 'more_heating_days', 'more_outside_spread']
+      : house === 'not-excited'
+        ? ['more_heating_days', 'more_outside_spread']
+        : [];
+  const dynamics: GateNeedCode[] = house === 'no-skill' ? ['no_dynamics_skill'] : [];
+  const sun: GateNeedCode[] =
+    house === 'no-sun' ? ['more_sunny_days'] : house === 'legacy' ? ['legacy_model'] : [];
+  return {
+    heat_loss: { ok: heatLoss.length === 0, needed: heatLoss, source },
+    dynamics: { ok: dynamics.length === 0, needed: dynamics, source },
+    sun: { ok: sun.length === 0, needed: sun, source },
+  };
+}
+
+/**
+ * Whether the heat-loss gate of the model of a scenario passes (`credible` of the insight, the
+ * balance, the proposal and the what-if steady state).
+ */
+export function houseCredible(scenario: Scenario): boolean {
+  return !(scenario.house && HEAT_LOSS_FAILS.includes(scenario.house));
+}
+
+/**
+ * Whether the dynamics gate passes (`drift.credible` of the what-if).
+ */
+export function houseDynamicsCredible(scenario: Scenario): boolean {
+  return houseGates(scenario).dynamics.ok;
+}
+
+const GATE_MESSAGES: Record<GateNeedCode, string> = {
+  no_signature: 'the energy signature shows no clear heating pattern',
+  more_heating_days: 'more heating days are needed',
+  more_outside_spread: 'more spread in outside temperature is needed',
+  no_dynamics_skill: "the model does not predict the room better than 'no change'",
+  more_sunny_days: "2 more sunny days needed to check the model's sun response",
+  legacy_model: 'model made before the gates; the next run judges it',
+};
+
+function gateMessage(state: GateState): string | null {
+  return state.ok ? null : state.needed.map((code) => GATE_MESSAGES[code]).join('; ');
+}
+
+function modelGates(scenario: Scenario): Record<string, unknown> {
+  const gates = houseGates(scenario);
+  return Object.fromEntries(
+    (Object.keys(gates) as GateName[]).map((name) => [
+      name,
+      {
+        ok: gates[name].ok,
+        needed: gates[name].needed,
+        message: gateMessage(gates[name]),
+        source: gates[name].source,
+      },
+    ]),
+  );
+}
+
+/**
+ * The gates as the learner wrote them (`credibility.gates`, `champion_revalidation.gates`): the
+ * checks with value and limit, the need codes and what each gate guards.
+ */
+function learnedGates(
+  scenario: Scenario,
+  shortfall: { heating_days: number; outside_span_k: number },
+  detailed = false,
+) {
+  const gates = houseGates(scenario);
+  const fails = (name: GateName, code: GateNeedCode) => gates[name].needed.includes(code);
+  const check = (ok: boolean, value: number, limit: number, extra = {}) => ({
+    ok,
+    value,
+    limit,
+    ...extra,
+  });
+  const entry = (name: GateName, uses: string[], checks: Record<string, unknown>, extra = {}) => ({
+    ok: gates[name].ok,
+    uses,
+    checks,
+    needed: gates[name].needed,
+    reasons: gates[name].needed.map((code) => GATE_MESSAGES[code]),
+    message: gateMessage(gates[name]),
+    ...extra,
+  });
+  return {
+    heat_loss: entry(
+      'heat_loss',
+      ['insulation_score', 'curve_proposal', 'whatif_steady_state', 'balance'],
+      {
+        signature: check(!fails('heat_loss', 'no_signature'), 37, 30),
+        excitation: check(
+          !fails('heat_loss', 'more_heating_days') && !fails('heat_loss', 'more_outside_spread'),
+          20 - shortfall.heating_days,
+          20,
+        ),
+        ua_interval: check(true, 0.11, 0.3),
+        ua_agreement: check(true, 0.02, 0.2),
+        ua_stability: check(true, 0.05, 0.15, { folds: 2, fold_ua_w_per_k: UA_FOLDS }),
+      },
+      detailed ? { shortfall } : {},
+    ),
+    dynamics: entry(
+      'dynamics',
+      ['whatif_cooldown', 'room_target_planner'],
+      { skill_6h: check(gates.dynamics.ok, gates.dynamics.ok ? 0.21 : -0.06, 0) },
+      detailed
+        ? { diagnostics: { skill_24h: -0.02, note: 'a house held flat is hard to out-predict' } }
+        : {},
+    ),
+    sun: entry('sun', ['water_planner'], {
+      sunny_days: check(
+        !fails('sun', 'more_sunny_days'),
+        fails('sun', 'more_sunny_days') ? 3 : 7,
+        5,
+      ),
+      sun_skill: check(true, 0.12, 0),
+      sun_response: check(true, 1.05, 1.5, { interval: [0.8, 1.3], origins: 18 }),
+    }),
+  };
+}
 
 const iso = (ms: number) => new Date(ms).toISOString();
 const day = (ms: number) => iso(ms).slice(0, 10);
@@ -173,6 +328,88 @@ function signature(now: number, cold: boolean): Record<string, unknown>[] {
 const LEARNER_INTERVAL_H = 168;
 const HOUR = 3_600_000;
 
+const SERIES_STEP_S = 900;
+const STOVE_AGO_DAYS = 4;
+const LEFT_OUT_AGO_DAYS = 9;
+
+interface SeriesEventRow {
+  kind: 'stove' | 'stove_mode' | 'excluded_day';
+  from: string;
+  to: string;
+  tail_to: string;
+}
+
+interface SeriesBuild {
+  from: number;
+  to: number;
+  points: [string, number | null, number | null][];
+  events: SeriesEventRow[];
+  outOfSampleFrom: number;
+  rmse: number | null;
+  bias: number | null;
+  compared: number;
+}
+
+/**
+ * The series of the champion: measured room temperature, the 24 h-ahead prediction (none where its
+ * path touches the wood-stove period with its tail or a left-out day) and the out-of-sample error
+ * the service would report for it.
+ */
+function buildSeries(now: number): SeriesBuild {
+  const stepMs = SERIES_STEP_S * 1000;
+  const to = Math.floor(now / stepMs) * stepMs;
+  const from = to - 14 * DAY;
+  const gapFrom = to - 5 * DAY;
+  const stoveFrom = Math.floor((now - STOVE_AGO_DAYS * DAY) / 60_000) * 60_000;
+  const leftOutFrom = Date.parse(`${day(now - LEFT_OUT_AGO_DAYS * DAY)}T00:00:00Z`);
+  const events: SeriesEventRow[] = [
+    {
+      kind: 'excluded_day',
+      from: iso(leftOutFrom),
+      to: iso(leftOutFrom + DAY),
+      tail_to: iso(leftOutFrom + DAY),
+    },
+    {
+      kind: 'stove',
+      from: iso(stoveFrom),
+      to: iso(stoveFrom + 5 * HOUR),
+      tail_to: iso(stoveFrom + 17 * HOUR),
+    },
+  ];
+  const spans = events.map((event) => [Date.parse(event.from), Date.parse(event.tail_to)]);
+  const outOfSampleFrom = to - 9 * DAY;
+  const points: [string, number | null, number | null][] = [];
+  let compared = 0;
+  let squares = 0;
+  let signed = 0;
+  for (let at = from + DAY, i = 0; at <= to; at += stepMs, i += 1) {
+    const inGap = at >= gapFrom && at < gapFrom + 3 * HOUR;
+    const touches = spans.some(
+      ([start, end]) => at >= (start as number) && at - DAY <= (end as number),
+    );
+    const measured = roomAt(at) + 0.05 * noise(i);
+    const predicted = measured + 0.08 * Math.sin(i / 37) + 0.06 * noise(i + 5) - 0.08;
+    const shownMeasured = inGap ? null : round(measured, 2);
+    const shownPredicted = inGap || touches ? null : round(predicted, 2);
+    points.push([iso(at), shownMeasured, shownPredicted]);
+    if (shownMeasured !== null && shownPredicted !== null && at - DAY >= outOfSampleFrom) {
+      compared += 1;
+      squares += (shownPredicted - shownMeasured) ** 2;
+      signed += shownPredicted - shownMeasured;
+    }
+  }
+  return {
+    from: Date.parse(points[0]?.[0] ?? iso(from)),
+    to,
+    points,
+    events,
+    outOfSampleFrom,
+    rmse: compared > 0 ? round(Math.sqrt(squares / compared), 3) : null,
+    bias: compared > 0 ? round(signed / compared, 3) : null,
+    compared,
+  };
+}
+
 /**
  * One wood-stove period as the learner reports it (`ovenbird_sim.data.events.Event.to_json`).
  */
@@ -209,6 +446,45 @@ function learner(now: number, runAt: number | null): Record<string, unknown> {
 }
 
 /**
+ * The latest check of the champion: a just-promoted model's own held-out test, or (for a model
+ * that no longer predicts better than `no change`) a re-validation of the kept champion.
+ */
+function revalidationOf(
+  now: number,
+  runAt: number,
+  model: string,
+  scenario: Scenario,
+  credible: boolean,
+  skill: number,
+  series: SeriesBuild,
+  reasons: string[],
+  shortfall: { heating_days: number; outside_span_k: number },
+): Record<string, unknown> {
+  const revalidated = scenario.house === 'no-skill';
+  const legacy = scenario.house === 'legacy';
+  return {
+    model,
+    at: iso(runAt),
+    source: revalidated ? 'revalidated' : 'held_out',
+    data_to: iso(now - DAY),
+    fitted_to: iso(now - (revalidated ? 8 : 15) * DAY),
+    from: iso(now - 15 * DAY),
+    to: iso(now - DAY),
+    origins: 104,
+    in_sample: false,
+    room_rmse_k: revalidated ? 0.14 : 0.093,
+    persistence_room_rmse_k: revalidated ? 0.13 : 0.13,
+    skill_horizon_h: 6,
+    skill,
+    series_rmse_k: series.rmse,
+    series_bias_k: series.bias,
+    gates: legacy ? null : learnedGates(scenario, shortfall),
+    credible,
+    reasons,
+  };
+}
+
+/**
  * `GET insight/house`: a ready, credible champion by default; see the `house` scenario key. Always
  * `200`, also while no model has been promoted (`state` `not_run` or `learning`).
  */
@@ -241,17 +517,59 @@ export function makeHouse(now: number, scenario: Scenario, doc: ConfigDoc): Mock
         learner: learner(now, runAt),
       },
     };
-  const credible = scenario.house !== 'uncredible';
+  const credible = houseCredible(scenario);
   const changed = scenario.house === 'changed';
+  const pinned = scenario.house === 'pin-cost';
   const points = signature(now, credible);
-  const coldDays = points.filter((p) => (p['outside_c'] as number) < 5).length;
-  const shownCold = credible ? Math.max(coldDays, 12) : 6;
+  const gates = houseGates(scenario);
+  const legacy = scenario.house === 'legacy';
+  const checks = {
+    signature: scenario.house !== 'uncredible',
+    excitation: credible,
+    ua_consistent: true,
+    ...(legacy ? {} : { ua_stable: true }),
+    predictive: gates.dynamics.ok,
+    ...(legacy ? {} : { sun: gates.sun.ok }),
+  };
+  const needed = checks.excitation
+    ? { heating_days: 0, outside_span_k: 0 }
+    : scenario.house === 'not-excited'
+      ? { heating_days: 6, outside_span_k: 1.4 }
+      : { heating_days: 9, outside_span_k: 2.4 };
+  const skill = checks.predictive ? 0.21 : -0.06;
   const message = credible
     ? null
-    : 'insufficient data: 4 more cold days (daily mean below 5 °C) needed';
+    : `insufficient data: ${needed.heating_days} more heating days, ${needed.outside_span_k} K more spread in daily outside temperature needed`;
+  const reasons = credible
+    ? []
+    : [`${20 - needed.heating_days} heating days in the fit window < 20`];
+  const ua = pinned ? PIN_UA : UA;
+  const uaInterval: [number, number] = pinned ? [PIN_UA, PIN_UA] : UA_INTERVAL;
+  const uaBootstrap: [number, number] = pinned ? [PIN_UA, PIN_UA] : UA_BOOTSTRAP;
+  const uaFolds = pinned ? [PIN_UA] : UA_FOLDS;
   const model = modelName(now - DAY);
   const dataTo = now - DAY;
   const area = floorArea(doc, scenario);
+  const series = buildSeries(now);
+  const revalidation = revalidationOf(
+    now,
+    runAt,
+    model,
+    scenario,
+    credible,
+    skill,
+    series,
+    reasons,
+    needed.heating_days > 0 || needed.outside_span_k > 0
+      ? { heating_days: needed.heating_days, outside_span_k: needed.outside_span_k }
+      : { heating_days: 0, outside_span_k: 0 },
+  );
+  const warnings =
+    scenario.house === 'no-skill'
+      ? [`wood-stove episode of ${day(now - 3 * DAY)} has no recorded end; capped at 12 h`]
+      : [];
+  const heldOut = pinned ? 0.31 : changed ? 0.108 : 0.093;
+  const unconstrained = pinned ? 0.24 : null;
   return {
     status: 200,
     body: {
@@ -261,32 +579,84 @@ export function makeHouse(now: number, scenario: Scenario, doc: ConfigDoc): Mock
       champion: { model, promoted_at: iso(runAt) },
       last_run: {
         at: iso(runAt),
-        outcome: 'promoted',
+        outcome: scenario.house === 'no-skill' ? 'kept_champion' : 'promoted',
         model,
         champion: model,
         message: null,
         runtime_s: 275.7,
         interval_h: LEARNER_INTERVAL_H,
+        warnings,
+        champion_revalidation: revalidation,
       },
+      credible,
+      gates: modelGates(scenario),
+      revalidation,
       learner: learner(now, runAt),
       data: {
         from: iso(now - 42 * DAY),
         to: iso(dataTo),
         fit_days: 40.7,
         signature_days: points.length,
-        excluded_days: [day(now - 4 * DAY)],
+        excluded_days: [day(now - LEFT_OUT_AGO_DAYS * DAY)],
+        warnings,
       },
       ua: {
-        w_per_k: UA,
-        interval_90: UA_INTERVAL,
+        w_per_k: ua,
+        interval_90: uaInterval,
+        ...(legacy
+          ? {}
+          : {
+              interval_source: 'bootstrap_and_folds',
+              bootstrap_interval_90: uaBootstrap,
+              fold_w_per_k: uaFolds,
+            }),
         source: 'rc_model',
         signature_w_per_k: 236.1,
         signature_interval_90: [221.0, 252.6],
         low_confidence: false,
       },
       time_constant_h: { value: 52.6, interval_90: [48.9, 56.4] },
+      heat_capacity_kwh_per_k: 7.75,
+      ...(legacy
+        ? {}
+        : {
+            capacities_kwh_per_k: CAPACITIES,
+            emitter_time_constant_h: { value: EMITTER_TIME_CONSTANT_H, interval_90: [0.5, 0.7] },
+            structure: {
+              name: 'chain',
+              fixed: {
+                h_water_air: 5.0,
+                solar_mass_fraction: 0.0,
+                q_int_modulation: 0.0,
+                q_int_peak_hour: 19.0,
+              },
+              free: [
+                'c_water',
+                'c_mass',
+                'c_air',
+                'h_water_mass',
+                'h_mass_air',
+                'h_air_out',
+                'solar_aperture_m2',
+                'q_int_w',
+              ],
+              nodes: { c_water: 'loop', c_mass: 'emitter', c_air: 'building' },
+            },
+          }),
       solar_aperture_m2: { value: 6.2, interval_90: [5.4, 7.1] },
-      internal_gains_w: { value: 318, interval_90: [262, 381] },
+      internal_gains_w: {
+        value: 318,
+        interval_90: [262, 381],
+        ...(legacy
+          ? {}
+          : {
+              identified: false,
+              label: 'net_free_heat',
+              note: 'net free heat (people, appliances, other sources); cannot be separated from the heat loss with this data',
+              at_zero: false,
+              ua_w_per_k_per_100_w: GAINS_COUPLING_W_PER_K_PER_100_W,
+            }),
+      },
       balance_temperature_c: { value: BALANCE_C, interval_90: [16.0, 17.1] },
       signature: {
         indoor: 'house_mean',
@@ -304,38 +674,102 @@ export function makeHouse(now: number, scenario: Scenario, doc: ConfigDoc): Mock
           model: 'change-point regression',
         },
       },
+      excitation: {
+        excited: checks.excitation,
+        days: 36,
+        heating_days: 20 - needed.heating_days + (checks.excitation ? 4 : 0),
+        delta_t_days: 30,
+        run_share_days: 15,
+        heat_days: 12,
+        mean_delta_t_k: 9.8,
+        mean_run_share: 0.31,
+        heat_kwh_per_day: 22.4,
+        outside_sd_k: 2.9,
+        outside_range_k: round(10 - needed.outside_span_k + (checks.excitation ? 5.2 : 0), 1),
+        ua_relative_width: 0.07,
+        ua_tight: true,
+        rules: {
+          heating_days: 20,
+          delta_t_k: 5,
+          run_share: 0.2,
+          outside_range_k: 10,
+          ua_relative_width: 0.3,
+          heat_day_kwh: 20,
+        },
+        needed: { heating_days: needed.heating_days, outside_range_k: needed.outside_span_k },
+        reasons,
+      },
       credibility: {
         credible,
+        ...(legacy ? {} : { gates: learnedGates(scenario, needed, true) }),
+        checks,
         days: points.length,
         heating_days: points.length - 1,
-        cold_days: shownCold,
+        cold_days: credible ? 12 : 6,
         outside_span_k: credible ? 16.2 : 13.4,
+        agreement: 0.02,
+        skill,
         rules: {
           heating_days: 30,
           heating_day_w: 300,
-          cold_days: 10,
-          cold_day_below_c: 5,
           outside_span_k: 10,
+          cold_day_below_c: 5,
+          ua_agreement: 0.2,
+          skill_horizon_h: 6,
+          min_skill: 0,
         },
-        needed: { heating_days: 0, cold_days: credible ? 0 : 4, outside_span_k: 0 },
-        reasons: credible ? [] : ['6 days below 5 degC < 10'],
+        needed,
+        reasons,
         low_confidence: false,
         message,
       },
-      score: houseScore(UA, UA_INTERVAL, area, credible, message),
+      score: houseScore(ua, uaInterval, area, credible, message),
       validation: {
         test_from: iso(now - 15 * DAY),
         test_to: iso(now - DAY),
         score_horizon_h: 24,
-        challenger_room_rmse_k: changed ? 0.108 : 0.093,
+        held_out_room_rmse_k: heldOut,
+        persistence_room_rmse_k: round(heldOut * 1.4, 3),
+        skill_horizon_h: 6,
+        skill_at_horizon: skill,
+        series_rmse_k: series.rmse,
+        series_bias_k: series.bias,
+        series_points: series.compared,
+        challenger_room_rmse_k: heldOut,
         champion_room_rmse_k: 0.101,
         champion: modelName(now - 8 * DAY),
+        challenger_credible: credible,
+        champion_credible: true,
+        challenger_gates: {
+          heat_loss: gates.heat_loss.ok,
+          dynamics: gates.dynamics.ok,
+          sun: gates.sun.ok,
+        },
+        champion_gates: { heat_loss: true, dynamics: true, sun: true },
+        same_house: true,
         promoted: true,
-        settings_changed: changed,
+        settings_changed: changed || pinned,
+        tolerance_k: 0.02,
+        unconstrained_room_rmse_k: unconstrained,
+        constraint_cost: pinned ? { excess_k: 0.07, limit_k: 0.05, worse: true } : null,
         rule: changed
           ? 'house settings changed: promoted although challenger 0.108 K > champion 0.101 K'
-          : 'challenger 0.093 K <= champion 0.101 K',
+          : pinned
+            ? 'house settings changed: promoted although challenger 0.31 K > champion 0.101 K'
+            : 'challenger 0.093 K <= champion 0.101 K',
       },
+      at_bound: pinned
+        ? [
+            { parameter: 'h_air_out', value: PIN_UA, side: 'pinned', limit: PIN_UA, kind: 'owner' },
+            {
+              parameter: 'h_water_air',
+              value: 5.1,
+              side: 'lower',
+              limit: 5,
+              kind: 'structural',
+            },
+          ]
+        : [{ parameter: 'h_water_air', value: 5.1, side: 'lower', limit: 5, kind: 'structural' }],
       error_trend: history(now, area, credible).map((entry) => ({
         model: entry['model'],
         data_to: entry['data_to'],
@@ -349,7 +783,7 @@ export function makeHouse(now: number, scenario: Scenario, doc: ConfigDoc): Mock
         origins: 9,
       })),
       proposal: proposal(doc, credible),
-      events: [stoveEvent(now - 4 * DAY)],
+      events: [stoveEvent(now - STOVE_AGO_DAYS * DAY)],
       limits: [
         'single room sensor: the UA is apparent (ventilation and the other rooms are in it)',
         'solar aperture from global horizontal irradiance only (no orientation)',
@@ -374,7 +808,7 @@ export function makeHouse(now: number, scenario: Scenario, doc: ConfigDoc): Mock
           fit_days: numberField(doc, 'house_learn_fit_days', 42),
           test_days: numberField(doc, 'house_learn_test_days', 14),
           tolerance_k: 0.02,
-          excluded_days: [day(now - 4 * DAY)],
+          excluded_days: [day(now - LEFT_OUT_AGO_DAYS * DAY)],
           excluded_days_in_fit: 1,
         },
       },
@@ -411,7 +845,7 @@ export function makeHouseHistory(now: number, scenario: Scenario, doc: ConfigDoc
     return { status: 200, body: { floor_area_m2: area, models: [] } };
   return {
     status: 200,
-    body: { floor_area_m2: area, models: history(now, area, scenario.house !== 'uncredible') },
+    body: { floor_area_m2: area, models: history(now, area, houseCredible(scenario)) },
   };
 }
 
@@ -422,7 +856,7 @@ export function makeProposalDraft(now: number, scenario: Scenario, doc: ConfigDo
   if (scenario.house === 'learning' || scenario.house === 'notrun')
     return { status: 404, body: { detail: 'no house model has been promoted yet' } };
   const model = modelName(now - DAY);
-  const suggestion = proposal(doc, scenario.house !== 'uncredible');
+  const suggestion = proposal(doc, houseCredible(scenario));
   return {
     status: 200,
     body: {
@@ -644,13 +1078,15 @@ export function makeBalance(now: number, scenario: Scenario, stoveActive: boolea
     : defrosting
       ? -round10(300)
       : Math.max(0, round10(loss - (sunW ?? 0) - internal - stoveW + wobble));
-  const known = sunW !== null && !stoveActive && pump !== null;
-  const credible = !estimate && scenario.house !== 'uncredible';
+  const tail = scenario.balance === 'tail';
+  const known = sunW !== null && !stoveActive && !tail && pump !== null;
+  const credible = !estimate && houseCredible(scenario);
   const notes = [
     ...(estimate ? ['estimate'] : []),
     ...(!credible ? ['not_credible'] : []),
     ...(sunKnown ? [] : ['sun_unknown']),
     ...(stoveActive ? ['stove_active'] : []),
+    ...(tail ? ['stove_tail'] : []),
     ...(hotWater ? ['dhw_active'] : []),
     ...(defrosting ? ['defrost'] : []),
   ];
@@ -677,11 +1113,10 @@ export function makeBalance(now: number, scenario: Scenario, stoveActive: boolea
   };
 }
 
-const SERIES_STEP_S = 900;
-
 /**
  * `GET insight/house/series`: measured room temperature and the temperature the model predicted
- * 24 h ahead, every 15 minutes over the last 14 days, with a three-hour gap in both.
+ * 24 h ahead, every 15 minutes over the last 14 days, with a three-hour gap in both, a wood-stove
+ * period and a left-out day (no prediction where its path touches them).
  */
 export function makeHouseSeries(now: number, scenario: Scenario): MockResult {
   if (
@@ -690,30 +1125,20 @@ export function makeHouseSeries(now: number, scenario: Scenario): MockResult {
     scenario.house === 'notrun'
   )
     return notFound('house_series_missing', 'no model has predicted the room yet');
-  const stepMs = SERIES_STEP_S * 1000;
-  const to = Math.floor(now / stepMs) * stepMs;
-  const from = to - 14 * DAY;
-  const gapFrom = to - 5 * DAY;
-  const points: [string, number | null, number | null][] = [];
-  for (let at = from, i = 0; at <= to; at += stepMs, i += 1) {
-    const inGap = at >= gapFrom && at < gapFrom + 3 * HOUR;
-    const measured = roomAt(at) + 0.05 * noise(i);
-    const predicted = measured + 0.08 * Math.sin(i / 37) + 0.06 * noise(i + 5) - 0.03;
-    const noPrediction = at < from + DAY;
-    points.push([
-      iso(at),
-      inGap ? null : round(measured, 2),
-      inGap || noPrediction ? null : round(predicted, 2),
-    ]);
-  }
+  const built = buildSeries(now);
   return {
     status: 200,
     body: {
       model: modelName(now - DAY),
       step_s: SERIES_STEP_S,
-      from: iso(from),
-      to: iso(to),
-      points,
+      from: iso(built.from),
+      to: iso(built.to),
+      points: built.points,
+      events: built.events,
+      out_of_sample_from: iso(built.outOfSampleFrom),
+      rmse_k: built.rmse,
+      bias_k: built.bias,
+      compared_points: built.compared,
     },
   };
 }
@@ -812,7 +1237,7 @@ export function makeWhatIf(
     body: {
       source: estimate ? 'estimate' : 'model',
       model: estimate ? null : modelName(now - DAY),
-      credible: !estimate && scenario.house !== 'uncredible',
+      credible: !estimate && houseCredible(scenario),
       inputs,
       heat_demand_w: demand,
       free_heat_w: free,
@@ -823,7 +1248,12 @@ export function makeWhatIf(
       max_supply_c: maxSupply,
       limited_by: limited,
       balance_outside_c: round(comfort - free / ua, 1),
-      drift: { hours: 8, step_s: SERIES_STEP_S, room_c: room },
+      drift: {
+        credible: !estimate && houseDynamicsCredible(scenario),
+        hours: 8,
+        step_s: SERIES_STEP_S,
+        room_c: room,
+      },
       time_constant_h: tau,
     },
   };

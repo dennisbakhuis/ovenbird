@@ -23,13 +23,14 @@ Facts (:mod:`ovenbird_core.housefacts`)
     * Internal gains (occupants): spread half the estimate, at least 150 W, instead of
       400 W. Gains and UA trade against each other (both set the balance
       temperature), so the spread stays wide enough not to steer the UA.
-    * Floor-heating share: the prior means of the water-to-mass (floor loop) and
-      water-to-air (radiators) conductances split their default total (550 W/K) by
-      the share (kept within 5-95 %), with spread ``log(3)``; the total is left to
-      the data.
-    * Volume: a lower bound on the air capacity, the heat capacity of the air alone
-      (1206 J/(m3 K) x volume); the air node also holds furniture and inner walls, so
-      the fitted value is normally far above it.
+    * Volume: a lower bound on the building node's capacity (``c_air``), the heat
+      capacity of the air alone (1206 J/(m3 K) x volume); that node holds the bulk of
+      the building, so the fitted value is normally far above it.
+
+    There is no fact for the share of floor heating: it would split the loop's
+    conductance between a direct loop-to-room path and the emitter, which the data
+    cannot tell apart, and the chain holds the direct path
+    (:data:`ovenbird_sim.identify.building.CHAIN_FIXED`).
 
 Bounds
     ``house_ua_*``, ``house_solar_aperture_*`` and ``house_internal_gain_*`` bound
@@ -44,13 +45,20 @@ Learning options
 
 Invalid settings raise :class:`SettingError` naming the setting; the learner then
 does not fit. With no facts and no bounds the priors are exactly the module constants.
+:func:`unconstrained` drops the bounds, pins and time-constant range again (facts
+kept) for the learner's reference fit.
+
+The fit span must hold the test block plus :data:`MIN_TRAIN_DAYS` days: seven days to
+train on and one for the partial first day and the alignment of the daily fit
+windows. The learner (:mod:`ovenbird_sim.learn.run`) and the service's validation use
+the same number.
 """
 
 from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Final
 
@@ -62,8 +70,8 @@ from ovenbird_core.housefacts import (
     facts_from_config,
 )
 from ovenbird_sim.identify.building import (
+    BOUNDS,
     DEFAULT_PRIORS,
-    PRIOR_MEAN,
     ConstraintError,
     ParamPrior,
     Priors,
@@ -72,6 +80,7 @@ from ovenbird_sim.identify.building import (
 __all__ = [
     "BOUND_SETTINGS",
     "FACT_SETTINGS",
+    "MIN_TRAIN_DAYS",
     "HouseBounds",
     "HouseSettings",
     "LearnSettings",
@@ -80,21 +89,19 @@ __all__ = [
     "SettingError",
     "build_priors",
     "house_settings",
+    "unconstrained",
 ]
 
 UA_FACT_SD: Final = math.log(2.0)
-SPLIT_FACT_SD: Final = math.log(3.0)
 SOLAR_FACT_MIN_SD_M2: Final = 2.0
 GAINS_FACT_RELATIVE_SD: Final = 0.5
 GAINS_FACT_MIN_SD_W: Final = 150.0
-SHARE_LIMITS: Final = (0.05, 0.95)
 MAX_EXCLUDED_DAYS: Final = 60
 MIN_TRAIN_DAYS: Final = 8
 FACT_SETTINGS: Final = (
     "house_floor_area_m2",
     "house_volume_m3",
     "house_build_period",
-    "house_floor_heating_share",
     "house_window_area_m2",
     "house_window_orientation",
     "house_occupants",
@@ -284,7 +291,7 @@ def read_learning(config: Mapping[str, object]) -> LearnSettings:
     ------
     SettingError
         When an option is mistyped or out of range, the fit span is shorter than the
-        test span plus eight training days, or a left-out day is not a date.
+        test span plus :data:`MIN_TRAIN_DAYS`, or a left-out day is not a date.
     """
     fit = _option(config, "house_learn_fit_days", whole=True)
     test = _option(config, "house_learn_test_days", whole=True)
@@ -319,12 +326,6 @@ def _with_facts(priors: Priors, facts: HouseFacts, told: FactEstimate) -> tuple[
         sd = max(GAINS_FACT_RELATIVE_SD * told.internal_gain_w, GAINS_FACT_MIN_SD_W)
         priors = priors.with_prior("q_int_w", told.internal_gain_w, sd)
         used |= {"house_occupants"}
-    if told.floor_share is not None:
-        share = min(max(told.floor_share, SHARE_LIMITS[0]), SHARE_LIMITS[1])
-        total = PRIOR_MEAN["h_water_mass"] + PRIOR_MEAN["h_water_air"]
-        priors = priors.with_prior("h_water_mass", share * total, SPLIT_FACT_SD)
-        priors = priors.with_prior("h_water_air", (1.0 - share) * total, SPLIT_FACT_SD)
-        used |= {"house_floor_heating_share"}
     if facts.volume_m3 is not None:
         air = AIR_HEAT_J_PER_M3_K * facts.volume_m3
         if air > priors.params["c_air"].lower:
@@ -369,6 +370,20 @@ def build_priors(facts: HouseFacts, bounds: HouseBounds) -> tuple[Priors, set[st
         sides = ((spec.low_name, low), (spec.high_name, high))
         used |= {name for name, value in sides if value is not None}
     return priors, used
+
+
+def unconstrained(priors: Priors) -> Priors:
+    """Return ``priors`` without the owner's bounds, pins and time-constant range.
+
+    The prior means and spreads the facts set and the air-capacity floor the volume
+    sets are kept: only what :data:`BOUND_SETTINGS` constrains is released.
+    """
+    params = dict(priors.params)
+    for spec in BOUND_SETTINGS:
+        if spec.parameter is not None:
+            lower, upper = BOUNDS[spec.parameter]
+            params[spec.parameter] = replace(params[spec.parameter], lower=lower, upper=upper)
+    return Priors(params, fixed=priors.fixed)
 
 
 def house_settings(config: Mapping[str, object]) -> HouseSettings:

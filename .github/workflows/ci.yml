@@ -103,3 +103,23 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runtime
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ovenbird:ci-check
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Service starts and reports its version
+        run: docker run --rm ovenbird:ci-check --version
+      - name: Learner imports inside the image
+        run: docker run --rm --entrypoint python ovenbird:ci-check -P -c "import ovenbird_sim.learn.run"

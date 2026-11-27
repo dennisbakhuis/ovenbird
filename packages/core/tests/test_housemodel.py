@@ -180,16 +180,26 @@ def test_a_bigger_ua_cools_faster() -> None:
 
 def test_defaults_from_an_estimate() -> None:
     model = with_defaults_from_estimate(
-        FactEstimate(
-            ua_w_per_k=310.0, solar_aperture_m2=4.5, internal_gain_w=440.0, floor_share=1.0
-        )
+        FactEstimate(ua_w_per_k=310.0, solar_aperture_m2=4.5, internal_gain_w=440.0)
     )
     assert model.h_air_out == 310.0
     assert model.solar_aperture_m2 == 4.5
     assert model.q_int_w == 440.0
-    assert model.h_water_mass == pytest.approx(0.95 * 550.0)
-    assert model.h_water_air == pytest.approx(0.05 * 550.0)
     assert model.c_air == DEFAULTS["c_air"]
+
+
+def test_defaults_are_the_chain_the_learner_fits() -> None:
+    model = HouseModel()
+    assert (model.h_water_air, model.solar_mass_fraction, model.q_int_modulation) == (
+        5.0,
+        0.0,
+        0.0,
+    )
+    assert model.internal_gain_w(3.0) == model.internal_gain_w(19.0) == model.q_int_w
+    state = model.steady_state(21.0, 0.0)
+    assert state.heat_w > 0
+    assert state.loop_mean_c > state.mass_c > 21.0
+    assert math.isfinite(model.time_constant_h)
 
 
 def test_defaults_without_other_facts_use_the_prior_means() -> None:

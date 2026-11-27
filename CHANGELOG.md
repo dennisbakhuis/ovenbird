@@ -51,10 +51,9 @@ All notable changes to this project are documented here. The format follows
 - House page tabs (Overview, Model, Learning), a run card with the learner's state, next
   scheduled run and Run now, and a learning timeline of the models so far.
 - House in the desktop navigation, with Settings as an icon.
-- House facts as starting points for the model: build period, share of floor heating,
-  occupants, heated volume, window area and orientation (`house_build_period`,
-  `house_floor_heating_share`, `house_occupants`, `house_volume_m3`, `house_window_area_m2`,
-  `house_window_orientation`). The measurements overrule them.
+- House facts as starting points for the model: build period, occupants, heated volume,
+  window area and orientation (`house_build_period`, `house_occupants`, `house_volume_m3`,
+  `house_window_area_m2`, `house_window_orientation`). The measurements overrule them.
 - Pin or limit what the model learns: a minimum and maximum for the heat loss, the time
   constant, the solar aperture and the internal gains (`house_ua_*`, `house_time_constant_*`,
   `house_solar_aperture_*`, `house_internal_gain_*`); equal values pin the quantity. A
@@ -68,8 +67,78 @@ All notable changes to this project are documented here. The format follows
   learning settings on Learning) through the same review-and-apply bar as Settings, which
   now also shows on the House page. The settings are in three groups, `house`,
   `house_bounds` and `house_learning`.
+- The house model says whether the weather so far was enough to learn from: the insight's
+  `excitation` block counts heating days (at least 5 K indoor-outside difference and the
+  heat pump running at least a fifth of the day) and the range of outside temperatures in
+  the fit window, and `credibility.needed` says how many heating days and how much more
+  outside-temperature spread are still missing.
+- How well the model predicts, in plain numbers: the skill against "the room stays as it
+  is" at 1 to 24 hours (`validation.skill`), and the typical error and bias of the 24-hour
+  prediction over the days the model had not seen (`series_rmse_k`, `series_bias_k`, and
+  `rmse_k`, `bias_k` in `insight/house/series`).
+- Every learner run re-checks the champion on the newest data (`champion_revalidation` in
+  the run status). The service uses that result: a champion that no longer predicts
+  better than persistence stops counting as credible for the what-if cool-down and the
+  model plan, and one whose UA no longer agrees with the signature for the score, the
+  proposal and the what-if.
+- Parameters fitted at a limit are listed (`at_bound`, an owner limit or the model's own
+  range), with the house's total heat capacity. When the owner set bounds or pins, the
+  learner also fits without them and flags when the limits cost clearly more than
+  0.05 K or 15 % of room error (`validation.constraint_cost`).
+- The room series marks wood-stove and left-out periods (`events`), leaves the prediction
+  out where those touch it, starts at the first prediction and is rewritten for the
+  champion on every run.
+- The live heat balance notes the 12 h after a wood-stove episode (`stove_tail`) and shows
+  no storage then.
+- A capped wood-stove episode without a recorded end is reported as a warning in the run
+  status and in the insight (`warnings`).
+- Experimental water planner (`plan_water`) in the core package: it lowers the water
+  setpoint ahead of forecast sun, by the sun's heat as an outside-temperature rise moved
+  down the heating curve (lead 1.5 h, 0.5 K steps, at most 3 K down by default, an optional
+  raise after the sun). A model plan slice can now carry a water offset
+  (`PlanSlice.water_offset_k`); the controller bounds it (`max_lower_water_k`,
+  `max_raise_water_k`) and removes its effect when the room is below comfort by more than
+  a sensor step (`authority_full_k`, `authority_zero_k`). Decisions then carry
+  `model_plan_water_requested_k`, `model_plan_water_applied_k` and `model_plan_authority`.
+  The service does not use it: it still issues only room-target slices, in `shadow`, and
+  `on` remains locked.
 
 ### Changed
+
+- The offline evaluation of the model plan was rebuilt (`python -m ovenbird_sim.evaluate
+  model-plan`): 8 scenarios, 24 paired weather replicas per cell with sensor noise, wrong
+  model variants and shifted forecasts (94 cells), intervals over replicas and a gate with
+  three outcomes (PASS, INCONCLUSIVE, FAIL). Neither the target shift nor the water planner
+  passes it. The report is `docs/evaluation/model-plan.md`; the decision record is
+  `docs/decisions/2026-11-28-model-plan-after-evaluation.md`.
+- The house model is a chain: heat flows from the loop through the emitter (the fast node:
+  floor, screed, radiators) into the building (the slow node) and out. Eight parameters are
+  learned; the direct loop-to-room path, the share of sun onto the emitter and the day-curve
+  of the internal gains are held, because the data cannot tell them apart. Stored models
+  load unchanged. The insight shows the structure (`structure`), the capacity per node
+  (`capacities_kwh_per_k`: loop, emitter, building) and the emitter's time constant
+  (`emitter_time_constant_h`). Internal gains are reported as net free heat that cannot be
+  separated from the heat loss (`internal_gains_w.identified` false, with how much the UA
+  moves per 100 W); gains at 0 and the held parameters are no longer listed in `at_bound`.
+- The reported heat-loss range is the envelope of the bootstrap interval and the UAs of
+  the rolling-origin train-window fits (`ua.interval_90`, with `bootstrap_interval_90` and
+  `fold_w_per_k`); the insulation score uses it.
+- Credibility is three gates, one per use (`credibility.gates`, and `gates` on
+  `insight/house`): heat loss (the score, the curve proposal, the what-if steady state and
+  the balance: signature, heating weather, the UA range within 30 %, signature and model
+  UA within 20 %, the UA stable within 15 % across train windows), dynamics (the what-if
+  cool-down and the room-target planner: better than persistence over 6 h) and sun (the
+  water planner: at least 5 sunny held-out days, the sun term helping on sunny hours and
+  the measured sun response within a factor 1.5 of the model's). `credible` is the heat-loss
+  gate; the 24 h skill is reported, not gated. The rule of ten days below 5 °C stays dropped.
+  The what-if marks its cool-down with the dynamics gate (`drift.credible`).
+- Promotion: a credible (heat-loss) new model replaces one that is not; a new model that is
+  not credible never replaces a credible champion, also not after a settings change; nor
+  does one that fails the dynamics or sun gate the champion passes on the same days; the
+  same house on newer data (its UA and time constant inside the champion's 90 % intervals)
+  replaces the champion; otherwise the new model must not be worse than the champion,
+  scored on the days the champion had not seen when there are enough of them. Every run
+  re-validates all three gates of the champion (`champion_revalidation.gates`).
 
 - The sensor pickers list Home Assistant entities that only copy the heat pump (such as
   Home Assistant's own HeishaMon integration) last, grouped as "Heat pump, via Home

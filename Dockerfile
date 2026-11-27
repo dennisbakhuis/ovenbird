@@ -13,8 +13,11 @@ COPY capture/pyproject.toml capture/README.md ./capture/
 COPY packages/ ./packages/
 RUN uv sync --frozen --no-dev --no-editable --package ovenbird --extra learner --python /usr/local/bin/python3
 
-# Simulated HeishaMon for the dev stack (target heishamon-sim). These stages are not
-# ancestors of the runtime stage, so the production image holds no simulator code or data.
+# Simulated HeishaMon for the dev stack (target heishamon-sim). The sim-build stage is not
+# an ancestor of the runtime stage, but the runtime image still carries the ovenbird_sim
+# package (including its heishamon module) through the service's learner extra, plus numpy
+# and scipy. It holds no simulator scenarios or capture data. aiomqtt is installed too, as a
+# dependency of the service. pyarrow and the capture package are not.
 FROM python:3.14-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS sim-build
 COPY --from=ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never

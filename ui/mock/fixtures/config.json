@@ -864,13 +864,6 @@
       "stored": 130,
       "value": 130.0
     },
-    "house_floor_heating_share": {
-      "default": null,
-      "locked": false,
-      "source": "default",
-      "stored": null,
-      "value": null
-    },
     "house_internal_gain_max_w": {
       "default": null,
       "locked": false,

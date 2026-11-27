@@ -252,9 +252,9 @@ class AlarmBoard:
         """Keep and journal one informational event without telling the listeners.
 
         For notices that must be reviewable but never notify (the model plan's guard
-        verdicts); the alarm board's active alarms are not touched.
+        verdicts); the alarm board's active alarms and its bounded in-memory history are
+        not touched, so a chatty notice cannot push real alarms out of it.
         """
-        self.history.append(event)
         if self.journal is not None:
             self.journal(event)
 

@@ -10,7 +10,7 @@ import {
   SECTIONS,
   toDisplay,
 } from './schema';
-import type { ConfigSchema } from './types';
+import type { ConfigSchema, FieldDef } from './types';
 
 const sch = schema as unknown as ConfigSchema;
 
@@ -67,7 +67,7 @@ describe('house settings in the schema', () => {
   });
 
   it('shows a share as a percentage', () => {
-    const def = sch.fields['house_floor_heating_share']!;
+    const def = { unit: 'ratio', display: '%' } as unknown as FieldDef;
     expect(displayUnit(def)).toBe('%');
     expect(toDisplay(def, 0.55)).toBe(55);
     expect(fromDisplay(def, 33.3)).toBe(0.333);

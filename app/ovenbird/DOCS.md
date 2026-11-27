@@ -36,6 +36,21 @@ direct port rejects every request.
 | `admin_password` | HTTP Basic password (user `admin`) for the optional direct port. |
 | `log_level` | `debug`, `info`, `warning`, `error` or `critical`. |
 
+## House model
+
+The House page shows what ovenbird has learned about your house: how fast it loses heat and how
+the heat pump and the sun warm it. It also shows how well the model predicts the measured
+temperatures.
+
+The learner runs inside the app. It starts once a week at night at low priority. A run takes
+about 15 seconds to a few minutes and uses up to about 250 MB of memory for that time. The
+first model needs about three weeks of history. Until then the page has nothing to show.
+
+The learner makes the image larger (about 356 MB).
+
+Using the model in the controller is off by default. It can first run in shadow mode, where it
+is compared with the current decisions and changes nothing.
+
 ## Data and backups
 
 History is stored in the app's `/data` volume. Backups are hot and never copy the live database

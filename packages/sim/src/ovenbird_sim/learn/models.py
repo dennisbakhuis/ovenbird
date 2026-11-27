@@ -30,13 +30,27 @@ import contextlib
 import json
 import math
 import os
+import re
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Final
+
+FCNTL: ModuleType | None = None
+try:
+    import fcntl
+
+    FCNTL = fcntl
+except ImportError:
+    pass
 
 CURRENT: Final = "current.json"
 INDEX: Final = "index.json"
 STATUS: Final = "status.json"
+LOCK: Final = ".learner.lock"
+KEEP_OTHERS: Final = 30
+MODEL_FILE: Final = re.compile(r"(house|insight|series)-(\d{8})(?:-(\d+))?\.json")
 CONFIG: Final = "learner-config.json"
 INSIGHT_SCHEMA: Final = "ovenbird.house-insight/1"
 
@@ -174,3 +188,72 @@ def index_runs(models: Path) -> list[dict[str, Any]]:
 def write_status(models: Path, status: dict[str, Any]) -> None:
     """Write ``status.json``."""
     write_json(models / STATUS, status)
+
+
+@contextlib.contextmanager
+def learner_lock(models: Path) -> Iterator[bool]:
+    """Hold an exclusive, non-blocking lock on ``<models>/.learner.lock``.
+
+    Yields ``True`` when the lock is held for the ``with`` block (always, where there is
+    no ``fcntl``) and ``False`` when another process holds it. The kernel releases the
+    lock when the process ends, so there is nothing stale to clean up.
+    """
+    if FCNTL is None:
+        yield True
+        return
+    models.mkdir(parents=True, exist_ok=True)
+    flags = os.O_RDONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(models / LOCK, flags, 0o664)
+    try:
+        try:
+            FCNTL.flock(fd, FCNTL.LOCK_EX | FCNTL.LOCK_NB)
+        except OSError:
+            yield False
+            return
+        yield True
+    finally:
+        os.close(fd)
+
+
+def _referenced(models: Path) -> set[str]:
+    """Model names the champion, the previous champion and ``current.json`` point at."""
+    names: set[str] = set()
+    current = read_json(models / CURRENT)
+    if isinstance(current, dict) and isinstance(current.get("model"), str):
+        names.add(current["model"])
+    promoted = [str(r.get("model")) for r in index_runs(models) if r.get("promoted") is True]
+    names.update(promoted[-2:])
+    return names
+
+
+def prune(models: Path, keep: int = KEEP_OTHERS) -> list[str]:
+    """Delete the files of old models; return the names of the files removed.
+
+    Kept: the champion and the previous champion (``current.json`` and the index),
+    and the newest ``keep`` other models. A model is its ``house``, ``insight`` and
+    ``series`` files. Only regular files with those names directly inside ``models``
+    are considered or deleted; links are never followed.
+    """
+    groups: dict[tuple[str, int], list[Path]] = {}
+    try:
+        entries = list(os.scandir(models))
+    except OSError:
+        return []
+    for entry in entries:
+        match = MODEL_FILE.fullmatch(entry.name)
+        if match is None or not entry.is_file(follow_symlinks=False):
+            continue
+        _, day, extra = match.groups()
+        suffix = f"{day}-{extra}" if extra else day
+        groups.setdefault((suffix, int(day) * 1000 + int(extra or 0)), []).append(Path(entry.path))
+    protected = {name.split("-", 1)[1] for name in _referenced(models) if "-" in name}
+    others = sorted(
+        (key for key in groups if key[0] not in protected), key=lambda key: key[1], reverse=True
+    )
+    removed: list[str] = []
+    for key in others[keep:]:
+        for path in groups[key]:
+            with contextlib.suppress(OSError):
+                path.unlink()
+                removed.append(path.name)
+    return removed

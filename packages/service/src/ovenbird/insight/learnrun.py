@@ -6,7 +6,12 @@ learner extra (``importlib.util.find_spec``), one run at a time, from fixed argu
 built from the data directory. One building-only run takes about 11 s of CPU and
 240 MB of memory; the child gets a lowered priority, a CPU limit, its own process
 group (a kill takes its threads and children), a wall-clock timeout and a resident
-memory cap checked every few seconds on Linux.
+memory cap checked every few seconds on Linux. The child is started with ``-P`` (the
+working directory is never put on ``sys.path``, so a file planted in the data volume is
+never imported), from the learner directory, and lowers its own priority and CPU limit
+(``--low-priority``); it holds an exclusive lock on ``<models>/.learner.lock`` and exits
+with 75 when another learner has it (not a failure). A scheduled run is skipped, and
+tried again the next night, while less than 400 MB of memory is available.
 
 Schedule (wall clock): with ``house_learn_enabled`` a run is due when the learner's
 last ``status.json`` is older than ``house_learn_interval_h`` (one hour of slack, so a
@@ -26,6 +31,7 @@ import contextlib
 import importlib.util
 import logging
 import os
+import re
 import signal
 import sys
 import time
@@ -34,7 +40,6 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, tzinfo
 from datetime import time as day_time
 from pathlib import Path
-from types import ModuleType
 from typing import Any, Final, Literal, Protocol
 from zoneinfo import ZoneInfo
 
@@ -43,26 +48,21 @@ from ovenbird.config import Settings
 from ovenbird.insight import house
 from ovenbird.system.facts import Facts
 
-RESOURCE: ModuleType | None = None
-try:
-    import resource
-
-    RESOURCE = resource
-except ImportError:
-    pass
-
 LOGGER = logging.getLogger("ovenbird.insight")
 MODULE: Final = "ovenbird_sim.learn"
 FACT_KEY: Final = "learner_run_failure"
 TIMEOUT_S: Final = 30 * 60.0
-MEMORY_CAP_BYTES: Final = 768 * 1024 * 1024
+MEMORY_CAP_BYTES: Final = 512 * 1024 * 1024
+MIN_AVAILABLE_BYTES: Final = 400 * 1024 * 1024
+COOL_DOWN: Final = timedelta(minutes=5)
+BUSY_EXIT: Final = 75
+SUMMARY_CHARS: Final = 200
 WATCH_S: Final = 5.0
 KILL_GRACE_S: Final = 5.0
 DRAIN_S: Final = 5.0
 TICK_S: Final = 60.0
 TAIL_BYTES: Final = 3840
 MAX_DETAIL: Final = 4000
-NICE: Final = 15
 CPU_LIMIT_S: Final = 1800
 START_DELAY: Final = timedelta(minutes=10)
 FAILURE_BACKOFF: Final = timedelta(hours=24)
@@ -83,9 +83,9 @@ INHERITED_ENV: Final = (
     "LC_ALL",
     "TMPDIR",
     "TZ",
-    "VIRTUAL_ENV",
-    "PYTHONPATH",
 )
+
+PATH_PATTERN: Final = re.compile(r"(?:[A-Za-z]:)?[\\/][^\s:'\"()<>,;]+(?:[\\/][^\s:'\"()<>,;]+)*")
 
 type State = Literal["idle", "running", "unavailable"]
 type Reason = Literal["timeout", "memory", "exit", "spawn"]
@@ -102,6 +102,14 @@ class LearnerRunningError(RuntimeError):
 
 class LearnerUnavailableError(RuntimeError):
     """The learner is not installed in this service."""
+
+
+class LearnerLowMemoryError(LearnerUnavailableError):
+    """Too little memory is available to start a run."""
+
+
+class LearnerCoolingDownError(LearnerRunningError):
+    """A run finished a moment ago."""
 
 
 class Child(Protocol):
@@ -130,7 +138,8 @@ class Child(Protocol):
         ...
 
 
-type Spawn = Callable[[Sequence[str], Mapping[str, str]], Awaitable[Child]]
+type Spawn = Callable[[Sequence[str], Mapping[str, str], Path], Awaitable[Child]]
+type Outcome = Failure | Literal["busy"] | None
 type Sleep = Callable[[float], Awaitable[None]]
 
 
@@ -142,9 +151,17 @@ class Failure:
     reason: Reason
     detail: str
 
-    def to_json(self) -> Json:
-        """Return the API form."""
-        return {"at": iso_z(self.at), "reason": self.reason, "detail": self.detail}
+    @property
+    def summary(self) -> str:
+        """The last line of the detail with absolute paths removed."""
+        lines = [line.strip() for line in self.detail.splitlines() if line.strip()]
+        line = lines[-1] if lines else ""
+        return PATH_PATTERN.sub("<path>", line)[:SUMMARY_CHARS]
+
+    def to_json(self, *, full: bool = True) -> Json:
+        """Return the API form; ``full=False`` replaces the detail by :attr:`summary`."""
+        detail = self.detail if full else self.summary
+        return {"at": iso_z(self.at), "reason": self.reason, "detail": detail}
 
 
 def learner_installed() -> bool:
@@ -155,12 +172,16 @@ def learner_installed() -> bool:
         return False
 
 
-def _lower_priority() -> None:
-    """Child side of the spawn: lower the priority and cap the CPU time (POSIX)."""
-    if RESOURCE is None:
-        return
-    os.nice(NICE)
-    RESOURCE.setrlimit(RESOURCE.RLIMIT_CPU, (CPU_LIMIT_S, CPU_LIMIT_S + 60))
+def read_mem_available_bytes() -> int | None:
+    """Return ``MemAvailable`` from ``/proc/meminfo`` (``None`` where there is none)."""
+    try:
+        with open("/proc/meminfo", encoding="ascii", errors="replace") as handle:
+            for line in handle:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) * 1024
+    except OSError, ValueError, IndexError:
+        return None
+    return None
 
 
 class GroupChild:
@@ -201,17 +222,16 @@ class GroupChild:
         self._signal(getattr(signal, "SIGKILL", signal.SIGTERM))
 
 
-async def spawn_child(argv: Sequence[str], env: Mapping[str, str]) -> Child:
-    """Start the learner: no shell, own process group, lowered priority, output captured."""
-    posix = os.name == "posix"
+async def spawn_child(argv: Sequence[str], env: Mapping[str, str], cwd: Path) -> Child:
+    """Start the learner: no shell, own process group, output captured, from ``cwd``."""
     process = await asyncio.create_subprocess_exec(
         *argv,
         env=dict(env),
+        cwd=cwd,
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
-        start_new_session=posix,
-        preexec_fn=_lower_priority if posix else None,
+        start_new_session=os.name == "posix",
     )
     return GroupChild(process)
 
@@ -276,7 +296,7 @@ class LearnRunner:
         Keeps the last failure across restarts.
     available
         Whether the learner is installed.
-    spawn, rss, now, monotonic, sleep, export
+    spawn, rss, memory_available, now, monotonic, sleep, export
         Process start, memory reader, wall clock, monotonic clock, sleep and the
         history export; tests replace them.
     """
@@ -289,6 +309,7 @@ class LearnRunner:
         available: Callable[[], bool] = learner_installed,
         spawn: Spawn = spawn_child,
         rss: Callable[[int], int | None] = read_rss_bytes,
+        memory_available: Callable[[], int | None] = read_mem_available_bytes,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         monotonic: Callable[[], float] = time.monotonic,
         sleep: Sleep = asyncio.sleep,
@@ -299,6 +320,7 @@ class LearnRunner:
         self.available = bool(available())
         self.spawn = spawn
         self.rss = rss
+        self.memory_available = memory_available
         self.now = now
         self.monotonic = monotonic
         self.sleep = sleep
@@ -306,6 +328,8 @@ class LearnRunner:
         self.born = now()
         self.started_at: datetime | None = None
         self.finished_at: datetime | None = None
+        self.skipped_until: datetime | None = None
+        self.skip_reason: str | None = None
         self.snapshot_age_s: float | None = None
         self.failure: Failure | None = self._load_failure()
         self._task: asyncio.Task[None] | None = None
@@ -331,20 +355,39 @@ class LearnRunner:
             return "unavailable"
         return "running" if self.running else "idle"
 
-    def start(self) -> None:
+    def start(self, *, scheduled: bool = False) -> None:
         """Begin a run now.
+
+        Parameters
+        ----------
+        scheduled
+            A run the schedule starts; it is not held back by the cool-down.
 
         Raises
         ------
         LearnerUnavailableError
-            When the learner is not installed.
+            When the learner is not installed (or, as ``LearnerLowMemoryError``, when
+            less than 400 MB of memory is available).
         LearnerRunningError
-            When a run is in progress.
+            When a run is in progress (or, as ``LearnerCoolingDownError``, ended
+            less than five minutes ago and the run is not scheduled).
         """
         if not self.available:
             raise LearnerUnavailableError("the house model learner is not installed")
         if self.running:
             raise LearnerRunningError("a learner run is already in progress")
+        if (
+            not scheduled
+            and self.finished_at is not None
+            and self.now() - self.finished_at < COOL_DOWN
+        ):
+            raise LearnerCoolingDownError("a learner run ended a moment ago; try again shortly")
+        free = self.memory_available()
+        if free is not None and free < MIN_AVAILABLE_BYTES:
+            raise LearnerLowMemoryError(
+                f"only {free / 2**20:.0f} MB of memory is available, "
+                f"{MIN_AVAILABLE_BYTES / 2**20:.0f} MB are needed"
+            )
         self.started_at = self.now()
         self._task = asyncio.create_task(self._execute(), name="learner-run")
 
@@ -372,6 +415,8 @@ class LearnRunner:
             base = max(base, self.failure.at + FAILURE_BACKOFF)
         if self.finished_at is not None:
             base = max(base, self.finished_at + MIN_GAP)
+        if self.skipped_until is not None:
+            base = max(base, self.skipped_until)
         return base
 
     async def tick(self) -> None:
@@ -388,13 +433,29 @@ class LearnRunner:
         if now < self._base(run, settings):
             return
         try:
-            self.start()
+            self.start(scheduled=True)
+        except LearnerLowMemoryError as exc:
+            self.skip_reason = str(exc)
+            self.skipped_until = next_night_window(
+                now + timedelta(hours=4), _zone(settings.control_timezone)
+            )
+            LOGGER.warning("scheduled house model learner run skipped: %s", exc)
+            return
         except LearnerRunningError:
             return
+        self.skipped_until = None
+        self.skip_reason = None
         LOGGER.info("scheduled house model learner run started")
 
-    def payload(self) -> Json:
-        """Return the body of ``GET insight/house/run`` (reads ``status.json``)."""
+    def payload(self, *, full_detail: bool = False) -> Json:
+        """Return the body of ``GET insight/house/run`` (reads ``status.json``).
+
+        Parameters
+        ----------
+        full_detail
+            Include the child's output tail in ``failure.detail`` (operate role and up);
+            otherwise only a one-line summary without paths.
+        """
         settings = self.settings()
         run = house.last_run(house.models_dir(settings))
         next_due: str | None = None
@@ -423,18 +484,22 @@ class LearnRunner:
             "next_due_at": next_due,
             "interval_h": settings.house_learn_interval_h,
             "last": last,
-            "failure": self.failure.to_json() if self.failure is not None else None,
+            "failure": self.failure.to_json(full=full_detail) if self.failure is not None else None,
         }
 
     async def _execute(self) -> None:
         try:
-            failure = await self._attempt()
+            outcome = await self._attempt()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             LOGGER.exception("house model learner run crashed")
-            failure = self._failed("spawn", f"{type(exc).__name__}: {exc}")
+            outcome = self._failed("spawn", f"{type(exc).__name__}: {exc}")
         self.finished_at = self.now()
+        if outcome == "busy":
+            LOGGER.info("house model learner run skipped: another learner is running")
+            return
+        failure = outcome
         self.failure = failure
         self.facts.set(
             FACT_KEY,
@@ -456,8 +521,11 @@ class LearnRunner:
         folder = house.learner_dir(settings)
         return [
             sys.executable,
+            "-P",
             "-m",
             MODULE,
+            "--low-priority",
+            str(CPU_LIMIT_S),
             "--history",
             str(folder / house.HISTORY_EXPORT),
             "--config",
@@ -493,7 +561,7 @@ class LearnRunner:
         child.kill()
         await self._wait(waiter, KILL_GRACE_S)
 
-    async def _attempt(self) -> Failure | None:
+    async def _attempt(self) -> Outcome:
         settings = self.settings()
         exported = await asyncio.to_thread(self.export, settings)
         if exported is None:
@@ -501,7 +569,7 @@ class LearnRunner:
         self.snapshot_age_s = await asyncio.to_thread(self._snapshot_age, settings)
         LOGGER.info("starting the house model learner on a snapshot %s s old", self.snapshot_age_s)
         try:
-            child = await self.spawn(self._argv(settings), self._env())
+            child = await self.spawn(self._argv(settings), self._env(), house.learner_dir(settings))
         except Exception as exc:
             return self._failed("spawn", f"{type(exc).__name__}: {exc}")
         tail = bytearray()
@@ -524,6 +592,8 @@ class LearnRunner:
         code = waiter.result()
         if code == 0:
             return None
+        if code == BUSY_EXIT:
+            return "busy"
         return self._failed("exit", f"exit code {code}\n{output}".strip())
 
     async def _watch(self, child: Child, waiter: asyncio.Future[int]) -> tuple[Reason, str] | None:

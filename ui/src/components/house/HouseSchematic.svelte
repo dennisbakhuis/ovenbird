@@ -1,19 +1,20 @@
 <!--
   HouseSchematic: the house as the three-node model sees it, with the heat flows of the moment:
   heat pump (heating loop), sun, people and appliances and a wood stove going in, the loss to
-  outside going out, and whether the building mass is storing heat or giving it back. Arrow weight
+  outside going out, and whether the building is storing heat or giving it back. Arrow weight
   grows with the flow (clamped); an unknown flow is drawn dashed and muted with "unknown", never
   as 0. Drawn left to right from 560 px of width, stacked below that; the SVG is sized in pixels
   from the measured width so text never scales down. Static.
 
   Props: balance (BalanceResult | null, null while loading), failed (the load failed),
-  onfacts (opens the facts card; shown with the hint when there is nothing to draw).
+  onfacts (opens the facts card; shown with the hint when there is nothing to draw), capacity (the
+  model's total heat capacity in kWh/K; the storage tile names it instead of a single mass node).
   Honesty: a pill says "measured model", "estimate from your answers, not measured" or "still
   learning". A wood-stove episode makes the storage unknown (stove heat is not measured).
   A11y: the SVG is role="img" and its label is the generated sentence, which is also shown below.
 -->
 <script lang="ts">
-  import { formatValue } from '$lib/core/chartSummary';
+  import { formatNum, formatValue } from '$lib/core/chartSummary';
   import { formatDateTime } from '$lib/core/format';
   import { ICONS } from '$lib/core/icons';
   import { hotWater, textKey } from '$lib/core/hotWater.svelte';
@@ -35,9 +36,10 @@
     balance: BalanceResult | null;
     failed?: boolean;
     onfacts?: () => void;
+    capacity?: number | null;
   }
 
-  let { balance, failed = false, onfacts }: Props = $props();
+  let { balance, failed = false, onfacts, capacity = null }: Props = $props();
 
   const lang = $derived(settings.language);
   let measured = $state(640);
@@ -54,9 +56,15 @@
     room_unknown: 'houseNote_room_unknown',
     outside_unknown: 'houseNote_outside_unknown',
     heat_unknown: 'houseNote_heat_unknown',
+    stove_tail: 'houseNote_stove_tail',
   } as const;
   const notes = $derived(
     (data?.notes ?? []).filter((note): note is keyof typeof NOTE_KEYS => note in NOTE_KEYS),
+  );
+  const storageSub = $derived(
+    capacity === null
+      ? t('houseNodeMassSub')
+      : t('houseNodeCapacity', { value: formatNum(capacity, 1, lang) }),
   );
   const sentence = $derived(data ? balanceSentence(data, t, lang) : '');
   const temp = (value: number | null) => minus(formatValue(value, '°C', 1, lang));
@@ -432,7 +440,7 @@
             ROW_B - 28,
             x1 - x0 - 28,
             56,
-            [`${t('houseNodeMass')} · ${t('houseNodeMassSub')}`]
+            [`${t('houseNodeMass')} · ${storageSub}`]
               .flatMap((l) => wrapLabel(l, charsFor(x1 - x0 - 28)))
               .slice(0, 2),
             null,
@@ -498,7 +506,7 @@
             N_MASS,
             width - 28,
             56,
-            [t('houseNodeMass'), t('houseNodeMassSub')],
+            [t('houseNodeMass'), storageSub],
             null,
             COLORS.store,
             null,

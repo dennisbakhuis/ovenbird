@@ -1,6 +1,6 @@
 <!--
-  StatusLine: one line about the model in use: its name and age, and whether the learner can
-  already trust it (credible) or still needs data. Shown above the cards of the Overview tab.
+  StatusLine: one line about the model in use: its name and age, and whether it is trusted for all
+  three uses, for some of them or not yet (see TrustNote). Shown above the cards of the Overview tab.
 
   Props: house (HouseInsight), use (the controller's use of the model, when the service says),
   onuse (opens the card that explains it).
@@ -12,6 +12,7 @@
   import type { HouseInsight } from '$lib/house/house';
   import type { ModelUse } from '$lib/house/shapes';
   import { modelAgeDays } from '$lib/house/timeline';
+  import { GATE_NAMES, gatesPassing } from '$lib/house/trust';
   import type { MessageKey } from '$lib/i18n';
   import { settings, t } from '$lib/core/settings.svelte';
 
@@ -25,13 +26,18 @@
 
   const lang = $derived(settings.language);
   const age = $derived(modelAgeDays(house, clockNow()));
-  const credible = $derived(house.credibility.credible);
+  const passing = $derived(gatesPassing(house.gates));
+  const trusted = $derived(passing === GATE_NAMES.length);
   const stale = $derived(house.learner?.stale === true);
 </script>
 
 <p class="status" data-testid="house-status">
-  <Pill tone={credible ? 'good' : 'warn'} testid="house-status-credible">
-    {credible ? t('houseStatusCredible') : t('houseStatusLearning')}
+  <Pill tone={trusted ? 'good' : 'warn'} testid="house-status-credible">
+    {trusted
+      ? t('houseStatusTrusted')
+      : passing > 0
+        ? t('houseStatusPartly')
+        : t('houseStatusLearning')}
   </Pill>
   <span data-testid="house-status-age">
     {#if age === null}

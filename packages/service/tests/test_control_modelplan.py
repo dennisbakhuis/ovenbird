@@ -758,17 +758,136 @@ class TestRecording:
         self, rig: Callable[..., Rig]
     ) -> None:
         run = rig(use="shadow")
-        run.tick(3)
+        run.tick(20)
         run.weather = False
-        run.tick(16)
+        run.tick(40)
         run.weather = True
-        run.tick(16)
+        run.tick(50)
         rows = [a for a in run.journal.alarms if a.code == MODEL_PLAN_JOURNAL_CODE]
         assert [row.event for row in rows] == ["released", "started", "released"]
         assert {row.severity for row in rows} == {"info"}
         assert json.loads(rows[1].detail)["blocks"] == ["weather_off"]
         assert run.notified == []
         assert run.loop.alarms.active() == ()
+
+
+def model_plan_rows(run: Rig) -> list[AlarmRow]:
+    return [a for a in run.journal.alarms if a.code == MODEL_PLAN_JOURNAL_CODE]
+
+
+def flap(run: Rig, ticks: int) -> None:
+    state = {"n": 0}
+
+    def alternating(_: Any) -> tuple[Guard, ...]:
+        state["n"] += 1
+        return (Guard.ROOM_UNTRUSTED,) if state["n"] % 2 else ()
+
+    run.runner.live_blocks = alternating  # type: ignore[assignment,method-assign]
+    run.tick(ticks)
+
+
+class TestJournalDebounce:
+    def test_flapping_for_an_hour_writes_few_rows_with_flap_counts(
+        self, rig: Callable[..., Rig]
+    ) -> None:
+        run = rig(use="shadow")
+        flap(run, 60)
+        rows = model_plan_rows(run)
+        assert 1 < len(rows) <= 5
+        flaps = [json.loads(row.detail)["flaps"] for row in rows]
+        assert flaps[0] == 0
+        assert all(count > 0 for count in flaps[1:])
+        assert sum(flaps) >= 40
+
+    def test_flapping_does_not_displace_alarm_history(self, rig: Callable[..., Rig]) -> None:
+        run = rig(use="shadow")
+        flap(run, 60)
+        assert model_plan_rows(run)
+        assert [e for e in run.loop.alarms.history if e.code == MODEL_PLAN_JOURNAL_CODE] == []
+
+    def test_a_stable_change_is_written_once(self, rig: Callable[..., Rig]) -> None:
+        run = rig(use="shadow")
+        run.tick(20)
+        run.weather = False
+        run.tick(120)
+        events = [(row.event, json.loads(row.detail)["flaps"]) for row in model_plan_rows(run)]
+        assert events == [("released", 0), ("started", 0)]
+
+    def test_a_restart_with_the_same_verdict_writes_nothing(self, rig: Callable[..., Rig]) -> None:
+        run = rig(use="shadow", real_loaders=True)
+        run.tick(20)
+        before = len(model_plan_rows(run))
+        assert before == 1
+        again = ModelPlanRunner(
+            run.settings,
+            lambda: run.models,
+            weather_enabled=lambda: True,
+            sink=run.samples,
+            alarms=run.loop.alarms,
+            load_champion=lambda _: run.champion,
+            load_forecast=run.forecast,
+        )
+        run.loop.model_plan = again
+        run.tick(40)
+        assert len(model_plan_rows(run)) == before
+
+
+class TestStoveTailAfterDowntime:
+    def restarted(self, run: Rig, *, active: bool = False) -> ModelPlanRunner:
+        runner = ModelPlanRunner(
+            run.settings,
+            lambda: run.models,
+            weather_enabled=lambda: True,
+            sink=run.samples,
+            alarms=run.loop.alarms,
+            load_champion=lambda _: run.champion,
+            load_forecast=run.forecast,
+        )
+        runner.step(replace(run.loop.live_plan_context(), stove_active=active))
+        return runner
+
+    def stove_rows(self, run: Rig) -> list[AlarmRow]:
+        return [row for row in run.journal.alarms if row.code == "stove_mode"]
+
+    def episode(self, rig: Callable[..., Rig]) -> Rig:
+        run = rig(real_loaders=True, control_stove_enabled=True)
+        run.tick(3)
+        run.loop.request_stove(True, None, "test")
+        run.tick(3)
+        assert [row.event for row in self.stove_rows(run)] == ["started"]
+        return run
+
+    def test_a_long_restart_during_an_episode_gives_a_tail(self, rig: Callable[..., Rig]) -> None:
+        run = self.episode(rig)
+        run.clock.advance(3600.0)
+        runner = self.restarted(run)
+        rows = self.stove_rows(run)
+        assert [row.event for row in rows] == ["started", "expired"]
+        assert json.loads(rows[1].detail) == {"exit": "service_restart"}
+        assert Guard.STOVE_TAIL in runner._blocks
+        assert runner._stove_end == rows[1].ts
+
+    def test_a_second_restart_keeps_the_same_tail(self, rig: Callable[..., Rig]) -> None:
+        run = self.episode(rig)
+        run.clock.advance(3600.0)
+        first = self.restarted(run)
+        closed = self.stove_rows(run)[1].ts
+        run.clock.advance(3600.0)
+        second = self.restarted(run)
+        rows = self.stove_rows(run)
+        assert [row.event for row in rows] == ["started", "expired"]
+        assert first._stove_end == closed
+        assert second._stove_end == closed
+        assert Guard.STOVE_TAIL in second._blocks
+
+    def test_a_short_restart_with_the_episode_restored_writes_nothing(
+        self, rig: Callable[..., Rig]
+    ) -> None:
+        run = self.episode(rig)
+        run.clock.advance(300.0)
+        runner = self.restarted(run, active=True)
+        assert [row.event for row in self.stove_rows(run)] == ["started"]
+        assert Guard.STOVE_ACTIVE in runner._blocks
 
 
 class TestApi:

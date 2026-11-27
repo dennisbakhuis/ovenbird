@@ -8,7 +8,8 @@
   Props: comfortC (the comfort target of the installation: the default of the comfort input),
   onoverview (opens the Overview tab, where the house facts are entered).
   Honesty: a pill says whether the answer comes from the measured model or from the owner's
-  facts, and a line says when the model is still learning.
+  facts, a pill says when the heat-loss check does not pass yet (`credible`), and the cool-down
+  section says when the dynamics check does not pass (`drift.credible`).
   A11y: the drift chart is role="img" with a generated sentence.
 -->
 <script lang="ts">
@@ -282,7 +283,7 @@
               {data.source === 'model' ? t('houseWiSourceModel') : t('houseWiSourceEstimate')}
             </Pill>
             {#if data.source === 'model' && !data.credible}
-              <Pill tone="warn" testid="whatif-learning">{t('houseWiNotCredible')}</Pill>
+              <span class="warn" data-testid="whatif-learning">{t('houseWiNotCredible')}</span>
             {/if}
           </p>
           {#if noHeat}
@@ -323,6 +324,9 @@
 
           {#if drift}
             <h3 class="drift-title">{t('houseWiDriftTitle')}</h3>
+            {#if data.source === 'model' && !data.drift.credible}
+              <p class="warn" data-testid="whatif-drift-uncredible">{t('houseDriftNotTrusted')}</p>
+            {/if}
             <div class="plot" bind:clientWidth={measured}>
               <svg
                 width={chartW}

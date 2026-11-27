@@ -28,7 +28,14 @@ const TABS: [string, string, string[]][] = [
   [
     'overview',
     '#/house',
-    ['house-status', 'house-schematic', 'house-score', 'house-facts', 'house-facts-input'],
+    [
+      'house-status',
+      'house-schematic',
+      'house-trust',
+      'house-score',
+      'house-facts',
+      'house-facts-input',
+    ],
   ],
   [
     'model',
@@ -69,7 +76,7 @@ for (const width of [1400, 400]) {
       'Indicative, not the official energielabel.',
     );
     await expect(page.getByTestId('house-fact-balance')).toContainText('16.5');
-    await expect(page.getByTestId('house-status-credible')).toHaveText('Credible');
+    await expect(page.getByTestId('house-status-credible')).toHaveText('Trusted');
     await expect(page.getByTestId('house-status-age')).toContainText(
       'became the model in use today',
     );
@@ -120,7 +127,7 @@ test('the signature chart has a text summary and a table', async ({ page, contex
   await expect(page.getByTestId('signature-table').locator('tbody tr')).toHaveCount(40);
 });
 
-test('an uncredible model says how many cold days it needs and blocks the draft', async ({
+test('an uncredible model says what heating weather it still needs and blocks the draft', async ({
   page,
   context,
   baseURL,
@@ -128,11 +135,17 @@ test('an uncredible model says how many cold days it needs and blocks the draft'
   await scenario(context, `${tag()}.house:uncredible`, baseURL);
   await language(page, 'en');
   await page.goto('./#/house');
-  await expect(page.getByTestId('house-learning-score')).toContainText(
-    'Still learning: 4 more cold days (daily mean below 5 °C) needed.',
+  await expect(page.getByTestId('house-gate-heat_loss')).toContainText(
+    '9 more heating days are needed',
   );
+  await expect(page.getByTestId('house-gate-heat_loss')).toContainText(
+    '2.4 K more spread in outside temperature is needed',
+  );
+  await expect(page.getByTestId('house-gate-need-no_signature')).toBeVisible();
+  await expect(page.getByTestId('house-learning-score')).toBeVisible();
+  await expect(page.getByTestId('house-trust')).not.toContainText(/cold day/i);
   await expect(page.getByTestId('house-band')).toHaveCount(0);
-  await expect(page.getByTestId('house-status-credible')).toHaveText('Still learning');
+  await expect(page.getByTestId('house-status-credible')).toHaveText('Trusted for some uses');
   await page.goto('./#/house/learning');
   await expect(page.getByTestId('house-proposal-uncredible')).toBeVisible();
   await expect(page.getByTestId('house-open-draft')).toBeDisabled();
@@ -387,7 +400,7 @@ test('the Dutch learning tab speaks Dutch', async ({ page, context, baseURL }) =
   await language(page, 'nl');
   await page.goto('./#/house/learning');
   await expect(page.getByTestId('house-run')).toContainText('Het leerprogramma');
-  await expect(page.getByTestId('run-now')).toHaveText('Nu uitvoeren');
+  await expect(page.getByTestId('run-now')).toHaveText('Nu starten');
   await expect(page.getByTestId('house-timeline')).toContainText('Kamerfout per dag');
 });
 
@@ -408,15 +421,16 @@ test('a fact edited on the House page goes through the draft bar and applies', a
   await page.goto('./#/house');
   const card = page.getByTestId('house-facts-input');
   await expect(card).toContainText('What you know about the house');
+  await expect(page.getByTestId('house-facts-input-details')).not.toHaveAttribute('open', '');
+  await expect(card).toContainText('0 set');
+  await page.getByTestId('house-facts-input-details').locator('summary').click();
   await expect(page.getByTestId('field-house_build_period')).toBeVisible();
   await page.locator('select#field-house_build_period').selectOption('1975_1991');
   await expect(page.getByTestId('draft-count')).toHaveText('1 change');
   await expect(page.getByTestId('house-pending')).toHaveAttribute('data-source', 'draft');
   await applyDraft(page);
   await expect(page.getByTestId('draft-bar')).toHaveCount(0);
-  await expect(page.getByTestId('house-facts-input-details')).not.toHaveAttribute('open', '');
   await expect(page.getByTestId('house-pending')).toHaveAttribute('data-source', 'stored');
-  await page.getByTestId('house-facts-input-details').locator('summary').click();
   await expect(page.locator('select#field-house_build_period')).toHaveValue('1975_1991');
   await page.goto('./#/settings/house');
   await expect(page.locator('select#field-house_build_period')).toHaveValue('1975_1991');
@@ -434,12 +448,15 @@ test('pinning the heat loss with equal limits applies and shows the pin', async 
   await expect(card.getByTestId('bounds-explain')).toContainText('pin the value');
   await card.getByTestId('house-bounds-card-details').locator('summary').click();
   await expect(page.getByTestId('bound-learned-ua')).toContainText('Learned: 240 W/K');
-  await expect(page.getByTestId('bound-learned-ua')).toContainText('90 % range 230–251');
+  await expect(page.getByTestId('bound-learned-ua')).toContainText('90 % range 225–251');
   await page.locator('#field-house_ua_min_w_per_k').fill('250');
   await page.locator('#field-house_ua_max_w_per_k').fill('250');
   await expect(page.getByTestId('draft-count')).toHaveText('2 changes');
   await expect(page.getByTestId('bound-pinned-ua')).toBeVisible();
   await applyDraft(page);
+  const stored = page.getByTestId('house-bounds-card-details');
+  if (!(await stored.evaluate((node) => (node as HTMLDetailsElement).open)))
+    await stored.locator('summary').click();
   await expect(page.locator('#field-house_ua_min_w_per_k')).toHaveValue('250');
   await expect(page.getByTestId('bound-pinned-ua')).toBeVisible();
 });
@@ -516,7 +533,8 @@ test('Settings → House shows the same fields as the House page', async ({
     await expect(section.getByTestId(`house-subset-${subset}`)).toBeVisible();
   await expect(page.locator('select#field-house_build_period')).toHaveValue('1975_1991');
   await expect(page.locator('#field-house_occupants')).toHaveValue('3');
-  await expect(page.locator('#field-house_floor_heating_share')).toHaveValue('60');
+  await expect(page.locator('#field-house_floor_heating_share')).toHaveCount(0);
+  await expect(page.getByText('Share of floor heating')).toHaveCount(0);
   await page.getByTestId('advanced-house_bounds').locator('summary').click();
   await expect(page.locator('#field-house_ua_min_w_per_k')).toHaveValue('200');
   await page.getByTestId('advanced-house_learning').locator('summary').click();
@@ -574,7 +592,8 @@ test('the Dutch House cards use natural Dutch', async ({ page, context, baseURL 
   await expect(page.getByTestId('house-bounds-card')).toContainText(
     'Geleerde waarden vastzetten of begrenzen',
   );
-  await expect(page.getByTestId('bound-learned-ua')).toContainText('bereik van 90 %');
+  await page.getByTestId('house-bounds-card-details').locator('summary').click();
+  await expect(page.getByTestId('bound-learned-ua')).toContainText('90\u00a0%\u2011bereik');
   await page.goto('./#/house');
   await expect(page.getByTestId('house-facts-input')).toContainText('Wat je van het huis weet');
 });
@@ -622,7 +641,9 @@ test('the schematic shows the flows of the moment and says them in one sentence'
   await expect(svg).toHaveAttribute('aria-label', (await sentence.textContent()) ?? '');
   await expect(page.getByTestId('house-balance-source')).toHaveText('Measured model');
   await expect(svg).toContainText('Heat pump');
-  await expect(svg).toContainText('Building mass');
+  await expect(svg).toContainText('Heat storage');
+  await expect(svg).toContainText('7.8 kWh per K in total');
+  await expect(svg).not.toContainText('Building mass');
   await page.setViewportSize({ width: 400, height: 900 });
   await expect(svg).toHaveAttribute('data-layout', 'narrow');
   await expect(sentence).toBeVisible();
@@ -711,14 +732,14 @@ test('the prediction chart compares measured and predicted and switches its rang
   const card = page.getByTestId('house-prediction');
   await expect(card).toBeVisible();
   await expect(page.getByTestId('house-pred-summary')).toContainText(
-    /last 7 days the prediction was typically [\d.,]+ K off and at most [\d.,]+ K/,
+    /On unseen days the model is typically [\d.,]+ °C off, and on average [\d.,]+ °C too cold\. The largest difference in this window was [\d.,]+ K/,
   );
   await expect(card.getByTestId('chart-legend')).toContainText('Measured');
   await expect(card.getByTestId('chart-legend')).toContainText('Predicted 24 h ahead');
   await page.getByTestId('house-pred-range-3').click();
-  await expect(page.getByTestId('house-pred-summary')).toContainText('last 3 days');
+  await expect(page.getByTestId('house-pred-summary')).toContainText('On unseen days');
   await page.getByTestId('house-pred-range-14').click();
-  await expect(page.getByTestId('house-pred-summary')).toContainText('last 14 days');
+  await expect(card.getByTestId('chart-span')).toHaveCount(3);
   await expect(card.getByTestId('chart-table')).toHaveCount(0);
   await card.getByTestId('chart-table-toggle').click();
   await expect(card.getByTestId('chart-table')).toBeVisible();
@@ -748,7 +769,7 @@ test('what you told is shown next to what was measured, with a remark when they 
   await language(page, 'en');
   await page.goto('./#/house');
   await expect(page.getByTestId('house-told-ua')).toContainText(
-    'You told us ≈ 340 W/K · measured 240 W/K (90 % range 230–251)',
+    'You told us ≈ 340 W/K · measured 240 W/K (90 % range 225–251)',
   );
   await expect(page.getByTestId('house-told-solar')).toHaveAttribute('data-differs', 'true');
   await expect(page.getByTestId('house-told-ua')).toHaveAttribute('data-differs', 'false');
@@ -851,7 +872,7 @@ test.describe('what if', () => {
     await expect(page.getByTestId('house-balance-sentence')).toContainText(
       /^Op dit moment verliest het huis ongeveer/,
     );
-    await expect(page.getByTestId('house-balance-source')).toHaveText('Gemeten model');
+    await expect(page.getByTestId('house-balance-source')).toHaveText('Geleerd uit metingen');
     await page.goto('./#/house/what-if');
     await expect(page.getByTestId('whatif-water')).toContainText('Je stooklijn geeft');
   });
@@ -897,7 +918,7 @@ test.describe('how the controller uses the model', () => {
     await scenario(context, `modelplan:shadow.${tag()}`, baseURL);
     await language(page, 'en');
     await page.goto('./#/house/control');
-    await expect(page.getByTestId('house-control-pill')).toContainText('Shadow: computes only');
+    await expect(page.getByTestId('house-control-pill')).toContainText('Shadow (computes only)');
     await expect(page.getByTestId('house-control-shift')).toContainText(
       /^Would lower the room target by 0\.3 K until \d\d:\d\d\.$/,
     );
@@ -1149,5 +1170,669 @@ test.describe('how the controller uses the model', () => {
       await expect(page.getByTestId('house-status-use')).toBeVisible();
       await page.screenshot({ path: `e2e/shots/house-s4-status-${width}.png` });
     });
+  }
+});
+
+test.describe('credibility, events, pins and capacity', () => {
+  const SHOT_WIDTHS = [1400, 400] as const;
+
+  test('the prediction chart shades the stove and the left-out day with a legend and a table list', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await scenario(context, tag(), baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/model');
+    const card = page.getByTestId('house-prediction');
+    await page.getByTestId('house-pred-range-14').click();
+    await expect(card.locator('[data-testid="chart-span"][data-pattern="hatch"]')).toHaveCount(1);
+    await expect(card.locator('[data-testid="chart-span"][data-pattern="dots"]')).toHaveCount(1);
+    const legend = page.getByTestId('house-pred-events');
+    await expect(legend).toContainText('Wood stove: hatched, recovery lighter');
+    await expect(legend).toContainText('Day left out: dotted');
+    await expect(card.getByTestId('chart-marker')).toHaveCount(1);
+    await expect(card.getByTestId('chart-marker')).toContainText('unseen days from here');
+    await card.getByTestId('chart-table-toggle').click();
+    const list = card.getByTestId('chart-table-spans');
+    await expect(list).toContainText('Wood stove');
+    await expect(list).toContainText('recovery until');
+    await expect(list).toContainText('Day left out');
+    await page.goto('./#/house/model');
+    await expect(card.getByTestId('house-pred-summary')).toContainText(
+      'typically 0.1 °C off, and on average 0.1 °C too cold',
+    );
+  });
+
+  test('the Dutch prediction sentence says the lean in plain words', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, tag(), baseURL);
+    await language(page, 'nl');
+    await page.goto('./#/house/model');
+    await expect(page.getByTestId('house-pred-summary')).toContainText(
+      'Op testdagen zit het model er meestal',
+    );
+    await expect(page.getByTestId('house-pred-summary')).toContainText('te koud');
+    await expect(page.getByTestId('house-pred-events')).toContainText('gearceerd');
+  });
+
+  test('the heat storage names the total heat capacity on the picture and the Model tab', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, tag(), baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-schematic-svg')).toContainText('7.8 kWh per K');
+    await page.goto('./#/house/model');
+    await expect(page.getByTestId('house-capacity')).toContainText(
+      'about 7.8 kWh for every degree',
+    );
+  });
+
+  test('a balance after a wood stove says the building still releases its heat', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, `${tag()}.balance:tail`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-schematic-svg')).toHaveAttribute(
+      'data-storage',
+      'unknown',
+    );
+    await expect(page.getByTestId('house-balance-note-stove_tail')).toContainText('last 12 hours');
+    await expect(page.getByTestId('house-balance-sentence')).toContainText(
+      'burned in the last 12 hours',
+    );
+  });
+
+  test('not enough heating weather shows what is needed and a progress display', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await scenario(context, `${tag()}.house:not-excited`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-status-credible')).toHaveText('Trusted for some uses');
+    await expect(page.getByTestId('house-gate-pill-heat_loss')).toHaveText('Not yet');
+    await expect(page.getByTestId('house-gate-heat_loss')).toContainText(
+      '6 more heating days are needed',
+    );
+    await expect(page.getByTestId('house-gate-heat_loss')).toContainText(
+      '1.4 K more spread in outside temperature is needed',
+    );
+    await expect(page.getByTestId('house-gate-pill-dynamics')).toHaveText('Trusted');
+    await expect(page.getByTestId('house-trust-bar-heating_days')).toHaveAttribute(
+      'aria-valuenow',
+      '14',
+    );
+    await expect(page.getByTestId('house-trust-progress')).toContainText(
+      'Spread of outside temperature: 8.6 of 10 K',
+    );
+    await expect(page.getByTestId('house-gate-need-ua_disagrees')).toHaveCount(0);
+    await expect(page.getByTestId('house-band')).toHaveCount(0);
+    for (const width of SHOT_WIDTHS) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.screenshot({
+        path: `e2e/shots/house-a4-not-excited-${width}.png`,
+        fullPage: true,
+      });
+    }
+  });
+
+  test('no skill over "the room stays as it is" is explained and re-validation says why', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await scenario(context, `${tag()}.house:no-skill`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-gate-need-no_dynamics_skill')).toContainText(
+      'does not yet predict the room over the next hours better than "the room stays as it is"',
+    );
+    await expect(page.getByTestId('house-gate-pill-heat_loss')).toHaveText('Trusted');
+    await expect(page.getByTestId('house-gate-pill-dynamics')).toHaveText('Not yet');
+    await expect(page.getByTestId('house-band')).toBeVisible();
+    await expect(page.getByTestId('house-status-credible')).toHaveText('Trusted for some uses');
+    for (const width of SHOT_WIDTHS) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.screenshot({ path: `e2e/shots/house-a4-no-skill-${width}.png`, fullPage: true });
+    }
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await page.goto('./#/house/learning');
+    await expect(page.getByTestId('house-revalidation')).toHaveAttribute('data-credible', 'true');
+    await expect(page.getByTestId('house-revalidation-text')).toContainText(
+      'not yet trusted for room dynamics',
+    );
+    await expect(page.getByTestId('house-data-warnings')).toContainText('has no recorded end');
+    for (const width of SHOT_WIDTHS) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.screenshot({
+        path: `e2e/shots/house-a4-no-skill-learning-${width}.png`,
+        fullPage: true,
+      });
+    }
+  });
+
+  test('a credible model says on the Learning tab that it is still good', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, tag(), baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house');
+    for (const name of ['heat_loss', 'dynamics', 'sun'])
+      await expect(page.getByTestId(`house-gate-pill-${name}`)).toHaveText('Trusted');
+    await expect(page.getByTestId('house-trust')).not.toContainText('Not yet');
+    await page.goto('./#/house/learning');
+    await expect(page.getByTestId('house-revalidation')).toHaveAttribute('data-credible', 'true');
+    await expect(page.getByTestId('house-revalidation-text')).toContainText(
+      'Last checked against new data on',
+    );
+    await expect(page.getByTestId('house-revalidation-text')).toContainText('still good');
+    await expect(page.getByTestId('house-data-warnings')).toHaveCount(0);
+    await language(page, 'nl');
+    await page.goto('about:blank');
+    await page.goto('./#/house/learning');
+    await expect(page.getByTestId('house-revalidation-text')).toContainText('nog steeds goed');
+  });
+
+  test('the Dutch trust sentences are natural Dutch', async ({ page, context, baseURL }) => {
+    await scenario(context, `${tag()}.house:no-skill`, baseURL);
+    await language(page, 'nl');
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-gate-need-no_dynamics_skill')).toContainText(
+      'de kamer blijft zoals hij is',
+    );
+    await expect(page.getByTestId('house-trust')).toContainText(
+      'Waarvoor je het model kunt vertrouwen',
+    );
+    await expect(page.getByTestId('house-gate-sun')).toContainText(
+      'latere versie van het modelplan',
+    );
+    await page.goto('./#/house/learning');
+    await expect(page.getByTestId('house-revalidation-text')).toContainText(
+      'nog niet vertrouwd voor gedrag van de kamer',
+    );
+  });
+
+  test('a pin that costs accuracy says both errors, marks the limit and lists the model edge neutrally', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await scenario(context, `${tag()}.house:pin-cost`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/model');
+    await expect(page.getByTestId('house-constraint-worse')).toContainText(
+      'With your limits the model is 0.31 K off, without them 0.24 K: a limit may be wrong.',
+    );
+    await expect(page.getByTestId('house-bounds-card-details')).toContainText('At your limit');
+    await page.getByTestId('house-bounds-card-details').locator('summary').click();
+    await expect(page.getByTestId('bound-at-limit-ua')).toContainText('At your limit');
+    await expect(page.getByTestId('bound-pinned-ua')).toBeVisible();
+    await expect(page.getByTestId('bound-at-limit-tau')).toHaveCount(0);
+    await page.getByTestId('house-structural').locator('summary').click();
+    const list = page.getByTestId('house-structural-list');
+    await expect(list).toContainText('Heat transfer, loop straight to room');
+    await expect(list).not.toContainText('Heat loss to outside');
+    for (const width of SHOT_WIDTHS) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.screenshot({ path: `e2e/shots/house-a4-pin-cost-${width}.png`, fullPage: true });
+    }
+  });
+
+  test('a model without cost from its limits stays silent about them', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, `${tag()}.house:facts`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/model');
+    await expect(page.getByTestId('house-bounds-card')).toBeVisible();
+    await page.getByTestId('house-bounds-card-details').locator('summary').click();
+    await expect(page.getByTestId('house-constraint-worse')).toHaveCount(0);
+    await expect(page.getByTestId('bound-at-limit-ua')).toHaveCount(0);
+  });
+
+  test('the facts card is open while learning and collapsed with a count once there is a model', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, `${tag()}.house:facts`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-facts-input-details')).not.toHaveAttribute('open', '');
+    await expect(page.getByTestId('house-facts-input')).toContainText('2 set');
+    await language(page, 'nl');
+    await page.goto('about:blank');
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-facts-input')).toContainText('2 ingevuld');
+  });
+
+  test('the left-out day help tells to leave out a day the house was still off', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await page.setViewportSize({ width: 1400, height: 1000 });
+    await scenario(context, tag(), baseURL);
+    for (const [lang, title, text] of [
+      [
+        'en',
+        'Leave a day out',
+        'If the house was still off the next morning, leave that day out too.',
+      ],
+      ['nl', 'Een dag weglaten', 'laat die dag dan ook weg'],
+    ] as const) {
+      await language(page, lang);
+      await page.goto('about:blank');
+      await page.goto('./#/house/learning');
+      await page.getByTestId('help-button').click();
+      const drawer = page.getByTestId('help-drawer');
+      await expect(drawer).toBeVisible();
+      await drawer.getByTestId('help-section-toggle').filter({ hasText: title }).click();
+      await expect(drawer).toContainText(text);
+    }
+  });
+
+  test('the Replay result names the model plan ladder rung', async ({ page, context, baseURL }) => {
+    await page.setViewportSize({ width: 1400, height: 1000 });
+    await scenario(context, `modelplan:on.${tag()}`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/system/replay');
+    await page.getByTestId('replay-preset-1d').click();
+    await page.getByTestId('replay-run').click();
+    await expect(page.getByTestId('replay-result')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('replay-share-ladder')).toContainText(
+      'Curve with room feedback and model plan',
+    );
+    await expect(page.getByTestId('replay-shares')).not.toContainText('ladder_model_plan');
+    await language(page, 'nl');
+    await page.goto('about:blank');
+    await page.goto('./#/system/replay');
+    await page.getByTestId('replay-preset-1d').click();
+    await page.getByTestId('replay-run').click();
+    await expect(page.getByTestId('replay-share-ladder')).toContainText('modelplan', {
+      timeout: 15_000,
+    });
+  });
+
+  test('Compare with the model plan on shows no raw codes', async ({ page, context, baseURL }) => {
+    await page.setViewportSize({ width: 1400, height: 1000 });
+    await scenario(context, `modelplan:on.mode:shadow.${tag()}`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/system/shadow');
+    await expect(page.getByRole('heading', { level: 2 }).first()).toBeVisible();
+    await expect(page.locator('body')).not.toContainText('ladder_model_plan');
+    await expect(page.locator('body')).not.toContainText('model_plan');
+  });
+
+  test('the schematic fetches the balance again when a new live decision arrives, at most every 15 s', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, tag(), baseURL);
+    await language(page, 'en');
+    let calls = 0;
+    page.on('request', (request) => {
+      if (request.url().includes('/insight/house/balance')) calls += 1;
+    });
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-schematic-svg')).toBeVisible();
+    await expect.poll(() => calls, { timeout: 25_000 }).toBeGreaterThanOrEqual(2);
+    expect(calls).toBeLessThanOrEqual(4);
+  });
+
+  test('the default model is trusted for all three uses and says what each guards', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await scenario(context, tag(), baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-trust')).toContainText(
+      'What the model can be trusted for',
+    );
+    await expect(page.getByTestId('house-gate-heat_loss')).toContainText(
+      'insulation score, the curve suggestion and What if',
+    );
+    await expect(page.getByTestId('house-gate-dynamics')).toContainText('cool-down prediction');
+    await expect(page.getByTestId('house-gate-sun')).toContainText(
+      'later version of the model plan',
+    );
+    await expect(page.getByTestId('house-score')).toContainText('225');
+    await expect(page.getByTestId('house-score')).toContainText('251');
+    await expect(page.getByTestId('house-fact-gains')).toContainText('Net free heat');
+    await expect(page.getByTestId('house-fact-gains')).toContainText('cannot be separated');
+    await expect(page.getByTestId('house-fact-gains')).not.toContainText('Internal gains');
+    await page.goto('./#/house/control');
+    await expect(page.getByTestId('house-sun-line-text')).toHaveText('Sun response: trusted');
+  });
+
+  test('the Model tab names the total capacity and both response times, never a building mass', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, tag(), baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/model');
+    await expect(page.getByTestId('house-capacity')).toContainText('about 7.8 kWh');
+    await expect(page.getByTestId('house-capacity-parts')).toContainText(
+      'Water loop 0.35, floor and screed 1.25, the rest of the house 6.15 kWh per K',
+    );
+    await expect(page.getByTestId('house-response')).toHaveText(
+      'The floor responds in about 0.6 hours, the house in about 53 hours.',
+    );
+    await expect(page.locator('body')).not.toContainText(/building mass/i);
+    await page.getByTestId('house-limits').locator('summary').click();
+    await page.getByTestId('house-gate-details').locator('summary').click();
+    await expect(page.getByTestId('house-check-ua_stability')).toContainText('0.05, limit 0.15');
+    await expect(page.getByTestId('house-skill24')).toContainText('hard to out-predict');
+    await expect(page.getByTestId('house-ua-range')).toContainText(
+      '225–251 W/K combines resampling of the days (230–251 W/K) and separate training periods (225–239 W/K)',
+    );
+    await expect(page.getByTestId('house-structure')).toContainText('A chain of three parts');
+    await page.getByTestId('house-bounds-card-details').locator('summary').click();
+    await expect(page.getByTestId('bound-coupling-gain')).toHaveText(
+      'Pinning 100 W more free heat raises the heat-loss figure by about 9 W/K.',
+    );
+    await expect(page.getByTestId('bound-gain')).toContainText('Net free heat');
+  });
+
+  test('the Dutch Model tab speaks of the floor and the house', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, tag(), baseURL);
+    await language(page, 'nl');
+    await page.goto('./#/house/model');
+    await expect(page.getByTestId('house-response')).toHaveText(
+      'De vloer reageert in ongeveer 0,6 uur, het huis in ongeveer 53 uur.',
+    );
+    await expect(page.locator('body')).not.toContainText(/gebouwmassa/i);
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-fact-gains')).toContainText('Netto vrije warmte');
+  });
+
+  test('the floor-heating share is gone from the facts', async ({ page, context, baseURL }) => {
+    await scenario(context, `${tag()}.house:facts`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-facts-input')).toBeVisible();
+    await expect(page.locator('#field-house_floor_heating_share')).toHaveCount(0);
+    await expect(page.locator('body')).not.toContainText('Share of floor heating');
+    await page.goto('./#/settings/house');
+    await expect(page.locator('#field-house_floor_heating_share')).toHaveCount(0);
+  });
+
+  test('a sun gate that does not pass says so on the Overview and above the Control card', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await scenario(context, `${tag()}.house:no-sun`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-gate-pill-heat_loss')).toHaveText('Trusted');
+    await expect(page.getByTestId('house-gate-pill-dynamics')).toHaveText('Trusted');
+    await expect(page.getByTestId('house-gate-pill-sun')).toHaveText('Not yet');
+    await expect(page.getByTestId('house-gate-need-more_sunny_days')).toContainText(
+      'More sunny days are needed',
+    );
+    await expect(page.getByTestId('house-band')).toBeVisible();
+    await expect(page.getByTestId('house-status-credible')).toHaveText('Trusted for some uses');
+    await page.goto('./#/house/control');
+    await expect(page.getByTestId('house-sun-line-text')).toContainText(
+      'Sun response: not yet. More sunny days are needed',
+    );
+    await expect(page.getByTestId('house-control')).toBeVisible();
+    for (const width of SHOT_WIDTHS) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.screenshot({
+        path: `e2e/shots/house-g-control-no-sun-${width}.png`,
+        fullPage: true,
+      });
+      await page.goto('./#/house');
+      await page.screenshot({
+        path: `e2e/shots/house-g-overview-no-sun-${width}.png`,
+        fullPage: true,
+      });
+      await page.goto('./#/house/control');
+    }
+    await language(page, 'nl');
+    await page.goto('about:blank');
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-gate-need-more_sunny_days')).toContainText(
+      'meer zonnige dagen nodig',
+    );
+  });
+
+  test('a model from an older version says the next run checks it', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await scenario(context, `${tag()}.house:legacy`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-gate-sun')).toHaveAttribute('data-source', 'legacy');
+    await expect(page.getByTestId('house-gate-need-legacy_model')).toHaveText(
+      'This model was made by an older version; the next run checks it.',
+    );
+    await expect(page.getByTestId('house-gate-pill-heat_loss')).toHaveText('Trusted');
+    await expect(page.getByTestId('house-gate-details')).toHaveCount(0);
+    await expect(page.getByTestId('house-fact-gains')).toBeVisible();
+    for (const width of SHOT_WIDTHS) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.screenshot({
+        path: `e2e/shots/house-g-overview-legacy-${width}.png`,
+        fullPage: true,
+      });
+    }
+    await page.goto('./#/house/model');
+    await expect(page.getByTestId('house-response')).toHaveText(
+      'The house responds in about 53 hours.',
+    );
+    await expect(page.getByTestId('house-capacity-parts')).toHaveCount(0);
+    await language(page, 'nl');
+    await page.goto('about:blank');
+    await page.goto('./#/house');
+    await expect(page.getByTestId('house-gate-need-legacy_model')).toContainText('oudere versie');
+  });
+
+  test('the cool-down on the What if tab follows the dynamics gate and the steady state the heat-loss gate', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await scenario(context, `${tag()}.house:no-skill`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/what-if');
+    await expect(page.getByTestId('whatif-drift-uncredible')).toContainText(
+      'cool-down is not trusted yet',
+    );
+    await expect(page.getByTestId('whatif-learning')).toHaveCount(0);
+    for (const width of SHOT_WIDTHS) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.screenshot({
+        path: `e2e/shots/house-g-whatif-no-skill-${width}.png`,
+        fullPage: true,
+      });
+    }
+    await scenario(context, `${tag()}.house:not-excited`, baseURL);
+    await page.goto('about:blank');
+    await page.goto('./#/house/what-if');
+    await expect(page.getByTestId('whatif-learning')).toContainText('heat-loss check');
+    await expect(page.getByTestId('whatif-drift-uncredible')).toHaveCount(0);
+  });
+
+  test('a heat-loss gate that does not pass guards the score and the curve proposal', async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await scenario(context, `${tag()}.house:not-excited`, baseURL);
+    await language(page, 'en');
+    await page.goto('./#/house/learning');
+    await expect(page.getByTestId('house-proposal-uncredible')).toBeVisible();
+    await expect(page.getByTestId('house-gate-reasons-heat_loss')).toContainText(
+      '6 more heating days are needed',
+    );
+    await expect(page.getByTestId('house-open-draft')).toBeDisabled();
+  });
+
+  for (const lang of ['en', 'nl'] as const) {
+    for (const value of [
+      'house:uncredible',
+      'house:not-excited',
+      'house:no-skill',
+      'house:no-sun',
+      'house:legacy',
+      'house:pin-cost',
+    ]) {
+      for (const [name, hash] of [
+        ['overview', '#/house'],
+        ['model', '#/house/model'],
+        ['control', '#/house/control'],
+        ['learning', '#/house/learning'],
+        ['what-if', '#/house/what-if'],
+      ]) {
+        test(`the phone ${name} tab of ${value} fits the budget in ${lang}`, async ({
+          page,
+          context,
+          baseURL,
+        }) => {
+          await page.setViewportSize({ width: 400, height: 900 });
+          await scenario(context, `${tag()}.${value}`, baseURL);
+          await language(page, lang);
+          await page.goto(`./${hash}`);
+          await expect(page.getByTestId('house-page')).toHaveAttribute('data-tab', name!);
+          await page.waitForTimeout(300);
+          const dims = await size(page);
+          expect(dims.scroll).toBeLessThanOrEqual(dims.inner);
+          expect(dims.height, `phone height ${name} ${value} ${lang}`).toBeLessThanOrEqual(
+            allowedHeight(PHONE_BUDGET),
+          );
+        });
+      }
+    }
+  }
+
+  for (const width of SHOT_WIDTHS) {
+    test(`gate screenshots of the default model at ${width} px`, async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await scenario(context, tag(), baseURL);
+      await language(page, 'en');
+      await page.goto('./#/house');
+      await expect(page.getByTestId('house-trust')).toBeVisible();
+      await page.screenshot({ path: `e2e/shots/house-g-overview-${width}.png`, fullPage: true });
+      await page.goto('./#/house/model');
+      await expect(page.getByTestId('house-response')).toBeVisible();
+      await page.screenshot({ path: `e2e/shots/house-g-model-${width}.png`, fullPage: true });
+      await language(page, 'nl');
+      await page.goto('about:blank');
+      await page.goto('./#/house');
+      await expect(page.getByTestId('house-trust')).toBeVisible();
+      await page.screenshot({ path: `e2e/shots/house-g-overview-nl-${width}.png`, fullPage: true });
+    });
+  }
+
+  for (const width of SHOT_WIDTHS) {
+    test(`events and capacity screenshots at ${width} px`, async ({ page, context, baseURL }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await scenario(context, tag(), baseURL);
+      await language(page, 'en');
+      await page.goto('./#/house/model');
+      await page.getByTestId('house-pred-range-14').click();
+      await page.getByTestId('chart-table-toggle').first().click();
+      await page.waitForTimeout(300);
+      await page.getByTestId('house-prediction').screenshot({
+        path: `e2e/shots/house-a4-events-${width}.png`,
+      });
+      await page.goto('./#/house/learning');
+      await expect(page.getByTestId('house-revalidation')).toBeVisible();
+      await page.getByTestId('house-run').screenshot({
+        path: `e2e/shots/house-a4-revalidation-${width}.png`,
+      });
+      await scenario(context, `${tag()}.balance:tail`, baseURL);
+      await page.goto('about:blank');
+      await page.goto('./#/house');
+      await expect(page.getByTestId('house-balance-note-stove_tail')).toBeVisible();
+      await page.getByTestId('house-schematic').screenshot({
+        path: `e2e/shots/house-a4-capacity-tail-${width}.png`,
+      });
+    });
+  }
+});
+
+test.describe('Dutch review screenshots', () => {
+  const REVIEW_STATES: [string, string, boolean][] = [
+    ['default', '', false],
+    ['not-excited', 'house:not-excited', false],
+    ['no-skill', 'house:no-skill', false],
+    ['pin-cost', 'house:pin-cost', false],
+    ['no-sun', 'house:no-sun', false],
+    ['shadow', 'modelplan:shadow', false],
+    ['blocked', 'modelplan:blocked', false],
+    ['no-model', 'house:learning', false],
+    ['facts-open', '', true],
+  ];
+
+  for (const [state, value, open] of REVIEW_STATES) {
+    for (const width of [1400, 400]) {
+      test(`every tab of ${state} in Dutch at ${width} px`, async ({ page, context, baseURL }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await scenario(context, value ? `${tag()}.${value}` : tag(), baseURL);
+        await language(page, 'nl');
+        for (const [name, hash] of TABS) {
+          await page.goto('about:blank');
+          await page.goto(`./${hash}`);
+          if (value === 'house:learning')
+            await expect(page.getByTestId('house-learning')).toBeVisible();
+          else await expect(page.getByTestId('house-page')).toHaveAttribute('data-tab', name);
+          await page.waitForTimeout(400);
+          if (open) {
+            await page.evaluate(() => {
+              for (const details of document.querySelectorAll('details')) details.open = true;
+            });
+            await page.waitForTimeout(200);
+          }
+          const dims = await size(page);
+          expect(dims.scroll, `overflow on ${name} ${state}`).toBeLessThanOrEqual(dims.inner);
+          await page.screenshot({
+            path: `e2e/shots/nl-review-${name}-${state}-${width}.png`,
+            fullPage: true,
+          });
+        }
+      });
+    }
   }
 });

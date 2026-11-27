@@ -19,6 +19,7 @@
   import { settings, t, tOpt } from '$lib/core/settings.svelte';
   import MiniCurve from '$components/settings/MiniCurve.svelte';
   import Card from '$ui/Card.svelte';
+  import GateReasons from './GateReasons.svelte';
   import Icon from '$ui/Icon.svelte';
   import Pill from '$ui/Pill.svelte';
 
@@ -144,6 +145,7 @@
       <p class="warn" data-testid="house-proposal-uncredible">
         <Icon name="clock" size={16} />{t('houseProposalNotCredible')}
       </p>
+      <GateReasons {house} gate="heat_loss" limit={1} />
     {/if}
     <ActionRow center loose>
       <Button

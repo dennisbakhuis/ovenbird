@@ -21,6 +21,7 @@ from ovenbird.configstore import ConfigManager
 from ovenbird.control.loop import ControlLoop
 from ovenbird.history import open_history
 from ovenbird.history.forecast import ForecastRow, write_forecast
+from ovenbird.history.journal import AlarmRow, write_journal
 from ovenbird.insight import house, whatif
 from ovenbird.runtime import Runtime
 from ovenbird.testing import FakeClock
@@ -189,7 +190,20 @@ def test_series_is_read_strictly_and_shaped(settings: Settings) -> None:
     rig = Rig(settings)
     write_models(settings.data_dir)
     body = rig.client.get("/api/v1/insight/house/series").json()
-    assert list(body) == ["model", "step_s", "from", "to", "points"]
+    assert list(body) == [
+        "model",
+        "step_s",
+        "from",
+        "to",
+        "points",
+        "events",
+        "out_of_sample_from",
+        "rmse_k",
+        "bias_k",
+        "compared_points",
+    ]
+    assert (body["events"], body["out_of_sample_from"], body["rmse_k"]) == ([], None, None)
+    assert body["compared_points"] == 0
     assert body["model"] == MODEL
     assert body["step_s"] == 900
     assert body["from"] == "2026-11-12T00:00:00Z"
@@ -210,6 +224,40 @@ def test_series_is_missing_without_a_champion_or_file(settings: Settings) -> Non
     assert second.status_code == 404
     assert second.json()["detail"]["code"] == "house_series_missing"
     assert "series-20261113.json" in second.json()["detail"]["message"]
+
+
+EVENT = {
+    "kind": "stove_mode",
+    "from": "2026-11-12T03:00:00+00:00",
+    "to": "2026-11-12T05:00:00+00:00",
+    "tail_to": "2026-11-12T17:00:00+00:00",
+}
+
+
+def test_series_passes_events_and_its_error_summary(settings: Settings) -> None:
+    rig = Rig(settings)
+    write_models(settings.data_dir, series=False)
+    put_series(
+        settings,
+        series_file(
+            events=[EVENT],
+            out_of_sample_from="2026-11-11T16:30:00+00:00",
+            rmse_k=0.396,
+            bias_k=-0.252,
+            points=80,
+        ),
+    )
+    body = rig.client.get("/api/v1/insight/house/series").json()
+    assert body["events"] == [
+        {
+            "kind": "stove_mode",
+            "from": "2026-11-12T03:00:00Z",
+            "to": "2026-11-12T05:00:00Z",
+            "tail_to": "2026-11-12T17:00:00Z",
+        }
+    ]
+    assert body["out_of_sample_from"] == "2026-11-11T16:30:00Z"
+    assert (body["rmse_k"], body["bias_k"], body["compared_points"]) == (0.396, -0.252, 80)
 
 
 def put_series(settings: Settings, payload: Any) -> None:
@@ -237,6 +285,17 @@ def put_series(settings: Settings, payload: Any) -> None:
             s
             | {"rows": [["2026-11-12T01:00:00Z", 20.0, None], ["2026-11-12T00:00:00Z", 20.0, None]]}
         ),
+        lambda s: s | {"events": "fire"},
+        lambda s: s | {"events": [EVENT] * (whatif.SERIES_MAX_EVENTS + 1)},
+        lambda s: s | {"events": [EVENT | {"kind": "party"}]},
+        lambda s: s | {"events": [EVENT | {"to": "2026-11-12T01:00:00+00:00"}]},
+        lambda s: s | {"events": [EVENT | {"tail_to": None}]},
+        lambda s: s | {"out_of_sample_from": "soon"},
+        lambda s: s | {"rmse_k": -0.1},
+        lambda s: s | {"bias_k": 25.0},
+        lambda s: s | {"rmse_k": "0.2"},
+        lambda s: s | {"points": 97},
+        lambda s: s | {"points": True},
     ],
 )
 def test_a_malformed_series_is_refused(settings: Settings, mutate: Callable[[Any], Any]) -> None:
@@ -531,6 +590,30 @@ def test_balance_with_a_stove_burning_has_no_storage(settings: Settings) -> None
     assert "stove_active" in body["notes"]
 
 
+def test_balance_after_a_stove_episode_has_no_storage_for_the_tail(settings: Settings) -> None:
+    config = settings.controller_config()
+    rig = Rig(settings, control=stub_control(config))
+    write_models(settings.data_dir)
+    rig.live()
+    conn = open_history(rig.settings.history_path)
+    write_journal(
+        conn,
+        [],
+        [],
+        [
+            AlarmRow(NOW - 5 * 3600.0, "stove_mode", "info", "started", "on", "{}"),
+            AlarmRow(NOW - 2 * 3600.0, "stove_mode", "info", "expired", "off", "{}"),
+        ],
+    )
+    conn.close()
+    body = rig.client.get("/api/v1/insight/house/balance").json()
+    assert "stove_tail" in body["notes"]
+    assert "stove_active" not in body["notes"]
+    assert body["flows"]["storage_w"] is None
+    assert body["flows"]["stove_active"] is False
+    assert whatif.stove_tail(rig.settings.history_path, NOW + whatif.STOVE_TAIL_S) is False
+
+
 def test_balance_from_the_estimate_and_a_model_that_is_not_credible(
     make_settings: Callable[..., Settings],
 ) -> None:
@@ -613,3 +696,312 @@ def test_the_whatif_modules_load_without_numpy_or_scipy() -> None:
 def test_error_codes_are_registered() -> None:
     assert whatif.ERROR_CODES == ("house_series_missing", "house_model_missing")
     assert math.isfinite(whatif.SERIES_MAX_BYTES)
+
+
+REVALIDATION = {
+    "model": MODEL,
+    "at": "2026-11-13T10:00:00+00:00",
+    "source": "revalidated",
+    "data_to": "2026-11-13T09:30:00+00:00",
+    "fitted_to": "2026-11-06T09:30:00+00:00",
+    "from": "2026-11-06T09:30:00+00:00",
+    "to": "2026-11-13T00:00:00+00:00",
+    "origins": 40,
+    "in_sample": False,
+    "room_rmse_k": 0.72,
+    "persistence_room_rmse_k": 0.5,
+    "skill_horizon_h": 6.0,
+    "skill": -0.1,
+    "series_rmse_k": 0.8,
+    "series_bias_k": -0.4,
+    "credible": False,
+    "reasons": ["on the newest held-out days the model does not predict the room 6 h ahead"],
+}
+
+
+def write_status(models: Path, **status: Any) -> None:
+    (models / "status.json").write_text(json.dumps({"outcome": "kept_champion"} | status))
+
+
+def insight_with_validation(models: Path, **validation: Any) -> None:
+    path = models / "insight-20261113.json"
+    insight = json.loads(path.read_text())
+    insight["validation"] = validation
+    path.write_text(json.dumps(insight))
+
+
+def test_the_champion_prefers_its_latest_revalidation(settings: Settings) -> None:
+    models = write_models(settings.data_dir, credible=True)
+    insight_with_validation(
+        models, challenger_room_rmse_k=0.3, held_out_room_rmse_k=0.28, skill_at_horizon=0.2
+    )
+    frozen = whatif.champion_model(models)
+    assert frozen is not None
+    assert (frozen.credible, frozen.rmse_k, frozen.skill, frozen.checked_at) == (
+        True,
+        0.28,
+        0.2,
+        None,
+    )
+    write_status(models, champion_revalidation=REVALIDATION)
+    checked = whatif.champion_model(models)
+    assert checked is not None
+    assert (checked.credible, checked.rmse_k, checked.skill) == (False, 0.72, -0.1)
+    assert checked.checked_at == REVALIDATION["at"]
+    write_status(models, champion_revalidation=REVALIDATION | {"model": "house-20261106"})
+    other = whatif.champion_model(models)
+    assert other is not None
+    assert (other.credible, other.rmse_k, other.checked_at) == (True, 0.28, None)
+    write_status(models, champion_revalidation=REVALIDATION | {"credible": True})
+    passed = whatif.champion_model(models)
+    assert passed is not None
+    assert passed.credible is True
+
+
+def test_an_old_insight_falls_back_to_the_challenger_error(settings: Settings) -> None:
+    models = write_models(settings.data_dir)
+    insight_with_validation(models, challenger_room_rmse_k=0.3)
+    choice = whatif.champion_model(models)
+    assert choice is not None
+    assert (choice.rmse_k, choice.skill) == (0.3, None)
+
+
+def test_the_house_score_follows_the_revalidation(settings: Settings) -> None:
+    rig = Rig(settings)
+    models = write_models(settings.data_dir, credible=True)
+    ready = rig.client.get("/api/v1/insight/house").json()
+    assert (ready["credible"], ready["revalidation"]) == (True, None)
+    write_status(models, champion_revalidation=REVALIDATION)
+    body = rig.client.get("/api/v1/insight/house").json()
+    assert body["credible"] is False
+    assert body["revalidation"]["room_rmse_k"] == 0.72
+    assert body["score"]["state"] == "learning"
+    assert body["score"]["message"] == cast(list[str], REVALIDATION["reasons"])[0]
+    assert body["last_run"]["champion_revalidation"]["model"] == MODEL
+    assert body["credibility"]["credible"] is True
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"origins": "40"},
+        {"origins": -1},
+        {"source": "guess"},
+        {"credible": "yes"},
+        {"in_sample": None},
+        {"room_rmse_k": "0.3"},
+        {"reasons": "bad"},
+        {"reasons": ["x"] * (house.MAX_REASONS + 1)},
+        {"model": None},
+    ],
+)
+def test_a_malformed_revalidation_is_ignored_but_the_status_kept(
+    settings: Settings, change: dict[str, Any]
+) -> None:
+    models = write_models(settings.data_dir, credible=True)
+    write_status(models, champion_revalidation=REVALIDATION | change, message="ok")
+    run = house.last_run(models)
+    assert run is not None
+    assert run["champion_revalidation"] is None
+    assert run["message"] == "ok"
+    choice = whatif.champion_model(models)
+    assert choice is not None
+    assert choice.credible is True
+
+
+def test_status_warnings_are_read_strictly(settings: Settings) -> None:
+    models = write_models(settings.data_dir)
+    write_status(models, warnings=["1 wood-stove episode(s) without a recorded end capped"])
+    run = house.last_run(models)
+    assert run is not None
+    assert run["warnings"] == ["1 wood-stove episode(s) without a recorded end capped"]
+    write_status(models, warnings=[1])
+    assert house.last_run(models) is None
+    write_status(models, warnings=["x"] * (house.MAX_WARNINGS + 1))
+    assert house.last_run(models) is None
+
+
+@pytest.mark.parametrize(
+    ("change", "says"),
+    [
+        ({"credibility": {"credible": True, "checks": {"signature": "yes"}}}, "checks"),
+        ({"excitation": {"excited": 1}}, "excitation"),
+        ({"excitation": []}, "excitation"),
+        ({"at_bound": {"parameter": "x"}}, "at_bound"),
+        ({"at_bound": [1]}, "at_bound"),
+        ({"validation": {"held_out_room_rmse_k": "0.3"}}, "held_out_room_rmse_k"),
+        ({"validation": {"skill_at_horizon": True}}, "skill_at_horizon"),
+    ],
+)
+def test_new_insight_fields_are_type_checked(change: dict[str, Any], says: str) -> None:
+    insight = {"schema": "ovenbird.house-insight/1", "credibility": {"credible": True}}
+    with pytest.raises(ValueError, match=says):
+        house.checked_insight(insight | change)
+
+
+def gate(ok: bool, needed: list[str] | None = None, message: str | None = None) -> dict[str, Any]:
+    return {
+        "ok": ok,
+        "uses": ["x"],
+        "checks": {"one": {"ok": ok, "value": 1.0, "limit": 2.0}},
+        "needed": needed or [],
+        "reasons": [] if ok else [message or "fails"],
+        "message": None if ok else message or "fails",
+    }
+
+
+FITTED = {
+    "heat_loss": gate(True),
+    "dynamics": gate(True),
+    "sun": gate(False, ["more_sunny_days"], "2 more sunny days needed"),
+}
+
+
+def insight_with_gates(models: Path, gates: dict[str, Any]) -> None:
+    path = models / "insight-20261113.json"
+    insight = json.loads(path.read_text())
+    insight["credibility"] = {
+        "credible": gates["heat_loss"]["ok"],
+        "message": gates["heat_loss"]["message"],
+        "gates": gates,
+    }
+    path.write_text(json.dumps(insight))
+
+
+def test_each_view_reads_its_own_gate(settings: Settings) -> None:
+    rig = Rig(settings)
+    models = write_models(settings.data_dir)
+    slow = FITTED | {"dynamics": gate(False, ["no_dynamics_skill"], "no 6 h skill")}
+    insight_with_gates(models, slow)
+    choice = whatif.champion_model(models)
+    assert choice is not None
+    assert (choice.gate_heat_loss, choice.gate_dynamics, choice.gate_sun) == (True, False, False)
+    assert choice.credible is False
+    ready = rig.client.get("/api/v1/insight/house").json()
+    assert ready["credible"] is True
+    assert ready["score"]["state"] != "learning"
+    assert ready["gates"]["dynamics"] == {
+        "ok": False,
+        "needed": ["no_dynamics_skill"],
+        "message": "no 6 h skill",
+        "source": "fitted",
+    }
+    assert ready["gates"]["sun"]["needed"] == ["more_sunny_days"]
+    body = rig.client.get("/api/v1/insight/house/whatif").json()
+    assert body["credible"] is True
+    assert body["drift"]["credible"] is False
+    loose = FITTED | {"heat_loss": gate(False, ["ua_unstable"], "the UA moves")}
+    insight_with_gates(models, loose)
+    body = rig.client.get("/api/v1/insight/house/whatif").json()
+    assert (body["credible"], body["drift"]["credible"]) == (False, True)
+    ready = rig.client.get("/api/v1/insight/house").json()
+    assert ready["score"]["state"] == "learning"
+    assert ready["score"]["message"] == "the UA moves"
+
+
+def test_the_revalidated_gates_win_over_the_fitted_ones(settings: Settings) -> None:
+    models = write_models(settings.data_dir)
+    insight_with_gates(models, FITTED)
+    revalidated = {
+        "heat_loss": gate(True),
+        "dynamics": gate(False, ["no_dynamics_skill"], "no 6 h skill on the newest days"),
+        "sun": gate(True),
+    }
+    write_status(
+        models, champion_revalidation=REVALIDATION | {"credible": True, "gates": revalidated}
+    )
+    choice = whatif.champion_model(models)
+    assert choice is not None
+    assert (choice.gate_heat_loss, choice.gate_dynamics, choice.gate_sun) == (True, False, True)
+    run = house.last_run(models)
+    insight = json.loads((models / "insight-20261113.json").read_text())
+    gates = house.effective_gates(insight, run["champion_revalidation"] if run else None)
+    assert {name: g["source"] for name, g in gates.items()} == dict.fromkeys(
+        house.GATES, "revalidated"
+    )
+    assert gates["dynamics"]["message"] == "no 6 h skill on the newest days"
+
+
+def test_an_old_revalidation_without_gates_still_bounds_the_heat_loss_gate(
+    settings: Settings,
+) -> None:
+    models = write_models(settings.data_dir)
+    insight_with_gates(models, FITTED)
+    write_status(models, champion_revalidation=REVALIDATION)
+    run = house.last_run(models)
+    assert run is not None
+    assert run["champion_revalidation"]["gates"] is None
+    insight = json.loads((models / "insight-20261113.json").read_text())
+    gates = house.effective_gates(insight, run["champion_revalidation"])
+    assert gates["heat_loss"]["ok"] is False
+    assert gates["heat_loss"]["source"] == "revalidated"
+    assert gates["dynamics"]["source"] == "fitted"
+
+
+def test_a_model_fitted_before_the_gates_has_legacy_gates(settings: Settings) -> None:
+    models = write_models(settings.data_dir, credible=True)
+    insight = json.loads((models / "insight-20261113.json").read_text())
+    gates = house.effective_gates(insight, None)
+    assert [gates[g]["ok"] for g in house.GATES] == [True, True, False]
+    assert gates["sun"]["needed"] == ["legacy_model"]
+    assert {g["source"] for g in gates.values()} == {"legacy"}
+    insight["credibility"]["checks"] = {"predictive": False}
+    assert house.effective_gates(insight, None)["dynamics"]["needed"] == ["no_dynamics_skill"]
+    choice = whatif.champion_model(models)
+    assert choice is not None
+    assert (choice.credible, choice.gate_sun) == (True, False)
+
+
+def test_a_bare_choice_follows_credible_for_every_gate() -> None:
+    bare = whatif.ModelChoice(HouseModel(), "estimate", None, False)
+    assert [bare.gate(g) for g in house.GATES] == [False, False, False]
+    told = whatif.ModelChoice(HouseModel(), "model", MODEL, True, gate_sun=False)
+    assert [told.gate(g) for g in house.GATES] == [True, True, False]
+
+
+@pytest.mark.parametrize(
+    ("gates", "says"),
+    [
+        ({"heat_loss": gate(True), "dynamics": gate(True)}, "exactly the gates"),
+        (FITTED | {"sun": gate(True) | {"ok": "yes"}}, "sun.ok"),
+        (FITTED | {"sun": gate(True) | {"needed": "more"}}, "sun.needed"),
+        (FITTED | {"sun": gate(True) | {"message": 3}}, "sun.message"),
+        (FITTED | {"sun": gate(True) | {"checks": {"a": {"ok": 1}}}}, "sun.checks"),
+        (FITTED | {"sun": gate(True) | {"checks": {"a": True}}}, "sun.checks"),
+        (FITTED | {"heat_loss": gate(False)}, "not the heat-loss gate"),
+        ([], "gates"),
+    ],
+)
+def test_the_gates_are_read_strictly(gates: Any, says: str) -> None:
+    insight = {
+        "schema": "ovenbird.house-insight/1",
+        "credibility": {"credible": True, "gates": gates},
+    }
+    with pytest.raises(ValueError, match=says):
+        house.checked_insight(insight)
+
+
+def test_unknown_need_codes_are_dropped(caplog: pytest.LogCaptureFixture) -> None:
+    newer = FITTED | {"sun": gate(False, ["more_sunny_days", "new_code"], "x")}
+    insight = {
+        "schema": "ovenbird.house-insight/1",
+        "credibility": {"credible": True, "gates": newer},
+    }
+    checked = house.checked_insight(insight)
+    assert checked["credibility"]["gates"]["sun"]["needed"] == ["more_sunny_days"]
+    assert "new_code" in caplog.text
+
+
+def test_a_revalidation_with_bad_gates_is_ignored(settings: Settings) -> None:
+    models = write_models(settings.data_dir)
+    insight_with_gates(models, FITTED)
+    write_status(
+        models,
+        champion_revalidation=REVALIDATION | {"credible": True, "gates": {"sun": gate(True)}},
+    )
+    run = house.last_run(models)
+    assert run is not None
+    assert run["champion_revalidation"] is None
+    disagree = REVALIDATION | {"credible": True, "gates": FITTED | {"heat_loss": gate(False)}}
+    with pytest.raises(ValueError, match="heat-loss gate"):
+        house.checked_revalidation(disagree)
