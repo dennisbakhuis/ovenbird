@@ -6,8 +6,10 @@ inside it, and keeps running when Home Assistant restarts.
 
 It sets the water target of the heat pump from a heating curve and a room-temperature
 feedback term, inside safety limits that follow the outside temperature. It shows the
-weather forecast, and a house model learned from its history proposes curve changes for
-you to review. Every decision carries a plain-language explanation, and every decision
+weather forecast. A house model learned from its history, refitted weekly inside the
+service, proposes curve changes for you to review, shows what the house needs at a given
+outside temperature and how the heat flows now, and can compute a bounded room-target shift
+ahead of sun or cold in shadow, where it changes nothing. Every decision carries a plain-language explanation, and every decision
 can be replayed on recorded data.
 
 ## Status

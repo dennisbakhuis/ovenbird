@@ -5,7 +5,7 @@ import type { PumpPhase, Scenario } from './scenario.ts';
 export const health: Health = {
   live: true,
   ready: true,
-  version: '0.4.1',
+  version: '0.5.0',
   api_version: 1,
   checks: {
     mqtt: 'connected',

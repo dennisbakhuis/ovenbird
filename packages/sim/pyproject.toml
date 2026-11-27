@@ -1,6 +1,6 @@
 [project]
 name = "ovenbird-sim"
-version = "0.4.1"
+version = "0.5.0"
 description = "Model fitting, open-loop run and simulation tooling for ovenbird."
 readme = "README.md"
 requires-python = ">=3.14"

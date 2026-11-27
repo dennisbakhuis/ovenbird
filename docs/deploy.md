@@ -273,6 +273,35 @@ trusted room value. Going live is a local change of all three gates
 Rollback: pin the previous image. If the newer one migrated a database, restore the copy
 from step 2 (decisions recorded meanwhile are lost; the pump is unaffected in shadow).
 
+### Upgrading to 0.5.0
+
+Nothing to migrate: the databases are unchanged and the first start creates the `models/`
+and `learner/` directories in the data directory.
+
+- The image is larger: about 356 MB, was 146 MB, because it now carries numpy and scipy.
+- The house model learner is on by default and runs inside the service as a low-priority
+  child process, weekly in the night window (02:00 to 05:00 in `control_timezone`). Switch
+  it off with `house_learn_enabled` (Settings → House). Run now still works then.
+- Memory: a fit takes up to about 270 MB for under a minute next to the service. It is
+  skipped, and tried again the next night, when less than 400 MB is free, and stopped
+  above 512 MB.
+- The first model needs about three weeks of history. Until then the House page says what
+  is missing.
+- The `models/` and `learner/` directories are created in the data directory.
+- The model plan (`control_model_use`) is off by default. `shadow` computes and records a
+  plan without any effect on decisions; `on` is locked.
+- Settings is now an icon in the top bar; the House page is in the navigation.
+
+After upgrading, check in this order:
+
+1. `GET api/v1/health` shows `live` and `ready` true.
+2. `GET api/v1/insight/house/run` shows `state` idle, `enabled` true, a `next_due_at`
+   inside the night window and no `failure`.
+3. While a Run now is going, decisions keep their one-minute cadence on the Setpoint page.
+4. `control_model_use` is `off`.
+5. After switching it to `shadow`: the House page's Control tab shows a verdict and the
+   journal stays calm (informational `model_plan` entries only).
+
 ## Backup and restore
 
 Back up the data directory. The two `*.snapshot.db` files are consistent copies made by

@@ -795,7 +795,7 @@ export function makeHouse(now: number, scenario: Scenario, doc: ConfigDoc): Mock
         fit_days: 40.7,
         step_s: 60,
         config_hash: '35767f480b5ce141',
-        code_version: '0.4.1',
+        code_version: '0.5.0',
         method: 'building_only',
         fallback_reason: null,
         seed: 0,
