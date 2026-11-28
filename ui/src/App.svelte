@@ -605,6 +605,9 @@
     nav.top a:not([aria-current]) {
       padding: 0 var(--space-2);
     }
+  }
+
+  @container topbar (max-width: 68rem) {
     .brand-box :global(.slot) {
       display: none;
     }
