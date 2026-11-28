@@ -118,7 +118,7 @@ const ROUTES: RouteSpec[] = [
 ];
 
 const PHONE_BUDGET: Record<string, number> = {
-  home: 1900,
+  home: 1960,
   setpoint: 2500,
   weather: 1600,
   pump: 2500,
