@@ -49,7 +49,7 @@ export const topic: HelpTopic = {
       id: 'outside',
       kind: 'know',
       title: 'Your own outside sensor',
-      body: 'The pump measures the outside temperature at its outdoor unit, where sun, wind and defrosting can skew it. Under **Outside sensor for the curve** you can pick another thermometer instead: a Home Assistant sensor or an [extra MQTT sensor](#/settings/mqtt), in °C.\n\n- **Uses it:** only the heating curve (the smoothed outside temperature, and with it the water temperature and the plan).\n- **Keeps the pump sensor:** the safety [[envelope]], the safety monitors, the measured line on [Weather](#/weather), the house model and the trial summaries.\n- **When it goes quiet:** older than **Outside sensor counts as fresh for** (30 minutes by default), and the curve uses the pump sensor again until the chosen one reports. The warning **Outside sensor not fresh** says so, and a chip appears here.',
+      body: 'The pump measures the outside temperature at its outdoor unit, where sun, wind and defrosting can skew it. Under **Outside sensor for the curve** you can pick another thermometer instead: a Home Assistant sensor or an [extra MQTT sensor](#/settings/mqtt), in °C.\n\n- **Uses it:** only the heating curve (the smoothed outside temperature, and with it the water temperature and the plan).\n- **Keeps the pump sensor:** the safety [[envelope]], the safety monitors, the measured line on [Weather](#/weather) and the trial summaries.\n- **When it goes quiet:** older than **Outside sensor counts as fresh for** (30 minutes by default), and the curve uses the pump sensor again until the chosen one reports. The warning **Outside sensor not fresh** says so, and a chip appears here.',
       target: 'settings/curve.outside',
     },
     {

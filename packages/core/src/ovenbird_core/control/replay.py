@@ -27,22 +27,14 @@ from types import MappingProxyType
 from typing import Final
 
 from ovenbird_core.control.config import RoomSensorProfile
-from ovenbird_core.control.ovenbird import (
-    STATS_SIGNAL,
-    OvenbirdState,
-    RampPhase,
-    StoveSource,
-    StoveTrigger,
-)
+from ovenbird_core.control.ovenbird import STATS_SIGNAL
 from ovenbird_core.control.record import DecisionRecord, InputRef, StateValue
+from ovenbird_core.control.state import OvenbirdState, RampPhase, StoveSource, StoveTrigger
 from ovenbird_core.control.types import (
     ActualValue,
     ControlInputs,
     Mode,
-    PlanSlice,
-    PlanSource,
     PumpActual,
-    ReasonCode,
     RoomInput,
 )
 from ovenbird_core.instant import Instant
@@ -51,7 +43,6 @@ from ovenbird_core.store import HeishaMonStatus, SignalView, Snapshot
 
 ROOM_SOURCE: Final = "room"
 ACTUAL_SOURCE: Final = "actual"
-RECORDED_PLAN_S: Final = 900.0
 STATE_TIME_FIELDS: Final = frozenset(
     {
         "last_change_at",
@@ -66,6 +57,8 @@ STATE_TIME_FIELDS: Final = frozenset(
         "stove_trusted_since",
         "stove_high_at",
         "stove_step_low_at",
+        "summer_mean_at",
+        "summer_mean_from",
     }
 )
 FLAT_NAMES: Final = MappingProxyType(
@@ -87,12 +80,14 @@ ACTUAL_SIGNALS: Final = MappingProxyType(
 
 
 def _float(value: StateValue) -> float | None:
+    """Return a recorded state number as float, ``None`` when missing or not numeric."""
     if value is None or isinstance(value, bool) or not isinstance(value, int | float):
         return None
     return float(value)
 
 
 def _int(value: StateValue) -> int | None:
+    """Return a recorded state number as int, ``None`` when missing or not numeric."""
     if value is None or isinstance(value, bool) or not isinstance(value, int | float):
         return None
     return int(value)
@@ -132,6 +127,7 @@ def state_from_flat(flat: Mapping[str, StateValue]) -> OvenbirdState:
             "stove_level_blocked",
             "stove_reentry_wait",
             "stove_fault",
+            "summer_active",
         ):
             values[item.name] = bool(raw)
         elif item.name in ("setpoint", "pump_duty", "quiet_level"):
@@ -162,6 +158,7 @@ def clock_offset(at: Instant) -> float:
 
 
 def _view(ref: InputRef, now: Instant) -> SignalView:
+    """Rebuild the signal view an input reference recorded, aged back from ``now``."""
     try:
         source = SourceKind(ref.source) if ref.source is not None else SourceKind.HEISHAMON
     except ValueError:
@@ -186,6 +183,7 @@ def _view(ref: InputRef, now: Instant) -> SignalView:
 
 
 def _actual(ref: InputRef) -> ActualValue | None:
+    """Rebuild an applied value from an input reference, ``None`` if it was not an integer one."""
     if ref.source != ACTUAL_SOURCE:
         return None
     value = ref.value
@@ -202,6 +200,19 @@ def _room(
     room_signal: SignalId | None,
     profile: RoomSensorProfile | None,
 ) -> RoomInput | None:
+    """Rebuild the room input from an input reference and the record's controller state.
+
+    Parameters
+    ----------
+    ref
+        Recorded input reference of the room signal.
+    record
+        Decision record being replayed.
+    room_signal
+        Signal id of the configured room sensor, if any.
+    profile
+        Reporting profile of the room sensor, if known.
+    """
     value = ref.value
     if room_signal is None or ref.signal != room_signal:
         return None
@@ -290,48 +301,4 @@ def replay_inputs(
             heating_mode=actual.get("heating_mode"),
             operating_mode=actual.get("operating_mode"),
         ),
-    )
-
-
-def _offset(value: StateValue) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    return float(value)
-
-
-def recorded_model_plan(record: DecisionRecord) -> PlanSlice | None:
-    """Return the model plan slice a decision was made with, rebuilt from its record.
-
-    The controller records what the planner asked for only on ticks that were given a
-    model slice: the room offset (``model_plan_requested_k``) and, for a water slice,
-    the water offset (``model_plan_water_requested_k``). The slice is rebuilt valid for
-    that tick alone (:data:`RECORDED_PLAN_S`), and the controller decides again what
-    became of it (bounds, room authority, stove, untrusted room). ``None`` for every
-    other record.
-
-    Parameters
-    ----------
-    record
-        A stored decision record.
-
-    Returns
-    -------
-    PlanSlice | None
-        The model slice, or ``None`` when the tick had none.
-    """
-    state = record.controller_state
-    room = _offset(state.get("model_plan_requested_k"))
-    water = _offset(state.get("model_plan_water_requested_k")) or 0.0
-    if room is None and water == 0.0:
-        return None
-    room_k = 0.0 if water != 0.0 or room is None else room
-    asked = water or room_k
-    reason = ReasonCode.PLAN_SETBACK if asked < 0.0 else ReasonCode.PLAN_PREHEAT
-    return PlanSlice(
-        room_offset_k=room_k,
-        reason=reason,
-        valid_from=record.at,
-        valid_until=record.at.shifted(RECORDED_PLAN_S),
-        source=PlanSource.MODEL,
-        water_offset_k=water,
     )

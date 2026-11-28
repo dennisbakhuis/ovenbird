@@ -42,8 +42,7 @@ Layers, outermost last:
 - :class:`CommandWorker` drives the adapter on the service clock and hands released
   commands to the link.
 
-Modules
--------
+**Modules**
 ``model``
     Commands, events, records and the shared constants.
 ``publish``

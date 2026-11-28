@@ -35,15 +35,18 @@ NO_GZIP = {"Accept-Encoding": "identity"}
 
 
 def basic(user: str = "admin", password: str = PASSWORD) -> dict[str, str]:
+    """Return HTTP Basic authorization headers for the given credentials."""
     token = base64.b64encode(f"{user}:{password}".encode()).decode()
     return {"Authorization": f"Basic {token}"}
 
 
 def sample(signal: str, ts: float, value: float, unit: str | None = "°C") -> Sample:
+    """Build a numeric history sample for a signal."""
     return Sample(signal, unit, SampleKind.NUMBER, ts, value, 600.0)
 
 
 def decision(ts: float, setpoint: int = 30) -> DecisionRow:
+    """Build a shadow-mode decision journal row with the given setpoint."""
     record = json.dumps({"note": f"tick {setpoint}", "setpoint": setpoint}, sort_keys=True)
     return DecisionRow(
         ts, "ovenbird", "shadow", "curve_only", "curve", setpoint, record, "[]", "[]", 2
@@ -51,6 +54,7 @@ def decision(ts: float, setpoint: int = 30) -> DecisionRow:
 
 
 def fill(path: Path, decisions: int = 3) -> None:
+    """Populate a history database with samples, journal rows and a forecast."""
     conn = open_history(path)
     db = HistoryDatabase(conn)
     db.write_batch(
@@ -71,6 +75,7 @@ def fill(path: Path, decisions: int = 3) -> None:
 
 @pytest.fixture
 def settings(make_settings: Callable[..., Settings]) -> Settings:
+    """Secured settings with admin password, operate token and HA token."""
     return make_settings(
         admin_password=PASSWORD,
         operate_token=TOKEN,
@@ -82,6 +87,7 @@ def settings(make_settings: Callable[..., Settings]) -> Settings:
 
 @pytest.fixture
 def client(settings: Settings) -> Iterator[TestClient]:
+    """Yield a test client over an app backed by a filled history database."""
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     fill(settings.history_path)
     clock = FakeClock(T0 + 3 * DAY)
@@ -92,10 +98,12 @@ def client(settings: Settings) -> Iterator[TestClient]:
 
 
 def rows(text: str) -> list[list[str]]:
+    """Parse CSV text into rows of cells."""
     return list(csv.reader(io.StringIO(text)))
 
 
 def test_signal_inventory(client: TestClient) -> None:
+    """The signal inventory lists unit, kind and per-resolution coverage."""
     body = client.get("/api/v1/history/signals", headers=basic()).json()
     outlet = next(s for s in body["signals"] if s["id"] == "main/Outlet_Temp")
     assert outlet["unit"] == "°C"
@@ -107,6 +115,7 @@ def test_signal_inventory(client: TestClient) -> None:
 
 
 def test_series_long_csv_with_rollup_extremes(client: TestClient) -> None:
+    """Hourly CSV export includes rollup minima and maxima and honours the time window."""
     response = client.get(
         "/api/v1/export/series",
         params={
@@ -128,6 +137,7 @@ def test_series_long_csv_with_rollup_extremes(client: TestClient) -> None:
 
 
 def test_series_spans_days_without_a_point_cap(client: TestClient) -> None:
+    """A raw NDJSON export spans all days of data without truncating."""
     response = client.get(
         "/api/v1/export/series",
         params={"signals": "main/Outlet_Temp", "step": "raw", "format": "ndjson"},
@@ -141,6 +151,7 @@ def test_series_spans_days_without_a_point_cap(client: TestClient) -> None:
 
 
 def test_series_wide_layout_and_formula_protection(client: TestClient) -> None:
+    """Wide layout pivots signals into columns and prefixes formula-like names with a quote."""
     response = client.get(
         "/api/v1/export/series",
         params={"signals": "all", "step": "raw", "layout": "wide", "to": "2027-01-15T08:03:00Z"},
@@ -153,6 +164,7 @@ def test_series_wide_layout_and_formula_protection(client: TestClient) -> None:
 
 
 def test_series_is_gzipped_when_accepted(client: TestClient) -> None:
+    """The series export is gzip-encoded when the client accepts gzip."""
     response = client.get(
         "/api/v1/export/series",
         params={"signals": "main/Outlet_Temp", "step": "60"},
@@ -163,6 +175,7 @@ def test_series_is_gzipped_when_accepted(client: TestClient) -> None:
 
 
 def test_series_refuses_unknown_signals_and_steps(client: TestClient) -> None:
+    """Unknown signals, invalid steps and reversed windows are refused."""
     unknown = client.get("/api/v1/export/series", params={"signals": "main/Nope"}, headers=basic())
     assert unknown.status_code == 400
     assert "main/Nope" in unknown.json()["detail"]
@@ -177,6 +190,7 @@ def test_series_refuses_unknown_signals_and_steps(client: TestClient) -> None:
 
 
 def test_series_far_beyond_the_data_is_cheap(client: TestClient) -> None:
+    """A window far wider than the data still answers 200 with rows."""
     response = client.get(
         "/api/v1/export/series",
         params={"from": "1970-01-02T00:00:00Z", "to": "2100-01-01T00:00:00Z", "step": "900"},
@@ -187,6 +201,7 @@ def test_series_far_beyond_the_data_is_cheap(client: TestClient) -> None:
 
 
 def test_journal_exports(client: TestClient) -> None:
+    """Journal exports cover decisions, commands, alarms and forecast; unknown kinds are refused."""
     decisions = client.get("/api/v1/export/journal/decisions", headers={**basic(), **NO_GZIP})
     table = rows(decisions.text)
     assert table[0][:3] == ["at", "controller", "mode"]
@@ -222,6 +237,7 @@ def test_journal_exports(client: TestClient) -> None:
 
 
 def test_decision_export_has_no_row_cap(settings: Settings) -> None:
+    """Exporting thousands of decisions returns every row."""
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     fill(settings.history_path, decisions=6000)
     app = create_app(Runtime(clock=FakeClock(T0 + 10 * DAY)), settings)
@@ -235,6 +251,7 @@ def test_decision_export_has_no_row_cap(settings: Settings) -> None:
 
 
 def test_archive_is_admin_only_and_holds_no_secrets(client: TestClient) -> None:
+    """The archive is admin-only and holds config, database and manifest without credentials."""
     assert (
         client.get(
             "/api/v1/export/archive", headers={"Authorization": f"Bearer {TOKEN}"}
@@ -262,6 +279,7 @@ def test_archive_is_admin_only_and_holds_no_secrets(client: TestClient) -> None:
 
 
 def test_archive_database_is_a_readable_copy(client: TestClient, tmp_path: Path) -> None:
+    """The archived history database opens as SQLite and no temporary files remain."""
     raw = client.get("/api/v1/export/archive", headers=basic()).content
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         target = tmp_path / "copy.db"
@@ -273,6 +291,7 @@ def test_archive_database_is_a_readable_copy(client: TestClient, tmp_path: Path)
 
 
 def test_storage_report(client: TestClient) -> None:
+    """The storage report lists resolutions with retention, oldest sample and projected size."""
     body = client.get("/api/v1/history/storage", headers=basic()).json()
     assert body["files"]["database"] > 0
     ids = [r["id"] for r in body["resolutions"]]
@@ -288,6 +307,7 @@ def test_storage_report(client: TestClient) -> None:
 
 
 def test_compaction_through_the_api(settings: Settings) -> None:
+    """Compaction is admin-only, accepted once while pending, run by the writer and audited."""
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     fill(settings.history_path)
     clock = FakeClock(T0 + 3 * DAY)
@@ -330,4 +350,5 @@ def test_compaction_through_the_api(settings: Settings) -> None:
     ],
 )
 def test_accepts_gzip(header: str | None, expected: bool) -> None:
+    """Accept-Encoding parsing honours gzip, wildcards and zero quality values."""
     assert accepts_gzip(header) is expected

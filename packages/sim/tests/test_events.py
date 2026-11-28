@@ -12,7 +12,6 @@ from ovenbird_sim.data import events
 from ovenbird_sim.data.capture import load_capture
 from ovenbird_sim.data.dataset import assemble, load_datalake
 from ovenbird_sim.data.weather import load_weather
-from ovenbird_sim.identify.building import FitConfig, make_windows
 
 DT = 60.0
 T0 = datetime(2026, 11, 1, tzinfo=UTC).timestamp()
@@ -44,6 +43,7 @@ def _fire(t: np.ndarray, start: float, hours: float, peak: float) -> np.ndarray:
 
 
 def test_a_fire_is_found_with_its_extent_and_recovery_tail() -> None:
+    """A fire is detected with its start, end, peak and recovery tail."""
     t, living, refs = _house()
     start = T0 + 9 * 86400.0 + 12 * 3600.0
     found = events.detect_stove(t, living + _fire(t, start, 8.0, 3.5), refs)
@@ -59,11 +59,13 @@ def test_a_fire_is_found_with_its_extent_and_recovery_tail() -> None:
 
 
 def test_a_quiet_house_flags_nothing() -> None:
+    """A house without a fire has no stove events."""
     t, living, refs = _house()
     assert events.detect_stove(t, living, refs) == ()
 
 
 def test_a_slow_warm_spell_without_a_rise_is_not_a_fire() -> None:
+    """A slow warm spell without a rise is not detected as a fire."""
     t, living, refs = _house()
     centre = T0 + 7 * 86400.0
     slow = 2.5 * np.exp(-(((t - centre) / (14 * 3600.0)) ** 2))
@@ -71,12 +73,14 @@ def test_a_slow_warm_spell_without_a_rise_is_not_a_fire() -> None:
 
 
 def test_a_fast_but_small_warming_is_not_a_fire() -> None:
+    """A fast but small warming is not detected as a fire."""
     t, living, refs = _house()
     start = T0 + 9 * 86400.0 + 12 * 3600.0
     assert events.detect_stove(t, living + _fire(t, start, 3.0, 1.5), refs) == ()
 
 
 def test_warming_the_whole_house_is_not_a_fire() -> None:
+    """Warming of the whole house, as seen by the reference rooms, is not a fire."""
     t, living, refs = _house()
     start = T0 + 9 * 86400.0 + 12 * 3600.0
     heat = _fire(t, start, 6.0, 3.0)
@@ -84,6 +88,7 @@ def test_warming_the_whole_house_is_not_a_fire() -> None:
 
 
 def test_two_fires_on_one_evening_merge() -> None:
+    """Two fires on one evening merge into one event."""
     t, living, refs = _house()
     first = T0 + 9 * 86400.0 + 12 * 3600.0
     second = first + 10 * 3600.0
@@ -95,6 +100,7 @@ def test_two_fires_on_one_evening_merge() -> None:
 
 
 def test_masks_and_days() -> None:
+    """Masks and touched days cover the event with or without its tail; the JSON lists its hours."""
     event = events.Event(
         events.STOVE,
         T0 + 86400.0 + 20 * 3600.0,
@@ -115,34 +121,6 @@ def test_masks_and_days() -> None:
     assert payload["excluded_hours"] == 18.0
 
 
-def test_building_windows_overlapping_an_event_are_left_out() -> None:
-    from ovenbird_sim.data.synthetic import simulated_dataset
-    from ovenbird_sim.model.building import BuildingParams
-    from ovenbird_sim.model.heatpump import HeatPumpParams
-    from ovenbird_sim.model.plant import PlantParams, PlantState
-
-    n = 3 * 288
-    params = PlantParams(HeatPumpParams(), BuildingParams())
-    ds = simulated_dataset(
-        params,
-        PlantState(t_water=30.0, t_mass=22.0, t_air=21.0),
-        np.full(n, 32.0),
-        np.full(n, 5.0),
-        np.zeros(n),
-        start=T0,
-        dt=300.0,
-    )
-    clean = make_windows(ds, FitConfig())
-    flag = np.zeros(n, dtype=np.bool_)
-    flag[300:340] = True
-    flagged = type(ds)(
-        ds.grid, ds.columns, ds.flags | {"event": flag}, ds.calibration, ds.notes, ()
-    )
-    windows = make_windows(flagged, FitConfig())
-    assert windows.n == clean.n - 1
-    assert windows.event_starts == (float(ds.t[288]),)
-
-
 STOVE_DAYS = tuple(
     day.strip()
     for day in local.settings(CAPTURES / local.SETTINGS_FILE).get("STOVE_DAYS", "").split(",")
@@ -157,6 +135,7 @@ STOVE_DAYS = tuple(
     reason="local capture or its STOVE_DAYS setting not present (data is never committed)",
 )
 def test_the_recording_has_exactly_the_known_stove_fire() -> None:
+    """The local recording contains exactly the one known stove fire."""
     first = datetime.fromisoformat(STOVE_DAYS[0]).replace(tzinfo=UTC)
     last = datetime.fromisoformat(STOVE_DAYS[-1]).replace(tzinfo=UTC)
     capture = load_capture(CAPTURES / "live")

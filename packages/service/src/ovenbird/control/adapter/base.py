@@ -40,12 +40,16 @@ from ovenbird_core.control import IntentKind
 
 @dataclass(slots=True)
 class _Pending:
+    """A queued command and the number of the attempt it is on."""
+
     command: Command
     attempt: int
 
 
 @dataclass(slots=True)
 class _InFlight:
+    """The command awaiting verification, its attempt and when it was sent."""
+
     command: Command
     attempt: int
     sent_at: Instant
@@ -53,16 +57,21 @@ class _InFlight:
 
 @dataclass(slots=True)
 class _Hold:
+    """An active hold on publishing: its record and its end (monotonic s, ``None`` if latched)."""
+
     record: HoldRecord
     until: float | None
 
     @property
     def reason(self) -> str:
+        """Return why the hold was started."""
         return self.record.reason
 
 
 @dataclass(slots=True)
 class _Board:
+    """What is known of the HeishaMon board: heartbeat, uptime, last will and last restart."""
+
     alive: bool | None = None
     uptime_s: float | None = None
     lwt_online: bool | None = None
@@ -138,6 +147,26 @@ class AdapterBase:
         attempt: int,
         detail: str,
     ) -> CommandEvent:
+        """Journal and publish a command event, marking operator and restore commands in its detail.
+
+        Parameters
+        ----------
+        at
+            Time of the event.
+        command
+            Command the event is about.
+        status
+            New status of the command.
+        attempt
+            Attempt number, 0 when the command was never sent.
+        detail
+            Human-readable explanation.
+
+        Returns
+        -------
+        CommandEvent
+            The event that was recorded.
+        """
         if command.operator and not detail.startswith(OPERATOR_PREFIX):
             detail = f"{OPERATOR_PREFIX}{command.actor}: {detail}"
         if command.restore and not detail.startswith(RESTORE_PREFIX):
@@ -155,6 +184,7 @@ class AdapterBase:
         return event
 
     def _notify(self, event: CommandEvent) -> None:
+        """Pass ``event`` to every listener; a failing listener is logged, not raised."""
         for listener in self.listeners:
             try:
                 listener(event)
@@ -162,6 +192,7 @@ class AdapterBase:
                 LOGGER.exception("command event listener failed")
 
     def _drop_queue(self, now: Instant, why: str) -> None:
+        """Drop every queued command, recording ``why`` on each."""
         for pending in self._queue.values():
             self._emit(now, pending.command, CommandStatus.DROPPED, pending.attempt - 1, why)
         self._queue.clear()

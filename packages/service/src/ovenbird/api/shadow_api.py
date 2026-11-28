@@ -29,7 +29,19 @@ async def divergence(
     step: Annotated[int | None, Query()] = None,
     threshold_k: Annotated[float, Query(gt=0.0, le=20.0)] = DEFAULT_THRESHOLD_K,
 ) -> Json:
-    """``GET shadow/divergence``: ovenbird against the pump's setpoint, with episodes."""
+    """``GET shadow/divergence``: ovenbird against the pump's setpoint, with episodes.
+
+    Parameters
+    ----------
+    deps
+        Supervision dependencies.
+    start, end
+        Period bounds (ISO 8601); defaults apply when omitted.
+    step
+        Bucket width in seconds; chosen from the period when omitted.
+    threshold_k
+        Setpoint difference (K) from which a divergence episode starts.
+    """
     since, until = deps.window(start, end)
     current = deps.supervision.current()
     try:

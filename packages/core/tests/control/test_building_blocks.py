@@ -1,3 +1,5 @@
+"""Tests for the controller building blocks: curve, filter, safety, config, inputs, record JSON."""
+
 from __future__ import annotations
 
 import json
@@ -47,26 +49,33 @@ CURVE = HeatingCurve.of((-10, 39), (0, 34), (15, 25))
 
 
 def at(seconds: float) -> Instant:
+    """Return the instant ``seconds`` after the test epoch."""
     return Instant.from_unix(T0 + seconds)
 
 
 class TestCurve:
+    """Heating curve interpolation, sensitivity and validation."""
+
     def test_interpolates_between_points(self) -> None:
+        """Water temperature is linearly interpolated between curve points."""
         assert CURVE.water(0) == 34
         assert CURVE.water(5) == pytest.approx(31.0)
         assert CURVE.water(-5) == pytest.approx(36.5)
 
     def test_clamped_at_the_ends(self) -> None:
+        """Outside the curve's range the end values are held."""
         assert CURVE.water(-30) == 39
         assert CURVE.water(30) == 25
 
     def test_sensitivity_uses_segment_and_end_segments_beyond(self) -> None:
+        """Sensitivity is the local slope, extended from the end segments beyond the curve."""
         assert CURVE.sensitivity(5) == pytest.approx(0.6)
         assert CURVE.sensitivity(-5) == pytest.approx(0.5)
         assert CURVE.sensitivity(-20) == pytest.approx(0.5)
         assert CURVE.sensitivity(25) == pytest.approx(0.6)
 
     def test_room_offset_maps_with_one_plus_slope(self) -> None:
+        """A room offset maps to water by (1 + curve slope) times the offset."""
         assert room_offset_to_water(CURVE, 5, 1.0) == pytest.approx(1.6)
         assert room_offset_to_water(CURVE, 5, -0.5) == pytest.approx(-0.8)
 
@@ -81,15 +90,20 @@ class TestCurve:
         ],
     )
     def test_rejects_invalid_curves(self, pairs: tuple[tuple[float, float], ...]) -> None:
+        """Curves with too few, duplicate, unordered, rising or non-finite points are rejected."""
         with pytest.raises(ValueError, match="curve"):
             HeatingCurve.of(*pairs)
 
 
 class TestOutsideFilter:
+    """Low-pass filtering of the outside temperature."""
+
     def test_first_sample_initialises(self) -> None:
+        """Without a previous value the first sample becomes the filter output."""
         assert filter_outside(None, None, 3.0, 0.0, 3600.0) == 3.0
 
     def test_exact_discretisation_is_tick_independent(self) -> None:
+        """One long step and many short steps give the same filtered value."""
         one = filter_outside(0.0, 0.0, 10.0, 3600.0, 3600.0)
         many = 0.0
         for i in range(60):
@@ -98,6 +112,7 @@ class TestOutsideFilter:
         assert many == pytest.approx(one)
 
     def test_integer_toggling_averages_out(self) -> None:
+        """A whole-degree sensor toggling between two values filters to their mean."""
         value, last = 1.0, 0.0
         for i in range(1, 24 * 60):
             sample = 1.0 if i % 2 else 2.0
@@ -106,15 +121,19 @@ class TestOutsideFilter:
         assert value == pytest.approx(1.5, abs=0.01)
 
     def test_no_time_no_change_and_zero_tau_passes_through(self) -> None:
+        """No elapsed time keeps the value; a zero time constant passes the sample through."""
         assert filter_outside(4.0, 10.0, 8.0, 10.0, 3600.0) == 4.0
         assert filter_outside(4.0, 10.0, 8.0, 5.0, 3600.0) == 4.0
         assert filter_outside(4.0, 10.0, 8.0, 70.0, 0.0) == 8.0
 
 
 class TestSafety:
+    """Safety bounds and the envelope fallback setpoint."""
+
     LIMITS = SafetyLimits(max_supply_c=40.0, envelope=CURVE)
 
     def test_envelope_band(self) -> None:
+        """Within normal limits the bounds follow the envelope band around the curve."""
         bounds = self.LIMITS.bounds(5)
         assert bounds.low == pytest.approx(25.0)
         assert bounds.high == pytest.approx(36.0)
@@ -122,6 +141,7 @@ class TestSafety:
         assert bounds.high_source is Bound.ENVELOPE_MAX
 
     def test_absolute_limits_win(self) -> None:
+        """Maximum supply and minimum setpoint override the envelope at extreme temperatures."""
         cold = self.LIMITS.bounds(-20)
         assert cold.high == 40.0
         assert cold.high_source is Bound.MAX_SUPPLY
@@ -130,30 +150,35 @@ class TestSafety:
         assert warm.low_source is Bound.MIN_SETPOINT
 
     def test_max_supply_wins_over_envelope_minimum(self) -> None:
+        """An envelope minimum above the maximum supply collapses the bounds to it."""
         hot = HeatingCurve.of((-10, 60), (10, 50))
         bounds = SafetyLimits(max_supply_c=40.0, envelope=hot).bounds(0)
         assert bounds.low == bounds.high == 40.0
         assert bounds.low_int == bounds.high_int == 40
 
     def test_min_setpoint_wins_over_low_envelope_maximum(self) -> None:
+        """An envelope maximum below the minimum setpoint is raised to the minimum setpoint."""
         cold_curve = HeatingCurve.of((-10, 15), (10, 12))
         bounds = SafetyLimits(max_supply_c=40.0, envelope=cold_curve).bounds(0)
         assert bounds.high == 20.0
         assert bounds.clamp_int(35) == 20
 
     def test_integer_bounds_round_inwards(self) -> None:
+        """Integer bounds round towards the inside of the band."""
         bounds = SafetyLimits(max_supply_c=40.0, envelope=CURVE).bounds(4)
         assert bounds.low == pytest.approx(25.6)
         assert bounds.low_int == 26
         assert bounds.high_int == 36
 
     def test_the_envelope_rule_writes_the_envelope_curve(self) -> None:
+        """The fallback setpoint is the envelope curve; candidates are the whole degrees near it."""
         assert self.LIMITS.fallback_setpoint(5) == pytest.approx(31.0)
         assert self.LIMITS.fallback_values(5) == {31}
         assert self.LIMITS.fallback_setpoint(4) == pytest.approx(31.6)
         assert self.LIMITS.fallback_values(4) == {31, 32}
 
     def test_the_envelope_rule_stays_within_the_absolute_limits(self) -> None:
+        """The fallback setpoint never leaves the absolute supply limits."""
         hot = SafetyLimits(max_supply_c=40.0, envelope=HeatingCurve.of((-10, 60), (10, 50)))
         assert hot.fallback_values(0) == {40}
         cold = SafetyLimits(max_supply_c=40.0, envelope=HeatingCurve.of((-10, 15), (10, 12)))
@@ -170,12 +195,16 @@ class TestSafety:
         ],
     )
     def test_rejects_invalid_limits(self, kwargs: dict[str, float]) -> None:
+        """Out-of-range or non-finite safety limits are rejected."""
         with pytest.raises(ValueError, match="must"):
             SafetyLimits(envelope=CURVE, **kwargs)
 
 
 class TestConfig:
+    """Controller configuration presets and validation."""
+
     def test_presets_differ_by_emitter(self) -> None:
+        """Each emitter preset sets supply limit, ramp, feedback and stage timing as expected."""
         screed = OvenbirdConfig.preset("screed_floor")
         radiators = OvenbirdConfig.preset(EmitterType.RADIATORS)
         mixed = OvenbirdConfig.preset("mixed")
@@ -195,32 +224,39 @@ class TestConfig:
             assert config.quiet is None
 
     def test_curve_override_keeps_the_preset_envelope(self) -> None:
+        """Overriding the curve leaves the preset's safety envelope unchanged."""
         curve = HeatingCurve.of((-10, 35), (15, 26))
         config = OvenbirdConfig.preset("mixed", curve=curve)
         assert config.curve is curve
         assert config.safety.envelope == OvenbirdConfig.preset("mixed").curve
 
     def test_curve_outside_the_envelope_is_rejected(self) -> None:
+        """A curve that leaves the safety envelope is rejected."""
         with pytest.raises(ValueError, match="envelope"):
             OvenbirdConfig.preset("mixed", curve=HeatingCurve.of((-10, 46), (15, 25)))
 
     def test_rejects_small_deadband(self) -> None:
+        """A setpoint deadband below one kelvin is rejected."""
         with pytest.raises(ValueError, match="deadband"):
             SetpointStageConfig(deadband_k=0.5)
 
     def test_rejects_ramp_reaching_below_envelope(self) -> None:
+        """A start ramp that dips below the envelope is rejected."""
         with pytest.raises(ValueError, match="envelope"):
             OvenbirdConfig.preset("mixed", ramp=StartRampConfig(max_below_curve_k=8.0))
 
     def test_rejects_large_feedback_limit(self) -> None:
+        """A room feedback output limit above the allowed maximum is rejected."""
         with pytest.raises(ValueError, match="limit"):
             RoomFeedbackConfig(output_limit_k=8.0)
 
     def test_ki(self) -> None:
+        """The integral gain is kp / ti, and zero when ti is zero."""
         assert RoomFeedbackConfig(kp=2.0, ti_s=7200.0).ki_per_s == pytest.approx(2.0 / 7200.0)
         assert RoomFeedbackConfig(kp=2.0, ti_s=0.0).ki_per_s == 0.0
 
     def test_quiet_windows(self) -> None:
+        """Quiet windows are evaluated in local time and may span midnight."""
         quiet = QuietModeConfig(
             windows=(QuietWindow(time(22), time(6), 2),), timezone="Europe/Amsterdam"
         )
@@ -231,7 +267,10 @@ class TestConfig:
 
 
 class TestInputs:
+    """Plan slices, overrides, rounding and extraction of pump and room inputs."""
+
     def test_plan_slice_interval_is_half_open(self) -> None:
+        """A plan slice is active from its start up to, not including, its end."""
         plan = PlanSlice(0.5, ReasonCode.PLAN_PREHEAT, at(0), at(900))
         assert plan.active(at(0))
         assert plan.active(at(899))
@@ -241,15 +280,18 @@ class TestInputs:
             PlanSlice(0.5, ReasonCode.PLAN_PREHEAT, at(10), at(10))
 
     def test_override_expiry(self) -> None:
+        """An override without an end stays active; one with an end expires at that instant."""
         assert Override(OverrideKind.SETPOINT, 30, until=None).active(at(1e6))
         expiring = Override(OverrideKind.BOOST, 2, until=at(60))
         assert expiring.active(at(59))
         assert not expiring.active(at(60))
 
     def test_round_half_up(self) -> None:
+        """Halves round up, including negative values towards zero."""
         assert [round_half_up(x) for x in (30.49, 30.5, 31.5, -0.5)] == [30, 31, 32, 0]
 
     def test_actual_and_room_from_a_real_store(self) -> None:
+        """Pump actuals and the room input are read correctly from a store snapshot."""
         store = StateStore()
         for signal, value in (
             (HeishaSignal.HEATING_MODE, 1),
@@ -275,6 +317,7 @@ class TestInputs:
         assert room_input(snapshot, "ha/sensor.other") is None
 
     def test_room_invalidated_by_unavailable(self) -> None:
+        """A room sensor reporting unavailable is not fresh and says so."""
         store = StateStore()
         store.apply(ha_reading("sensor.room", "21.4", instant=at(0)))
         store.apply(ha_reading("sensor.room", "unavailable", instant=at(30)))
@@ -285,6 +328,7 @@ class TestInputs:
         assert "unavailable" in room.reason
 
     def test_room_stale_after_max_age(self) -> None:
+        """A room reading older than the maximum age is not fresh."""
         store = StateStore()
         store.apply(ha_reading("sensor.room", "21.4", instant=at(0)))
         room = room_input(store.snapshot(at(3600)), "ha/sensor.room")
@@ -293,7 +337,10 @@ class TestInputs:
 
 
 class TestRecordJson:
+    """JSON serialisation of decision records."""
+
     def record(self) -> DecisionRecord:
+        """Build a representative decision record."""
         return DecisionRecord(
             at=at(0),
             controller="ovenbird",
@@ -316,6 +363,7 @@ class TestRecordJson:
         )
 
     def test_round_trip_through_json_text(self) -> None:
+        """A record survives serialisation to JSON text and back unchanged."""
         record = self.record()
         data = record.to_json_dict()
         assert data["schema"] == DECISION_SCHEMA_VERSION
@@ -324,17 +372,20 @@ class TestRecordJson:
         assert restored.to_json_dict() == data
 
     def test_rejects_other_schema(self) -> None:
+        """A record with a different schema version is rejected on load."""
         data = self.record().to_json_dict()
         data["schema"] = DECISION_SCHEMA_VERSION + 1
         with pytest.raises(ValueError, match="schema"):
             DecisionRecord.from_json_dict(data)
 
     def test_rejects_non_finite_numbers(self) -> None:
+        """Serialising a record with a non-finite number fails."""
         record = replace(self.record(), pre_round=math.inf)
         with pytest.raises(ValueError, match="finite"):
             record.to_json_dict()
 
     def test_controller_state_is_read_only(self) -> None:
+        """The controller state mapping of a record cannot be modified."""
         state = self.record().controller_state
         with pytest.raises(TypeError):
             state["x"] = 1  # type: ignore[index]

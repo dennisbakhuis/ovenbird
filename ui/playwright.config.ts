@@ -49,7 +49,9 @@ export default defineConfig({
     { name: 'deice', testMatch: 'deice.spec.ts', dependencies: ['routes'] },
     { name: 'system', testMatch: 'system.spec.ts', dependencies: ['routes'] },
     { name: 'chunks', testMatch: 'chunks.spec.ts', dependencies: ['routes'] },
+    { name: 'live', testMatch: 'live.spec.ts', dependencies: ['routes'] },
     { name: 'topbar', testMatch: 'topbar.spec.ts', dependencies: ['routes'] },
+    { name: 'features', testMatch: 'features.spec.ts', dependencies: ['routes'] },
     { name: 'war', testMatch: 'war.spec.ts', dependencies: ['routes'] },
     { name: 'data', testMatch: 'data.spec.ts', dependencies: ['routes'] },
     { name: 'replay', testMatch: 'replay.spec.ts', dependencies: ['routes'] },
@@ -58,7 +60,7 @@ export default defineConfig({
   ],
   outputDir: 'e2e/results',
   timeout: 45_000,
-  retries: process.env['CI'] ? 1 : 0,
+  retries: 0,
   fullyParallel: true,
   reporter: [['list']],
   use: {

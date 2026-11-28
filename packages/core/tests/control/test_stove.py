@@ -49,6 +49,7 @@ type Room = float | RoomInput | None
 
 
 def config(stove: StoveConfig | None = None, **overrides: object) -> OvenbirdConfig:
+    """Return the mixed preset with 21 °C comfort and a stove config (default unless given)."""
     return OvenbirdConfig.preset(
         "mixed",
         comfort_room_c=COMFORT,
@@ -58,6 +59,7 @@ def config(stove: StoveConfig | None = None, **overrides: object) -> OvenbirdCon
 
 
 def _view(signal: str, value: float, now: Instant, fresh: bool = True) -> SignalView:
+    """Return a signal view of ``value`` °C from Home Assistant, fresh or two hours old."""
     return SignalView(
         signal=signal,
         value=value,
@@ -82,6 +84,7 @@ def tick_inputs(
     override: Override | None = None,
     outside: float = 5.0,
 ) -> ControlInputs:
+    """Return control inputs at ``t`` s for ``room`` with optional hall, thermostat and override."""
     now = Instant.from_unix(T0 + t)
     value = room.value if isinstance(room, RoomInput) else room
     base = synthetic_inputs(
@@ -101,12 +104,14 @@ class Run:
     """Step a controller through a room profile at one tick per minute."""
 
     def __init__(self, ctrl: OvenbirdController, state: OvenbirdState | None = None) -> None:
+        """Start a run of ``ctrl`` from ``state`` (the initial state by default) at time zero."""
         self.ctrl = ctrl
         self.state = state or ctrl.initial_state()
         self.t = 0.0
         self.results: list[StepResult[OvenbirdState]] = []
 
     def step(self, room: Room, **kwargs: Any) -> StepResult[OvenbirdState]:
+        """Step the controller once with ``room`` at the current time and advance one minute."""
         result = self.ctrl.step(self.state, tick_inputs(self.t, room, **kwargs))
         self.state = result.state
         self.results.append(result)
@@ -116,6 +121,7 @@ class Run:
     def hold(
         self, room: Room | Callable[[float], Room], minutes: float, **kwargs: Any
     ) -> list[StepResult[OvenbirdState]]:
+        """Step once a minute for ``minutes`` with a constant or time-dependent ``room``."""
         out = []
         for _ in range(int(minutes)):
             value = room(self.t) if callable(room) else room
@@ -131,17 +137,22 @@ def warm(
 
 
 def stove_term(result: StepResult[OvenbirdState]) -> float:
+    """Return the value of the stove term of a decision."""
     term = result.decision.term("stove")
     assert term is not None
     return term.value
 
 
 def frozen(result: StepResult[OvenbirdState]) -> str:
+    """Return the frozen_by entry of a decision's controller state as text."""
     return str(result.decision.controller_state.get("frozen_by"))
 
 
 class TestDisabled:
+    """Without a stove config the controller shows no stove behaviour."""
+
     def test_no_stove_term_or_fields_without_config(self) -> None:
+        """A warm room without stove config gives no stove term, state keys or reason."""
         ctrl = OvenbirdController(OvenbirdConfig.preset("mixed", comfort_room_c=COMFORT))
         run = Run(ctrl)
         result = run.hold(25.1, 30)[-1]
@@ -151,6 +162,7 @@ class TestDisabled:
         assert not result.state.stove_active
 
     def test_manual_request_is_ignored_without_config(self) -> None:
+        """A manual stove request has no effect without stove config."""
         ctrl = OvenbirdController(OvenbirdConfig.preset("mixed", comfort_room_c=COMFORT))
         request = Override(OverrideKind.STOVE, 1.0, Instant.from_unix(T0 + HOUR))
         result = Run(ctrl).step(21.0, override=request)
@@ -158,6 +170,7 @@ class TestDisabled:
         assert result.decision.term("stove") is None
 
     def test_inactive_term_says_where_it_enters(self) -> None:
+        """An inactive stove term is zero and names the entry temperature."""
         result = Run(OvenbirdController(config())).step(21.0)
         term = result.decision.term("stove")
         assert term is not None
@@ -168,7 +181,10 @@ class TestDisabled:
 
 
 class TestEntry:
+    """Automatic entry into stove mode by level or fast rise."""
+
     def test_level_entry_backs_off_the_curve(self) -> None:
+        """Reaching the entry level enters stove mode with a 3 K back-off and a held integrator."""
         run = Run(OvenbirdController(config()))
         run.hold(21.0, 5)
         result = run.step(ENTER)
@@ -188,22 +204,26 @@ class TestEntry:
         assert result.decision.note.startswith("Wood-stove mode (auto, level at 22.5 °C")
 
     def test_just_below_the_threshold_does_not_enter(self) -> None:
+        """A room just below the entry level does not enter stove mode."""
         run = Run(OvenbirdController(config()))
         result = run.hold(ENTER - 0.1, 30)[-1]
         assert not result.state.stove_active
 
     def test_reason_is_stove_once_the_setpoint_follows(self) -> None:
+        """Once the setpoint has followed the back-off the reason is STOVE."""
         run = Run(OvenbirdController(config()))
         results = run.hold(24.2, 40)
         assert results[-1].decision.setpoint == 28
         assert {r.decision.reason for r in results[-10:]} == {ReasonCode.STOVE}
 
     def test_needs_a_fresh_room_value(self) -> None:
+        """A stale room value does not enter stove mode."""
         stale = RoomInput(25.1, 7200.0, False, ROOM_SIGNAL)
         result = Run(OvenbirdController(config())).hold(stale, 30)[-1]
         assert not result.state.stove_active
 
     def test_needs_a_plausible_room_value(self) -> None:
+        """A room value that disagrees with the thermostat does not enter stove mode."""
         cfg = config(room=RoomSensorProfile(crosscheck=CROSS, crosscheck_sustain_s=0.0))
         run = Run(OvenbirdController(cfg))
         run.hold(21.0, 5, thermostat=20.2)
@@ -211,6 +231,7 @@ class TestEntry:
         assert not result.state.stove_active
 
     def test_needs_full_cooling_authority(self) -> None:
+        """A held on-change value with reduced authority does not enter stove mode."""
         profile = RoomSensorProfile(kind=RoomProfile.ON_CHANGE)
         silent = RoomInput(
             23.7,
@@ -225,6 +246,7 @@ class TestEntry:
         assert not result.state.stove_active
 
     def test_fast_rise_enters_above_comfort(self) -> None:
+        """A fast rise above comfort enters stove mode before the entry level."""
         run = Run(OvenbirdController(config()))
         results = run.hold(lambda t: 21.1 + t / (25 * MINUTE), 28)
         entered = [r for r in results if r.state.stove_active]
@@ -234,21 +256,25 @@ class TestEntry:
         assert entered[0].state.stove_entry_c < ENTER
 
     def test_fast_rise_below_comfort_does_not_enter(self) -> None:
+        """A fast rise that stays below comfort does not enter."""
         run = Run(OvenbirdController(config()))
         results = run.hold(lambda t: 19.2 + t / (20 * MINUTE), 20)
         assert not any(r.state.stove_active for r in results)
 
     def test_slow_rise_does_not_enter(self) -> None:
+        """A slow rise does not enter."""
         run = Run(OvenbirdController(config()))
         results = run.hold(lambda t: 21.1 + t / (90 * MINUTE), 85)
         assert not any(r.state.stove_active for r in results)
 
     def test_fast_rise_can_be_switched_off(self) -> None:
+        """With rise_k unset a fast rise does not enter."""
         run = Run(OvenbirdController(config(StoveConfig(rise_k=None))))
         results = run.hold(lambda t: 21.1 + t / (25 * MINUTE), 25)
         assert not any(r.state.stove_active for r in results)
 
     def test_auto_off_still_takes_manual_requests(self) -> None:
+        """With auto detection off a manual request still starts stove mode."""
         ctrl = OvenbirdController(config(StoveConfig(auto=False)))
         run = Run(ctrl)
         assert not run.hold(25.1, 30)[-1].state.stove_active
@@ -257,7 +283,10 @@ class TestEntry:
 
 
 class TestHeldIntegrator:
+    """The integrator is held through a stove episode and restored afterwards."""
+
     def test_integrator_held_through_the_episode_and_restored_after(self) -> None:
+        """The integrator stays constant during the episode and returns to its entry value after."""
         run = Run(OvenbirdController(config()))
         run.hold(20.4, 240)
         warming = warm(run, 20.4, 24.7)
@@ -275,6 +304,7 @@ class TestHeldIntegrator:
         assert after[0].state.integral_k == pytest.approx(before, abs=0.01)
 
     def test_held_where_the_plain_pi_winds_down(self) -> None:
+        """Where a plain PI winds down in a warm room the stove run keeps its integrator."""
         plain = Run(OvenbirdController(OvenbirdConfig.preset("mixed", comfort_room_c=COMFORT)))
         stove = Run(OvenbirdController(config()))
         for run in (plain, stove):
@@ -289,6 +319,7 @@ class TestHeldIntegrator:
         assert stove.state.integral_k > before - 0.2
 
     def test_no_silent_device_rollback_during_the_episode(self) -> None:
+        """No silent-sensor rollback happens while stove mode is active."""
         profile = RoomSensorProfile(kind=RoomProfile.ON_CHANGE)
         run = Run(OvenbirdController(config(room=profile)))
         warm = RoomInput(
@@ -305,7 +336,10 @@ class TestHeldIntegrator:
 
 
 class TestCrosscheckInStoveMode:
+    """Cross-check behaviour while stove mode is active."""
+
     def test_no_implausible_latch_from_the_stove(self) -> None:
+        """A stove-warmed room never latches as implausible against the thermostat."""
         cfg = config(room=RoomSensorProfile(crosscheck=CROSS))
         run = Run(OvenbirdController(cfg))
         run.hold(21.0, 60, thermostat=22.0)
@@ -322,6 +356,7 @@ class TestCrosscheckInStoveMode:
         assert results[-1].state.crosscheck_offset_k == pytest.approx(1.0)
 
     def test_check_resumes_after_the_episode(self) -> None:
+        """The cross-check is plausible again after the episode."""
         cfg = config(room=RoomSensorProfile(crosscheck=CROSS))
         run = Run(OvenbirdController(cfg))
         run.hold(21.0, 60, thermostat=22.0)
@@ -332,7 +367,10 @@ class TestCrosscheckInStoveMode:
 
 
 class TestExit:
+    """Exits from stove mode: cooling, stale room, maximum duration and re-entry holds."""
+
     def test_minimum_duration_then_hysteresis(self) -> None:
+        """Stove mode ends only after the minimum duration and once below the exit hysteresis."""
         run = Run(OvenbirdController(config()))
         run.step(ENTER)
         early = run.hold(20.2, 30)
@@ -345,6 +383,7 @@ class TestExit:
         assert ended.decision.controller_state["stove_exit"] == "cooled"
 
     def test_stale_room_ends_auto_mode_at_once(self) -> None:
+        """A stale room ends an automatic episode with exit room_untrusted."""
         run = Run(OvenbirdController(config()))
         run.hold(24.2, 10)
         result = run.step(RoomInput(24.2, 7200.0, False, ROOM_SIGNAL))
@@ -352,6 +391,7 @@ class TestExit:
         assert result.decision.controller_state["stove_exit"] == "room_untrusted"
 
     def test_stays_active_while_warm_up_to_the_cap(self) -> None:
+        """A warm room keeps the episode active until the maximum duration."""
         assert StoveConfig().max_active_s == 8 * HOUR
         run = Run(OvenbirdController(config()))
         results = run.hold(lambda t: 24.2 if (t // MINUTE) % 2 else 24.4, 8 * 60 + 1)
@@ -359,6 +399,7 @@ class TestExit:
         assert results[-1].decision.controller_state["stove_exit"] == "max_active"
 
     def test_maximum_duration_blocks_the_level_trigger_until_cooled(self) -> None:
+        """After the maximum duration the level trigger stays blocked until the room cooled."""
         cfg = config(StoveConfig(max_active_s=2 * HOUR))
         run = Run(OvenbirdController(cfg))
         results = run.hold(24.2, 2 * 60 + 1)
@@ -376,6 +417,7 @@ class TestExit:
         assert run.step(ENTER + 0.5).state.stove_active
 
     def test_a_new_fast_rise_enters_after_the_cap(self) -> None:
+        """A new fast rise enters even while the level trigger is blocked."""
         cfg = config(StoveConfig(max_active_s=2 * HOUR))
         run = Run(OvenbirdController(cfg))
         run.hold(23.2, 2 * 60 + 1)
@@ -388,6 +430,7 @@ class TestExit:
         assert entered.decision.controller_state["stove_event"] == "entered"
 
     def test_reentry_waits_until_the_room_is_trusted_again(self) -> None:
+        """Re-entry after an untrusted room waits for a trusted period."""
         run = Run(OvenbirdController(config()))
         run.hold(24.2, 10)
         lost = run.step(RoomInput(24.2, 7200.0, False, ROOM_SIGNAL))
@@ -405,12 +448,14 @@ class TestExit:
         assert back.state.stove_trusted_since is None
 
     def test_reentry_hold_zero_enters_at_once(self) -> None:
+        """With reentry_hold_s zero the stove re-enters at once."""
         run = Run(OvenbirdController(config(StoveConfig(reentry_hold_s=0.0))))
         run.hold(24.2, 10)
         run.step(RoomInput(24.2, 7200.0, False, ROOM_SIGNAL))
         assert run.step(24.2).state.stove_active
 
     def test_manual_request_ignores_the_reentry_hold(self) -> None:
+        """A manual request is not delayed by the re-entry hold."""
         run = Run(OvenbirdController(config()))
         run.hold(24.2, 10)
         run.step(RoomInput(24.2, 7200.0, False, ROOM_SIGNAL))
@@ -419,7 +464,10 @@ class TestExit:
 
 
 class TestLostRoomValue:
+    """Lost room value during stove episodes."""
+
     def test_a_lost_value_keeps_its_mark_through_a_manual_episode(self) -> None:
+        """The integrator mark survives a manual episode with a lost value, then is rolled back."""
         on_change = RoomSensorProfile(kind=RoomProfile.ON_CHANGE)
         ctrl = OvenbirdController(config(room=on_change))
         start = replace(ctrl.initial_state(), integral_k=0.2, integral_at_life_k=0.7)
@@ -438,7 +486,10 @@ class TestLostRoomValue:
 
 
 class TestManual:
+    """Manual stove requests."""
+
     def test_manual_on_until(self) -> None:
+        """A manual request holds stove mode until its end time and then exits with manual_ended."""
         run = Run(OvenbirdController(config()))
         until = Instant.from_unix(T0 + 30 * MINUTE)
         request = Override(OverrideKind.STOVE, 1.0, until, actor="owner")
@@ -454,6 +505,7 @@ class TestManual:
         assert rest[-1].decision.controller_state["stove_exit"] == "manual_ended"
 
     def test_manual_end_hands_a_warm_room_to_the_detection(self) -> None:
+        """When a manual request ends in a warm room, automatic detection takes over."""
         run = Run(OvenbirdController(config()))
         until = Instant.from_unix(T0 + 10 * MINUTE)
         request = Override(OverrideKind.STOVE, 1.0, until)
@@ -463,6 +515,7 @@ class TestManual:
         assert result.state.stove_trigger is StoveTrigger.HANDOVER
 
     def test_manual_stop_ends_and_blocks_until_cooled(self) -> None:
+        """A manual stop ends the episode and blocks entry until the room cooled."""
         run = Run(OvenbirdController(config()))
         run.hold(24.2, 10)
         stop = Override(OverrideKind.STOVE, 0.0)
@@ -476,6 +529,7 @@ class TestManual:
         assert run.step(ENTER).state.stove_active
 
     def test_manual_request_takes_over_an_auto_episode(self) -> None:
+        """A manual request takes over a running automatic episode and keeps its start."""
         run = Run(OvenbirdController(config()))
         first = run.step(24.2)
         request = Override(OverrideKind.STOVE, 1.0, Instant.from_unix(T0 + 5 * HOUR))
@@ -485,7 +539,10 @@ class TestManual:
 
 
 class TestBackoff:
+    """Size of the back-off and its guards."""
+
     def test_reference_room_below_its_floor_shrinks_the_backoff(self) -> None:
+        """A reference room below its floor shrinks the back-off, half when stale."""
         cfg = config(StoveConfig(reference=HALL, reference_floor_c=19.0))
         run = Run(OvenbirdController(cfg))
         assert stove_term(run.step(24.2, hall=19.5)) == pytest.approx(-3.0)
@@ -504,6 +561,7 @@ class TestBackoff:
         assert HALL in refs
 
     def test_to_the_safety_minimum(self) -> None:
+        """With to_minimum the back-off goes down to the safety minimum."""
         cfg = config(StoveConfig(to_minimum=True))
         result = Run(OvenbirdController(cfg)).step(24.2)
         assert stove_term(result) == pytest.approx(SAFETY_LOW_AT_5 - CURVE_AT_5)
@@ -512,6 +570,7 @@ class TestBackoff:
 
     @pytest.mark.parametrize("outside", [-10.0, 0.0, 5.0, 12.0, 18.0])
     def test_never_below_the_safety_minimum(self, outside: float) -> None:
+        """No back-off setting takes the setpoint below the safety minimum."""
         for stove in (StoveConfig(backoff_k=15.0), StoveConfig(to_minimum=True)):
             ctrl = OvenbirdController(config(stove))
             results = Run(ctrl).hold(25.1, 60, outside=outside)
@@ -521,7 +580,10 @@ class TestBackoff:
 
 
 class TestStateHandling:
+    """Stove state serialisation, config changes and hold ticks."""
+
     def test_flat_round_trip(self) -> None:
+        """Stove state, including a re-entry wait, round-trips through the flat form."""
         run = Run(OvenbirdController(config()))
         state = run.hold(24.2, 5)[-1].state
         assert state_from_flat(state.as_flat()) == state
@@ -532,6 +594,7 @@ class TestStateHandling:
         assert state_from_flat(waiting.as_flat()) == waiting
 
     def test_config_without_stove_ends_the_episode(self) -> None:
+        """Carrying state to a config without stove ends the episode, other configs keep it."""
         cfg = config()
         run = Run(OvenbirdController(cfg))
         state = run.hold(24.2, 5)[-1].state
@@ -543,6 +606,7 @@ class TestStateHandling:
         assert kept.stove_active
 
     def test_episode_survives_a_hold_tick(self) -> None:
+        """A tick without signals keeps the episode active."""
         run = Run(OvenbirdController(config()))
         run.hold(24.2, 5)
         inputs = tick_inputs(run.t, 24.2)
@@ -552,6 +616,7 @@ class TestStateHandling:
 
 
 def test_config_validation() -> None:
+    """Invalid stove settings raise ValueError and reference_share follows the floor."""
     with pytest.raises(ValueError, match="exit_hysteresis_k"):
         StoveConfig(enter_above_k=1.0, exit_hysteresis_k=1.5)
     with pytest.raises(ValueError, match="max_active_s"):
@@ -575,7 +640,10 @@ def test_config_validation() -> None:
 
 
 class TestPlausibility:
+    """Stove detection against sensor faults and reference rooms."""
+
     def test_a_sensor_failing_high_is_not_a_stove(self) -> None:
+        """A sudden jump of the room value is a sensor fault, not a stove."""
         cfg = config(room=RoomSensorProfile(crosscheck=CROSS))
         run = Run(OvenbirdController(cfg))
         run.hold(21.0, 180, thermostat=21.0)
@@ -591,6 +659,7 @@ class TestPlausibility:
         assert all(r.state.stove_fault for r in results)
 
     def test_a_step_ends_an_automatic_episode(self) -> None:
+        """A sudden step ends an automatic episode with exit room_jump."""
         run = Run(OvenbirdController(config()))
         run.hold(21.0, 10)
         warm(run, 21.0, 23.2)
@@ -602,6 +671,7 @@ class TestPlausibility:
         assert not any(r.state.stove_active for r in run.hold(26.5, 60))
 
     def test_the_fault_clears_once_the_room_has_cooled(self) -> None:
+        """The fault flag clears once the room cools below the exit level."""
         run = Run(OvenbirdController(config()))
         run.hold(21.0, 10)
         assert run.step(23.7).state.stove_fault
@@ -611,6 +681,7 @@ class TestPlausibility:
         assert any(r.state.stove_active for r in warm(run, EXIT - 0.2, 23.2))
 
     def test_a_manual_episode_continues_through_a_step(self) -> None:
+        """A manual episode continues through a step but the fault is recorded."""
         run = Run(OvenbirdController(config()))
         request = Override(OverrideKind.STOVE, 1.0, Instant.from_unix(T0 + 5 * HOUR))
         run.hold(21.0, 10, override=request)
@@ -619,6 +690,7 @@ class TestPlausibility:
         assert result.state.stove_fault
 
     def test_a_step_blocks_the_handover(self) -> None:
+        """A step prevents the handover from a manual to an automatic episode."""
         run = Run(OvenbirdController(config()))
         request = Override(OverrideKind.STOVE, 1.0, Instant.from_unix(T0 + 10 * MINUTE))
         run.hold(21.0, 5, override=request)
@@ -629,6 +701,7 @@ class TestPlausibility:
         assert not any(r.state.stove_active for r in run.hold(23.7, 30))
 
     def test_the_crosscheck_still_flags_a_sensor_far_off_during_an_episode(self) -> None:
+        """A sensor far off the thermostat ends an episode with room_untrusted."""
         cfg = config(room=RoomSensorProfile(crosscheck=CROSS))
         run = Run(OvenbirdController(cfg))
         run.hold(21.0, 60, thermostat=21.0)
@@ -642,6 +715,7 @@ class TestPlausibility:
         assert lost.state.crosscheck_latched == 30.0
 
     def test_entry_needs_the_room_clearly_above_the_reference(self) -> None:
+        """Entry needs the room clearly warmer than the reference room."""
         cfg = config(StoveConfig(reference=HALL))
         run = Run(OvenbirdController(cfg))
         run.hold(21.0, 10, hall=21.2)
@@ -654,6 +728,7 @@ class TestPlausibility:
         assert run.step(23.0, hall=21.2).state.stove_active
 
     def test_an_episode_ends_when_the_reference_has_warmed_up(self) -> None:
+        """An episode ends when the reference room has warmed up."""
         cfg = config(StoveConfig(reference=HALL))
         run = Run(OvenbirdController(cfg))
         run.hold(21.0, 10, hall=19.2)
@@ -665,6 +740,7 @@ class TestPlausibility:
         assert ended.decision.controller_state["stove_exit"] == StoveExit.REFERENCE_WARM.value
 
     def test_a_reference_that_is_not_a_temperature_counts_as_missing(self) -> None:
+        """A reference signal with a non-temperature unit counts as missing."""
         cfg = config(StoveConfig(reference=HALL))
         run = Run(OvenbirdController(cfg))
         inputs = tick_inputs(run.t, 24.2, hall=55.0)
@@ -680,7 +756,10 @@ class TestPlausibility:
 
 
 class TestManualAndTheCrosscheck:
+    """Interplay of manual stove requests with a latched cross-check."""
+
     def _latched(self) -> Run:
+        """Return a run whose room value is latched implausible at 22.2 °C."""
         cfg = config(StoveConfig(rise_k=None), room=RoomSensorProfile(crosscheck=CROSS))
         run = Run(OvenbirdController(cfg))
         run.hold(20.2, 180, thermostat=20.2)
@@ -690,6 +769,7 @@ class TestManualAndTheCrosscheck:
         return run
 
     def test_a_manual_request_keeps_the_latch_and_no_auto_takes_over(self) -> None:
+        """A manual request keeps the latch and after it ends no automatic episode starts."""
         run = self._latched()
         until = Instant.from_unix(T0 + run.t + 5 * MINUTE)
         request = Override(OverrideKind.STOVE, 1.0, until, "op")
@@ -703,6 +783,7 @@ class TestManualAndTheCrosscheck:
         assert all(r.decision.controller_state["room_plausible"] is False for r in after)
 
     def test_the_latch_holds_through_value_changes_until_they_agree(self) -> None:
+        """The latch holds through value changes until the room agrees with the thermostat."""
         run = self._latched()
         request = Override(OverrideKind.STOVE, 1.0, Instant.from_unix(T0 + run.t + 3 * HOUR))
         run.hold(22.2, 2, thermostat=20.2, override=request)
@@ -713,14 +794,18 @@ class TestManualAndTheCrosscheck:
         assert agreed.decision.controller_state["room_plausible"] is True
 
     def test_without_stove_mode_too_only_agreement_unlatches(self) -> None:
+        """Without stove mode too only agreement with the thermostat releases the latch."""
         run = self._latched()
         assert run.step(22.4, thermostat=20.2).state.crosscheck_latched == 22.2
         assert run.step(20.4, thermostat=20.2).state.crosscheck_latched is None
 
 
 class TestFastRiseAfterAiring:
+    """Fast-rise detection after airing the room."""
+
     @pytest.mark.parametrize("level", [21.2, 22.1])
     def test_the_rebound_does_not_enter(self, level: float) -> None:
+        """The rebound after airing does not enter stove mode or flag a fault."""
         run = Run(OvenbirdController(config()))
         run.hold(level, 120)
         run.hold(19.0, 10)
@@ -729,6 +814,7 @@ class TestFastRiseAfterAiring:
         assert not any(r.state.stove_fault for r in rebound)
 
     def test_rise_is_measured_from_the_comfort_target(self) -> None:
+        """The rise is measured from the comfort target, so a rise below it does not enter."""
         run = Run(OvenbirdController(config()))
         run.hold(19.2, 60)
         results = warm(run, 19.2, 21.7, minutes=20)

@@ -18,6 +18,7 @@ LONG_ENV = "OVENBIRD_HARNESS_LONG"
 
 
 def test_short_run_passes_and_writes_its_outputs(short_run: RecordedRun) -> None:
+    """A short run passes its invariants and writes consistent summary, history and KPI outputs."""
     summary = short_run.result.summary
     out = short_run.run.config.out
     assert short_run.result.passed, summary["invariants"]
@@ -41,6 +42,7 @@ def test_short_run_passes_and_writes_its_outputs(short_run: RecordedRun) -> None
 
 
 def test_the_room_arrives_through_home_assistant(short_run: RecordedRun) -> None:
+    """With the HA profile the room reaches the controller through the in-memory Home Assistant."""
     run = short_run.run
     assert run.ha is not None
     assert run.ha.refreshes >= 12 * 12 - 1
@@ -52,6 +54,7 @@ def test_the_room_arrives_through_home_assistant(short_run: RecordedRun) -> None
 
 
 def test_room_via_mqtt_with_a_periodic_sensor(tmp_path: Path) -> None:
+    """With a periodic sensor via MQTT a run passes without HA, mostly on curve feedback."""
     config = reference_config(
         tmp_path, 3.0, profile=Profile(room_via="mqtt", room_profile="periodic")
     )
@@ -62,6 +65,7 @@ def test_room_via_mqtt_with_a_periodic_sensor(tmp_path: Path) -> None:
 
 
 def test_command_line(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The command line runs a short span, prints a passing result and writes the report."""
     code = main(
         [
             "--from",
@@ -85,6 +89,7 @@ def test_command_line(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> Non
 
 
 def test_mqtt_config_for_validation(tmp_path: Path) -> None:
+    """The MQTT validation configuration reads the room from ``room_temperature``."""
     config = mqtt_config(reference_config(tmp_path, 1.0).start, None, None, tmp_path)
     run = FullRun(config)
     assert run.settings.control_room_signal == "room_temperature"
@@ -97,4 +102,5 @@ def test_mqtt_config_for_validation(tmp_path: Path) -> None:
 )
 @pytest.mark.skipif(os.environ.get(LONG_ENV) != "1", reason=f"long variant: set {LONG_ENV}=1")
 def test_full_span_on_the_recorded_data(tmp_path: Path) -> None:
+    """The full recorded span (long variant, local capture data) runs through the command line."""
     assert main(["--out", str(tmp_path), "--params", str(FITTED_PARAMS)]) == 0

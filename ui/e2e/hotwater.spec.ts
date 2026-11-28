@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs';
+import { settled } from './settle';
 import { join } from 'node:path';
 import {
   expect,
@@ -193,12 +194,12 @@ test.describe('hot water screenshots', () => {
 
           await page.goto('./#/settings/pump-duty');
           await expect(page.getByTestId('hot-water-tank')).toBeVisible();
-          await page.waitForTimeout(600);
+          await settled(page);
           await page.screenshot({ path: name('settings') });
 
           await home(page);
           await expect(lane(page)).toHaveCount(0);
-          await page.waitForTimeout(800);
+          await settled(page);
           const width = await page.evaluate(() => document.documentElement.scrollWidth);
           expect(width).toBeLessThanOrEqual(viewport.width);
           await page.screenshot({ path: name('home'), fullPage: true });

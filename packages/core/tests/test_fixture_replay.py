@@ -31,6 +31,7 @@ NOT_ON_THIS_MODEL = frozenset({HeishaSignal.HEATING_CONTROL, HeishaSignal.QUIET_
 
 
 def records(path: Path) -> Iterator[CaptureRecord]:
+    """Yield the capture records of a gzipped capture file, skipping headers and garbage."""
     with gzip.open(path, "rt", encoding="utf-8") as fh:
         for line in fh:
             record = parse_capture_line(line)
@@ -39,6 +40,7 @@ def records(path: Path) -> Iterator[CaptureRecord]:
 
 
 def reported_version(path: Path) -> str:
+    """Return the HeishaMon firmware version from the last stats message of a capture."""
     stats = [r for r in records(path) if r.topic.endswith("/stats")]
     version = json.loads(stats[-1].payload)["version"]
     assert isinstance(version, str)
@@ -47,6 +49,8 @@ def reported_version(path: Path) -> str:
 
 @dataclass
 class ReplaySummary:
+    """Counts and samples collected while replaying a capture at 60 s ticks."""
+
     readings: Counter[str]
     errors: list[ParseError]
     ignored: Counter[str]
@@ -65,6 +69,7 @@ class ReplaySummary:
 
 @pytest.fixture(scope="module")
 def summary(capture_slice: Path) -> ReplaySummary:
+    """Replay the capture slice through router and store, sampling derived values every minute."""
     store = StateStore()
     readings: Counter[str] = Counter()
     ignored: Counter[str] = Counter()
@@ -140,10 +145,12 @@ def summary(capture_slice: Path) -> ReplaySummary:
 
 
 def test_fixture_is_small(capture_slice: Path) -> None:
+    """The committed capture slice stays below one megabyte."""
     assert capture_slice.stat().st_size < 1_000_000
 
 
 def test_no_parse_errors_on_catalogued_topics(summary: ReplaySummary) -> None:
+    """Only signals this model lacks give parse errors; every other catalogued signal is read."""
     unexpected = [
         error
         for error in summary.errors
@@ -160,17 +167,20 @@ def test_no_parse_errors_on_catalogued_topics(summary: ReplaySummary) -> None:
 
 
 def test_uncatalogued_topics_are_ignored_not_errors(summary: ReplaySummary) -> None:
+    """Uncatalogued topics and command echoes are ignored rather than reported as errors."""
     assert summary.ignored["uncatalogued"] > 0
     assert summary.ignored["command"] > 0
 
 
 def test_heishamon_alive_throughout(summary: ReplaySummary) -> None:
+    """Heartbeats arrive at the expected rate and HeishaMon counts as alive on every tick."""
     assert summary.heartbeats >= 2 * 3600 / 5 * 0.95
     assert summary.total_ticks >= 115
     assert summary.alive_ticks == summary.total_ticks
 
 
 def test_compressor_runs_and_defrost_are_detected(summary: ReplaySummary) -> None:
+    """The slice shows compressor starts, stops, running time and defrost ticks."""
     assert summary.compressor_starts >= 1
     assert summary.compressor_stops >= 1
     assert summary.running_ticks >= 60
@@ -178,6 +188,7 @@ def test_compressor_runs_and_defrost_are_detected(summary: ReplaySummary) -> Non
 
 
 def test_heat_delivered_is_plausible(summary: ReplaySummary) -> None:
+    """Delivered heat is within physical bounds and close to the pump's own production figure."""
     assert len(summary.heat_values) >= 30
     assert all(-2000 < value < 20000 for value in summary.heat_values)
     assert 2000 < statistics.median(summary.heat_values) < 15000
@@ -188,6 +199,7 @@ def test_heat_delivered_is_plausible(summary: ReplaySummary) -> None:
 def test_final_snapshot_is_fresh_and_consistent(
     summary: ReplaySummary, capture_slice: Path
 ) -> None:
+    """The final snapshot is alive, has the reported version and no stale signals."""
     last = max(record.t for record in records(capture_slice))
     snapshot = summary.final_store.snapshot(Instant.from_capture(last))
     assert snapshot.heishamon.alive

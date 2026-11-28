@@ -1,7 +1,6 @@
 import type { trial as en } from '$lib/i18n/en/trial';
 
 export const trial: Record<keyof typeof en, string> = {
-  trialTitle: 'Proef en overstap',
   trialLead:
     'Wat er nog nodig is voordat ovenbird het overneemt van de andere regeling, hoe de proef zich verhoudt tot daarvoor, en hoe je de regeling teruggeeft.',
   trialLoading: 'Checklist voor de proef laden…',

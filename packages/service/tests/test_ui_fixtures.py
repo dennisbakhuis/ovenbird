@@ -26,17 +26,14 @@ from ovenbird.control.adapter import CommandStatus
 from ovenbird.control.alarms import (
     ENVELOPE_JOURNAL_CODE,
     HOLD_JOURNAL_CODE,
-    MODEL_PLAN_JOURNAL_CODE,
     AlarmCode,
     AlarmEventKind,
     Severity,
 )
+from ovenbird.control.dayshiftrun import JOURNAL_CODE as DAYSHIFT_JOURNAL_CODE
 from ovenbird.control.envelope import STATES as ENVELOPE_STATES
 from ovenbird.control.monitors import MonitorStatus
 from ovenbird.hacheck import ERROR_CODES
-from ovenbird.insight.learnrun import FAILURE_REASONS, STATES
-from ovenbird.insight.learnrun import REFUSAL_CODES as LEARNER_REFUSALS
-from ovenbird.insight.whatif import ERROR_CODES as INSIGHT_ERRORS
 from ovenbird.mqttcheck import ERROR_CODES as MQTT_ERROR_CODES
 from ovenbird.notify.notifier import HEALTH_STATES
 from ovenbird.pump.settings import OWNERS, REFUSAL_CODES, SETTING_IDS
@@ -76,12 +73,14 @@ AUDIT_ACTIONS = (
     "mqtt_connection",
     "mqtt_connection_reverted",
     "archive_delete",
-    "house_learn_run",
 )
 
 
 def interpolate(value: str) -> str:
+    """Resolve compose ``${VAR:-default}`` expressions to their defaults, repeatedly."""
+
     def default(match: re.Match[str]) -> str:
+        """Return the fully resolved default of an interpolation match."""
         return interpolate(match.group(3))
 
     previous = None
@@ -91,6 +90,7 @@ def interpolate(value: str) -> str:
 
 
 def compose_environment() -> dict[str, str]:
+    """Return the dev ovenbird service environment with interpolations resolved."""
     compose = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
     environment = compose["services"]["ovenbird"]["environment"]
     return {name: interpolate(str(value)) for name, value in environment.items()}
@@ -98,6 +98,7 @@ def compose_environment() -> dict[str, str]:
 
 @pytest.fixture
 def dev_manager(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ConfigManager:
+    """Open a config manager over the dev compose environment and seed."""
     for name, value in compose_environment().items():
         if name.startswith("OVENBIRD_") and value != "":
             monkeypatch.setenv(name, value)
@@ -109,6 +110,7 @@ def dev_manager(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ConfigManage
 
 
 def test_compose_keeps_only_installation_values_in_the_environment() -> None:
+    """The dev compose environment sets no control tuning except the mode and names the seed."""
     environment = compose_environment()
     control = sorted(
         name
@@ -120,6 +122,7 @@ def test_compose_keeps_only_installation_values_in_the_environment() -> None:
 
 
 def test_the_dev_stack_starts_with_the_seed(dev_manager: ConfigManager) -> None:
+    """The dev stack starts at version 1 from the seed with expected sources and locks."""
     settings = dev_manager.settings
     assert dev_manager.version == 1
     latest = dev_manager.store.latest()
@@ -141,6 +144,7 @@ def test_the_dev_stack_starts_with_the_seed(dev_manager: ConfigManager) -> None:
 
 
 def codes() -> dict[str, list[str]]:
+    """Return every code set the UI must know, as lists of values."""
     return {
         "reason": [code.value for code in ReasonCode],
         "binding": sorted(BINDINGS),
@@ -153,7 +157,7 @@ def codes() -> dict[str, list[str]]:
             HOLD_JOURNAL_CODE,
             STOVE_JOURNAL_CODE,
             ENVELOPE_JOURNAL_CODE,
-            MODEL_PLAN_JOURNAL_CODE,
+            DAYSHIFT_JOURNAL_CODE,
         ],
         "severity": [severity.value for severity in Severity],
         "monitor_status": [status.value for status in MonitorStatus],
@@ -183,14 +187,11 @@ def codes() -> dict[str, list[str]]:
         "envelope_rule_state": list(ENVELOPE_STATES),
         "ha_test_error": list(ERROR_CODES),
         "mqtt_test_error": list(MQTT_ERROR_CODES),
-        "insight_error": list(INSIGHT_ERRORS),
-        "learner_refusal": list(LEARNER_REFUSALS),
-        "learner_state": list(STATES),
-        "learner_failure": list(FAILURE_REASONS),
     }
 
 
 def _portable(payload: dict[str, Any], data_dir: Path) -> dict[str, Any]:
+    """Return a payload as JSON with machine-specific paths replaced by container paths."""
     text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     text = text.replace(str(data_dir), "/data").replace(str(SEED), "/seed/config-seed.json")
     result: dict[str, Any] = json.loads(text)
@@ -198,6 +199,7 @@ def _portable(payload: dict[str, Any], data_dir: Path) -> dict[str, Any]:
 
 
 def generated(manager: ConfigManager) -> dict[str, dict[str, Any]]:
+    """Return the fixture payloads generated from a config manager, keyed by file name."""
     data_dir = manager.settings.data_dir
     return {
         "config.json": _portable(manager.payload(), data_dir),
@@ -207,6 +209,7 @@ def generated(manager: ConfigManager) -> dict[str, dict[str, Any]]:
 
 
 def test_ui_fixtures_are_current(dev_manager: ConfigManager) -> None:
+    """Committed UI fixtures match the generated ones; ``UPDATE_UI_FIXTURES=1`` rewrites them."""
     update = os.environ.get(UPDATE_ENV) == "1"
     FIXTURES.mkdir(parents=True, exist_ok=True)
     for name, payload in generated(dev_manager).items():
@@ -226,6 +229,7 @@ def test_ui_mock_fixture_matches_the_generated_one(name: str) -> None:
 
 
 def test_every_code_set_is_closed() -> None:
+    """Every code set is non-empty and free of duplicates, and holds known members."""
     sets = codes()
     for name, values in sets.items():
         assert values, name

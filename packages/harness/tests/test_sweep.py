@@ -26,6 +26,7 @@ CHEAP_WARMUP_S = 2 * 3600.0
 
 
 def test_sweep_dates_cover_the_span_and_the_day() -> None:
+    """Sweep dates are sorted, fit inside the span and cover all eight start hours."""
     window = 32 * 3600.0
     dates = sweep_dates(SPAN_FROM, SPAN_TO, window, 8)
     assert len(dates) == 8
@@ -37,6 +38,7 @@ def test_sweep_dates_cover_the_span_and_the_day() -> None:
 
 
 def test_sweep_dates_refuse_a_span_without_room() -> None:
+    """Sweep dates are refused for a span without room for the window or for a zero count."""
     with pytest.raises(ValueError, match="too short"):
         sweep_dates(SPAN_FROM, SPAN_FROM + timedelta(hours=30), 8 * 3600.0, 2)
     with pytest.raises(ValueError, match="at least one"):
@@ -44,6 +46,7 @@ def test_sweep_dates_refuse_a_span_without_room() -> None:
 
 
 def test_single_span_holds_the_warmup_window_and_tail() -> None:
+    """A single span is the warm-up before the start and the longest window plus the tail after."""
     at = datetime(2026, 10, 21, 3, tzinfo=UTC)
     start, end = single_span(at, ("dhw_run", "room_sensor_silent"))
     assert at - start == timedelta(seconds=WARMUP_S)
@@ -51,6 +54,7 @@ def test_single_span_holds_the_warmup_window_and_tail() -> None:
 
 
 def test_each_scenario_runs_alone_at_its_start(tmp_path: Path) -> None:
+    """Each scenario gets its own run at each start, and the runs pass and write a matrix."""
     base = reference_config(tmp_path, 48.0)
     runs = plan(base, CHEAP, 0, tmp_path / "sweep", dates=CHEAP_DATES, warmup_s=CHEAP_WARMUP_S)
     assert [(name, at) for name, at, _ in runs] == [
@@ -70,6 +74,7 @@ def test_each_scenario_runs_alone_at_its_start(tmp_path: Path) -> None:
 
 
 def test_at_places_one_scenario_with_its_own_span(tmp_path: Path) -> None:
+    """``--at`` places one scenario at its start in a span of its own, and the run passes."""
     at = CHEAP_DATES[0]
     code = main(
         [
@@ -100,6 +105,7 @@ def test_at_places_one_scenario_with_its_own_span(tmp_path: Path) -> None:
 )
 @pytest.mark.skipif(os.environ.get(LONG_ENV) != "1", reason=f"long variant: set {LONG_ENV}=1")
 def test_every_scenario_at_eight_dates_on_the_recorded_data(tmp_path: Path) -> None:
+    """Every scenario at eight dates on the recorded data passes (opt-in, slow)."""
     assert main(["--sweep", "8", "--out", str(tmp_path), "--params", str(FITTED_PARAMS)]) == 0
     report = json.loads((tmp_path / "sweep" / "sweep.json").read_text())
     assert len(report["runs"]) == 8 * len(SCENARIOS)

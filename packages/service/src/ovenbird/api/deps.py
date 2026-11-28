@@ -82,7 +82,19 @@ class RefusalAudit:
     _recent: dict[str, deque[float]] = field(default_factory=dict)
 
     def __call__(self, actor: Actor, status: int, reason: str, path: str) -> None:
-        """Audit one refusal unless its source exceeded its quota."""
+        """Audit one refusal unless its source exceeded its quota.
+
+        Parameters
+        ----------
+        actor
+            Who made the request.
+        status
+            HTTP status of the refusal.
+        reason
+            Why it was refused.
+        path
+            Requested path.
+        """
         if self.sink is None:
             return
         source = actor.source_ip or "unknown"
@@ -133,6 +145,13 @@ def principal(request: Request, settings: Settings) -> Principal:
 
 def check_request_rules(request: Request, settings: Settings) -> None:
     """Apply the cross-site rules of a state-changing request.
+
+    Parameters
+    ----------
+    request
+        Incoming state-changing request.
+    settings
+        Settings holding the trusted sources and allowed origins.
 
     Raises
     ------

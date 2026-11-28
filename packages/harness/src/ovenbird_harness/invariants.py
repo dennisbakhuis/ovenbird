@@ -107,7 +107,6 @@ EPSILON: Final = 1e-6
 CONTROL_LEVELS: Final = frozenset(
     {
         LadderLevel.OPTIMISER_PLAN,
-        LadderLevel.MODEL_PLAN,
         LadderLevel.RULE_PLAN,
         LadderLevel.SCHEDULE_CURVE_FEEDBACK,
         LadderLevel.CURVE_ONLY,
@@ -196,6 +195,21 @@ def envelope_bounds(
     them; the band around it is cut by the hard limits (the maximum supply never
     below the minimum setpoint).
 
+    Parameters
+    ----------
+    points
+        Envelope points as ``(outside °C, water °C)`` pairs.
+    below_k
+        Width of the band below the envelope curve in K.
+    above_k
+        Width of the band above the envelope curve in K.
+    min_setpoint_c
+        Lowest allowed setpoint in °C.
+    max_supply_c
+        Highest allowed supply temperature in °C.
+    outside_c
+        Outside temperature in °C.
+
     Returns
     -------
     tuple of int
@@ -241,6 +255,7 @@ class Violation:
 
 
 def _iso(ts: float) -> str:
+    """Format unix time as an ISO 8601 UTC timestamp ending in ``Z``."""
     return datetime.fromtimestamp(ts, UTC).isoformat().replace("+00:00", "Z")
 
 
@@ -250,6 +265,7 @@ def round_half_up(value: float) -> int:
 
 
 def _ref(record: DecisionRecord, signal: str) -> tuple[Any, bool]:
+    """Return value and freshness of ``signal`` in the decision's inputs, or ``(None, False)``."""
     for ref in record.inputs_used:
         if ref.signal == signal:
             return ref.value, ref.fresh
@@ -257,15 +273,18 @@ def _ref(record: DecisionRecord, signal: str) -> tuple[Any, bool]:
 
 
 def _flag(record: DecisionRecord, signal: str) -> bool:
+    """Return whether ``signal`` is fresh and reads 1."""
     value, fresh = _ref(record, signal)
     return fresh and isinstance(value, int | float) and not isinstance(value, bool) and value == 1
 
 
 def _intent(record: DecisionRecord, kind: IntentKind) -> int | None:
+    """Return the value of the decision's intent of ``kind``, or ``None`` if it has none."""
     return next((intent.value for intent in record.intents if intent.kind is kind), None)
 
 
 def _number(value: Any) -> float | None:
+    """Return ``value`` as a float, or ``None`` if it is not a (non-boolean) number."""
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     return float(value)
@@ -273,6 +292,8 @@ def _number(value: Any) -> float | None:
 
 @dataclass
 class _InFlight:
+    """A command sent and not yet concluded."""
+
     kind: str
     value: int
     sent_at: float
@@ -346,6 +367,7 @@ class InvariantChecker:
         self.applies += 1
 
     def _fail(self, rule: str, ts: float, detail: str) -> None:
+        """Count a violation of ``rule`` and keep its details while below the retention limit."""
         self.counts[rule] += 1
         if len(self.violations) < self.max_violations:
             self.violations.append(Violation(rule, _iso(ts), detail))
@@ -367,7 +389,13 @@ class InvariantChecker:
         self._queued_unchecked.clear()
 
     def decision(self, row: DecisionRow) -> None:
-        """Check one stored decision."""
+        """Check one stored decision.
+
+        Parameters
+        ----------
+        row
+            Decision row as stored in the history.
+        """
         self.decisions += 1
         ts = row.ts
         raw = json.loads(row.record)
@@ -406,6 +434,7 @@ class InvariantChecker:
         self._observe(record)
 
     def _observe(self, record: DecisionRecord) -> None:
+        """Count the decision's ladder level, refusal or hold reason, defrost or DHW and binding."""
         counts = self.observations
         counts[f"ladder_{record.ladder.value}"] += 1
         if record.ladder in (LadderLevel.REFUSE, LadderLevel.HOLD):
@@ -418,6 +447,7 @@ class InvariantChecker:
             counts[f"binding_{record.binding}"] += 1
 
     def _check_queued_against(self, row: DecisionRow, record: DecisionRecord) -> None:
+        """Check that the intents of queued commands match the decision that follows them."""
         pending = self._queued_unchecked
         self._queued_unchecked = []
         intents = {intent.kind.value: intent.value for intent in record.intents}
@@ -433,6 +463,7 @@ class InvariantChecker:
     def _check_frozen(
         self, row: DecisionRow, record: DecisionRecord, state: dict[str, Any]
     ) -> None:
+        """Check that the integrator and ramp cap stay frozen during defrost or DHW."""
         prev = self._prev
         if prev is None or record.ladder not in CONTROL_LEVELS:
             return
@@ -455,6 +486,7 @@ class InvariantChecker:
             )
 
     def _check_stove(self, row: DecisionRow, record: DecisionRecord, state: dict[str, Any]) -> None:
+        """Check that wood-stove mode holds the integrator and gives no room feedback."""
         if state.get("stove_state") != "active" or record.ladder not in CONTROL_LEVELS:
             return
         held = _number(state.get("stove_integral_k"))
@@ -468,6 +500,7 @@ class InvariantChecker:
     def _check_bypass(
         self, row: DecisionRow, record: DecisionRecord, state: dict[str, Any]
     ) -> None:
+        """Check that a bound-bypassing binding puts the setpoint where it claims."""
         binding = record.binding
         setpoint = record.setpoint
         if binding is None or setpoint is None or record.ladder not in CONTROL_LEVELS:
@@ -491,6 +524,19 @@ class InvariantChecker:
     def _check_floor(
         self, row: DecisionRow, record: DecisionRecord, state: dict[str, Any], setpoint: int
     ) -> None:
+        """Check that a cycling-floor binding is within the minimum-run window and at the floor.
+
+        Parameters
+        ----------
+        row
+            Decision row as stored in the history.
+        record
+            The row's parsed decision record.
+        state
+            Controller state recorded with the decision.
+        setpoint
+            The decision's setpoint in °C.
+        """
         cycling = self.config.cycling
         frequency, fresh = _ref(record, HeishaSignal.COMPRESSOR_FREQ)
         hz = _number(frequency)
@@ -532,6 +578,7 @@ class InvariantChecker:
             )
 
     def _check_envelope(self, row: DecisionRow, record: DecisionRecord) -> None:
+        """Check that the setpoint lies inside the envelope recomputed independently."""
         if record.ladder not in CONTROL_LEVELS or record.setpoint is None:
             return
         outside = _number(_ref(record, HeishaSignal.OUTSIDE_TEMP)[0])
@@ -578,6 +625,13 @@ class InvariantChecker:
         self._check_plant_duty(reading)
 
     def _check_plant_duty(self, reading: PlantReading) -> None:
+        """Check the pump duty the plant reports a lag after a compressor start or defrost end.
+
+        Parameters
+        ----------
+        reading
+            Plant and board state at the end of the cycle.
+        """
         pump = self.config.pump_duty
         started = reading.running and self._plant_running is False and not reading.defrosting
         thawed = reading.running and self._plant_defrosting and not reading.defrosting
@@ -614,6 +668,7 @@ class InvariantChecker:
             )
 
     def _check_columns(self, row: DecisionRow, record: DecisionRecord, raw: dict[str, Any]) -> None:
+        """Check the decision's summary columns against its record and the run mode."""
         ts = row.ts
         if not record.note.strip():
             self._fail("reason", ts, "decision without a note")
@@ -627,6 +682,7 @@ class InvariantChecker:
             self._fail("mode", ts, f"mode {raw.get('mode')!r} in an auto run")
 
     def _check_integers(self, row: DecisionRow, raw: dict[str, Any]) -> None:
+        """Check that the setpoint and every intent value are integers in the raw record."""
         setpoint = raw.get("setpoint")
         if setpoint is not None and (type(setpoint) is not int):
             self._fail("integers", row.ts, f"setpoint {setpoint!r} is not an integer")
@@ -637,6 +693,17 @@ class InvariantChecker:
     def _check_ladder(
         self, row: DecisionRow, record: DecisionRecord, state: dict[str, Any]
     ) -> None:
+        """Check the ladder level against its setpoint, intents, reason and hold rules.
+
+        Parameters
+        ----------
+        row
+            Decision row as stored in the history.
+        record
+            The row's parsed decision record.
+        state
+            Controller state recorded with the decision.
+        """
         ts = row.ts
         if record.ladder is LadderLevel.REFUSE:
             if record.intents or record.setpoint is not None:
@@ -685,6 +752,17 @@ class InvariantChecker:
     def _check_limits(
         self, row: DecisionRow, record: DecisionRecord, state: dict[str, Any]
     ) -> None:
+        """Check the setpoint against the adapter range, safety bounds and recorded bounds.
+
+        Parameters
+        ----------
+        row
+            Decision row as stored in the history.
+        record
+            The row's parsed decision record.
+        state
+            Controller state recorded with the decision.
+        """
         ts = row.ts
         low, high = self.adapter.setpoint_range
         for value in (record.setpoint, _intent(record, IntentKind.WATER_SETPOINT)):
@@ -711,6 +789,7 @@ class InvariantChecker:
             self._fail("envelope", ts, f"recorded bounds {recorded} != recomputed {bounds}")
 
     def _check_binding(self, row: DecisionRow, record: DecisionRecord) -> None:
+        """Check that a binding is known and that a rounded setpoint without a binding matches."""
         binding = record.binding
         if binding is not None and binding not in KNOWN_BINDINGS:
             self._fail("binding", row.ts, f"unknown binding {binding!r}")
@@ -724,6 +803,7 @@ class InvariantChecker:
             )
 
     def _ramp_evident(self, prev: dict[str, Any], state: dict[str, Any]) -> bool:
+        """Return whether the ramp is, or just was, active, so the ramp dwell may apply."""
         if not self.config.ramp.enabled:
             return False
         started = state.get("run_started_at")
@@ -735,6 +815,17 @@ class InvariantChecker:
     def _check_changes(
         self, row: DecisionRow, record: DecisionRecord, state: dict[str, Any]
     ) -> None:
+        """Check that a setpoint change respects the freeze, deadband and dwell rules.
+
+        Parameters
+        ----------
+        row
+            Decision row as stored in the history.
+        record
+            The row's parsed decision record.
+        state
+            Controller state recorded with the decision.
+        """
         prev = self._prev
         ts = row.ts
         if prev is None or record.ladder not in CONTROL_LEVELS or record.setpoint is None:
@@ -792,6 +883,17 @@ class InvariantChecker:
             )
 
     def _check_apply(self, row: DecisionRow, record: DecisionRecord, state: dict[str, Any]) -> None:
+        """Check the first decision after a configuration apply for jumps and dwell resets.
+
+        Parameters
+        ----------
+        row
+            Decision row as stored in the history.
+        record
+            The row's parsed decision record.
+        state
+            Controller state recorded with the decision.
+        """
         version = self._applied
         if version is None or row.config_version != version:
             return
@@ -827,6 +929,15 @@ class InvariantChecker:
             )
 
     def _check_duty(self, row: DecisionRow, record: DecisionRecord) -> None:
+        """Check the pump duty intent against defrost, running and DHW rules.
+
+        Parameters
+        ----------
+        row
+            Decision row as stored in the history.
+        record
+            The row's parsed decision record.
+        """
         pump = self.config.pump_duty
         duty = _intent(record, IntentKind.MAX_PUMP_DUTY)
         if pump is None or duty is None:
@@ -868,7 +979,25 @@ class InvariantChecker:
         guard: PublishGuard,
         firmware: str | None,
     ) -> None:
-        """Check one publish as it leaves the command link."""
+        """Check one publish as it leaves the command link.
+
+        Parameters
+        ----------
+        ts
+            Time of the publish, unix seconds.
+        topic
+            MQTT topic published to.
+        payload
+            Published payload.
+        qos
+            MQTT quality of service of the publish.
+        retain
+            Whether the retain flag was set.
+        guard
+            The publish guard in effect.
+        firmware
+            Firmware version the board reports, or ``None``.
+        """
         self.publishes += 1
         if not guard.permits:
             self._fail("guard", ts, f"published {topic} while the guard refuses")
@@ -886,6 +1015,7 @@ class InvariantChecker:
         self._awaiting_sent.append((topic, len(payload), ts))
 
     def _check_setting_publish(self, ts: float, topic: str, payload: str) -> None:
+        """Check that a pump-setting publish carries an integer within the setting's range."""
         setting = next(
             (s for s in PumpSetting if self.adapter.topic(s) == topic),
             None,
@@ -901,6 +1031,7 @@ class InvariantChecker:
             )
 
     def _check_setting_command(self, row: CommandRow, status: CommandStatus) -> None:
+        """Check an operator pump-setting command: operator origin, not sent in defrost or DHW."""
         if not row.detail.startswith(OPERATOR_PREFIX):
             self._fail("pump_setting", row.ts, f"{row.kind} {row.status} not by an operator")
         if status is not CommandStatus.SENT:
@@ -912,7 +1043,13 @@ class InvariantChecker:
             self._fail("pump_setting", row.ts, f"{row.kind}={row.value} sent during a DHW run")
 
     def command(self, row: CommandRow) -> None:
-        """Check one stored command event."""
+        """Check one stored command event.
+
+        Parameters
+        ----------
+        row
+            Command row as stored in the history.
+        """
         self.command_events += 1
         ts = row.ts
         self._settle_alarms(ts)
@@ -954,6 +1091,7 @@ class InvariantChecker:
     def _check_duty_command(
         self, row: CommandRow, kind: CommandKind, status: CommandStatus
     ) -> None:
+        """Check that no max-pump-duty command is queued or sent while the plant defrosts."""
         if kind is not IntentKind.MAX_PUMP_DUTY or self.defrosting is None:
             return
         if status not in (CommandStatus.QUEUED, CommandStatus.SENT) or not self.defrosting():
@@ -966,6 +1104,7 @@ class InvariantChecker:
         )
 
     def _check_command_shape(self, row: CommandRow, kind: CommandKind) -> None:
+        """Check that a command is in the clamp range and has the adapter's topic and payload."""
         low, high = self.adapter.clamp_range(kind)
         if not low <= row.value <= high:
             self._fail("safety_limits", row.ts, f"{row.kind}={row.value} outside [{low}, {high}]")
@@ -975,6 +1114,13 @@ class InvariantChecker:
             self._fail("command_shape", row.ts, f"{row.kind} payload {row.payload!r}")
 
     def _sent(self, row: CommandRow) -> None:
+        """Check a sent command against its publish, queue entry, intent, in-flight rule, budget.
+
+        Parameters
+        ----------
+        row
+            Command row with status ``sent``.
+        """
         ts = row.ts
         flying = self._in_flight
         if flying is not None and not (flying.kind == row.kind and flying.value == row.value):
@@ -1014,6 +1160,7 @@ class InvariantChecker:
             self._fail("budget", ts, f"{regular} regular commands on {day}")
 
     def _dropped(self, row: CommandRow) -> None:
+        """Handle a dropped command: forget it if it was in flight (pre-empted) or queued."""
         flying = self._in_flight
         matches = flying is not None and (flying.kind, flying.value) == (row.kind, row.value)
         if matches and ("pre-empted" in row.detail or "in flight" in row.detail):
@@ -1024,6 +1171,7 @@ class InvariantChecker:
             self._queued.pop(row.kind, None)
 
     def _concluded(self, row: CommandRow, status: CommandStatus) -> None:
+        """Handle a verified, retried or failed command: it must be the one in flight."""
         flying = self._in_flight
         if flying is None or flying.kind != row.kind or flying.value != row.value:
             self._fail(
@@ -1047,6 +1195,7 @@ class InvariantChecker:
         self._settle_alarms(row.ts, final=False)
 
     def _settle_alarms(self, ts: float, final: bool = False) -> None:
+        """Report failed commands that no active ``verification_failed`` alarm explains."""
         if not self._awaiting_alarm:
             return
         if AlarmCode.VERIFICATION_FAILED.value in self._active_alarms:

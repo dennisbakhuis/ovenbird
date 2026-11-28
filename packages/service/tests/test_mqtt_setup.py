@@ -23,25 +23,21 @@ from ovenbird.mqtt import MqttIngest
 from ovenbird.mqttcheck import mqtt_check
 from ovenbird.mqttsetup import TRIAL_KEY, MqttSetup, changes_from
 from ovenbird.runtime import Runtime
-from ovenbird.testing import FakeClock, FakeMqttClient, inbound, pump_messages
+from ovenbird.testing import FakeClock, FakeMqttClient, inbound, pump_messages, turns
+from ovenbird.testing import until as settle
 from ovenbird_core import StateStore
 
 ADMIN = Actor("admin", "192.0.2.5")
 
 
 async def no_sleep(_: float) -> None:
+    """Yield to the event loop instead of sleeping."""
     await asyncio.sleep(0)
 
 
-async def settle(condition: Callable[[], bool], limit: float = 5.0) -> None:
-    deadline = time.monotonic() + limit
-    while not condition():
-        if time.monotonic() > deadline:
-            raise AssertionError("condition not met in time")
-        await asyncio.sleep(0)
-
-
 class Rig:
+    """Config manager, MQTT ingest and setup wired together with fake broker and check."""
+
     def __init__(
         self,
         settings: Settings,
@@ -53,6 +49,7 @@ class Rig:
         stored: dict[str, Any] | None = None,
         clock: FakeClock | None = None,
     ) -> None:
+        """Build the rig from settings with optional locked fields, stored connection and fakes."""
         self.clock = clock or FakeClock(1_800_000_000.0)
         self.manager = ConfigManager.open(settings, self.clock, locked=locked or {})
         if stored:
@@ -79,6 +76,7 @@ class Rig:
         )
 
     def client(self) -> FakeMqttClient:
+        """Return a fake MQTT client that behaves as the current broker setting dictates."""
         settings = self.ingest.settings
         if self.retained_only and settings.mqtt_host != "broker.old":
             return FakeMqttClient(retained_messages(settings.heishamon_base))
@@ -87,10 +85,12 @@ class Rig:
         return FakeMqttClient(fail_connect=True)
 
     async def check(self, settings: Settings) -> dict[str, Any]:
+        """Record the checked settings and return the canned check result."""
         self.checked.append(settings)
         return {"ok": self.check_ok, "error_code": None if self.check_ok else "unreachable"}
 
     def audit(self) -> list[str]:
+        """Return the audit actions of events not made by setup."""
         events = self.manager.store.audit_events(0.0, 4e9, 100)
         return [event.action for event in events if event.actor != "setup"]
 
@@ -104,6 +104,7 @@ OLD_TYPED: dict[str, Any] = {**OLD, "mqtt_port": 1883, "mqtt_tls": False}
 
 
 def retained_messages(base: str) -> list[Any]:
+    """Build the retained-only copy of the pump messages for a base topic."""
     return [
         inbound(message.topic, message.payload.decode(), retained=True)
         for message in pump_messages(base=base)
@@ -112,10 +113,12 @@ def retained_messages(base: str) -> list[Any]:
 
 @pytest.fixture
 def old_broker(make_settings: Callable[..., Settings]) -> Settings:
+    """Provide settings for the old broker."""
     return make_settings()
 
 
 def test_the_request_fields_map_to_settings() -> None:
+    """Request fields map to MQTT settings and unknown fields are refused."""
     assert changes_from({"host": "b", "base": "hp"}) == {
         "mqtt_host": "b",
         "heishamon_base": "hp",
@@ -125,6 +128,7 @@ def test_the_request_fields_map_to_settings() -> None:
 
 
 def test_a_new_host_does_not_take_the_password_along(old_broker: Settings) -> None:
+    """A new host drops the stored password unless the request supplies one."""
     rig = Rig(old_broker, stored=OLD)
     errors, candidate, settings = rig.manager.check_mqtt(
         {"mqtt_host": "broker.new", "mqtt_password": "secret"}
@@ -155,6 +159,7 @@ def test_a_new_host_does_not_take_the_password_along(old_broker: Settings) -> No
 def test_invalid_broker_changes_are_refused(
     make_settings: Callable[..., Settings], changes: dict[str, Any], code: str | None
 ) -> None:
+    """Invalid broker changes are refused with a matching issue code."""
     rig = Rig(make_settings())
     errors, _, settings = rig.manager.check_mqtt(changes)
     assert settings is None
@@ -167,6 +172,7 @@ def test_invalid_broker_changes_are_refused(
 def test_mqtt_inputs_are_stored_in_a_version_and_picked_as_signals(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """MQTT inputs are stored in a config version and can be chosen as the outside signal."""
     clock = FakeClock(1_800_000_000.0)
     manager = ConfigManager.open(make_settings(), clock, locked={})
     inputs = [{"topic": "garden/temp", "signal": "mqtt/garden", "unit": "°C"}]
@@ -185,6 +191,7 @@ def test_mqtt_inputs_are_stored_in_a_version_and_picked_as_signals(
 
 
 def test_a_deployment_value_is_locked(make_settings: Callable[..., Settings]) -> None:
+    """A broker field set by the deployment cannot be changed in the app."""
     rig = Rig(make_settings(mqtt_host="broker.env"), locked={"mqtt_host": Source.ENV})
     errors, _, _ = rig.manager.check_mqtt({"mqtt_host": "broker.app"})
     assert [issue.code for issue in errors] == ["locked"]
@@ -195,6 +202,7 @@ def test_a_deployment_value_is_locked(make_settings: Callable[..., Settings]) ->
 
 
 async def test_apply_needs_a_matching_successful_test(old_broker: Settings) -> None:
+    """Apply is refused with 409 unless the same change was tested successfully."""
     rig = Rig(old_broker, stored=OLD)
     with pytest.raises(ConfigRefusedError) as refused:
         rig.setup.apply({"host": "broker.new"}, ADMIN)
@@ -211,6 +219,7 @@ async def test_apply_needs_a_matching_successful_test(old_broker: Settings) -> N
 
 
 async def test_apply_is_refused_while_commands_are_enabled(old_broker: Settings) -> None:
+    """Apply is refused while commands are enabled."""
     rig = Rig(old_broker, stored=OLD, commands=True)
     await rig.setup.test({"host": "broker.new"})
     with pytest.raises(ConfigRefusedError) as refused:
@@ -220,6 +229,7 @@ async def test_apply_is_refused_while_commands_are_enabled(old_broker: Settings)
 
 
 async def test_a_working_broker_is_kept_and_stored(old_broker: Settings) -> None:
+    """A broker that delivers data is applied, stored and subscribed with the new base."""
     rig = Rig(old_broker, stored=OLD)
     run = asyncio.create_task(rig.ingest.run())
     await rig.setup.test({"host": "broker.new", "base": "hp"})
@@ -238,6 +248,7 @@ async def test_a_working_broker_is_kept_and_stored(old_broker: Settings) -> None
 
 
 async def test_a_broker_without_data_is_reverted_with_an_alarm(old_broker: Settings) -> None:
+    """A broker without data is reverted after the window with an alarm, keeping later changes."""
     rig = Rig(old_broker, stored=OLD, live=False)
     run = asyncio.create_task(rig.ingest.run())
     await rig.setup.test({"host": "broker.new"})
@@ -269,6 +280,7 @@ async def test_a_broker_without_data_is_reverted_with_an_alarm(old_broker: Setti
 async def test_the_password_never_appears_in_status_audit_or_config(
     old_broker: Settings,
 ) -> None:
+    """The password never appears in the status, audit or config payload."""
     rig = Rig(old_broker, stored=OLD)
     await rig.setup.test({"host": "broker.new", "password": "hunter22"})
     rig.setup.apply({"host": "broker.new", "password": "hunter22"}, ADMIN)
@@ -284,11 +296,13 @@ async def test_the_password_never_appears_in_status_audit_or_config(
 async def test_a_reconfigured_ingest_reconnects_with_the_new_base(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """Reconfiguring the ingest reconnects with the new base topic, but not if it is unchanged."""
     settings = make_settings()
     runtime = Runtime(StateStore(), clock=FakeClock(1_800_000_000.0))
     clients: list[FakeMqttClient] = []
 
     def connect() -> FakeMqttClient:
+        """Return a fake client delivering pump messages for the current base."""
         client = FakeMqttClient(pump_messages(base=ingest.settings.heishamon_base))
         clients.append(client)
         return client
@@ -312,12 +326,14 @@ async def test_a_reconfigured_ingest_reconnects_with_the_new_base(
 
 @pytest.fixture
 async def retained_pump(broker: tuple[str, int]) -> AsyncIterator[str]:
+    """Publish a retained state and live temperatures on a real broker under a unique base."""
     host, port = broker
     base = f"ovenbird-test-{secrets.token_hex(4)}"
     async with aiomqtt.Client(host, port, identifier=f"{base}-pub") as client:
         await client.publish(f"{base}/main/Heatpump_State", b"1", retain=True)
 
         async def publish_live() -> None:
+            """Publish the outside temperature every 0.2 s."""
             while True:
                 await client.publish(f"{base}/main/Outside_Temp", b"3")
                 await asyncio.sleep(0.2)
@@ -330,6 +346,7 @@ async def retained_pump(broker: tuple[str, int]) -> AsyncIterator[str]:
 
 @pytest.fixture
 async def stale_pump(broker: tuple[str, int]) -> AsyncIterator[str]:
+    """Publish a retained state only, with no live values, on a real broker."""
     host, port = broker
     base = f"ovenbird-stale-{secrets.token_hex(4)}"
     async with aiomqtt.Client(host, port, identifier=f"{base}-pub") as client:
@@ -341,6 +358,7 @@ async def stale_pump(broker: tuple[str, int]) -> AsyncIterator[str]:
 async def test_the_check_sees_heishamon_on_a_real_broker(
     broker: tuple[str, int], retained_pump: str, make_settings: Callable[..., Settings]
 ) -> None:
+    """On a real broker the check sees live HeishaMon data and flags an empty base."""
     host, port = broker
     settings = make_settings(mqtt_host=host, mqtt_port=port, heishamon_base=retained_pump)
     result = await mqtt_check(settings, limit_s=5.0)
@@ -356,6 +374,7 @@ async def test_the_check_sees_heishamon_on_a_real_broker(
 async def test_the_check_reports_an_unreachable_broker(
     make_settings: Callable[..., Settings], tmp_path: Path
 ) -> None:
+    """The check reports an unreachable broker as not connected."""
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = int(sock.getsockname()[1])
@@ -368,6 +387,7 @@ async def test_the_check_reports_an_unreachable_broker(
 async def test_an_applied_base_reaches_the_running_ingest_on_a_real_broker(
     broker: tuple[str, int], retained_pump: str, make_settings: Callable[..., Settings]
 ) -> None:
+    """An applied base topic reaches the running ingest on a real broker."""
     host, port = broker
     clock = FakeClock(1_800_000_000.0)
     manager = ConfigManager.open(make_settings(), clock, locked={})
@@ -395,6 +415,7 @@ async def test_an_applied_base_reaches_the_running_ingest_on_a_real_broker(
 async def test_the_check_needs_a_live_value_on_a_real_broker(
     broker: tuple[str, int], stale_pump: str, make_settings: Callable[..., Settings]
 ) -> None:
+    """On a real broker the check refuses retained values without live data."""
     host, port = broker
     settings = make_settings(mqtt_host=host, mqtt_port=port, heishamon_base=stale_pump)
     result = await mqtt_check(settings, limit_s=1.0)
@@ -404,11 +425,15 @@ async def test_the_check_needs_a_live_value_on_a_real_broker(
 
 
 class RetainedOnly(FakeMqttClient):
+    """Fake client delivering only retained messages."""
+
     def __init__(self, _settings: Settings, base: str) -> None:
+        """Create the client with the retained messages of the base."""
         super().__init__(retained_messages(base))
 
 
 async def test_the_check_ignores_retained_values(make_settings: Callable[..., Settings]) -> None:
+    """The check refuses retained-only values but accepts live ones."""
     settings = make_settings()
     base = settings.heishamon_base
     result = await mqtt_check(settings, connect=lambda s: RetainedOnly(s, base), limit_s=0.2)
@@ -425,6 +450,7 @@ async def test_the_check_ignores_retained_values(make_settings: Callable[..., Se
 
 
 async def test_retained_values_alone_do_not_confirm_a_change(old_broker: Settings) -> None:
+    """Retained values alone do not confirm a broker change, so it is reverted."""
     rig = Rig(old_broker, stored=OLD)
     rig.retained_only = True
     run = asyncio.create_task(rig.ingest.run())
@@ -441,6 +467,7 @@ async def test_retained_values_alone_do_not_confirm_a_change(old_broker: Setting
 def test_a_deployment_password_never_follows_a_new_host(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """A password from the deployment is refused for a new host, port or CA."""
     settings = make_settings(mqtt_host="broker.old", mqtt_password="from-env")
     rig = Rig(settings, locked={"mqtt_password": Source.ENV})
     for changes in (
@@ -461,6 +488,7 @@ def test_a_deployment_password_never_follows_a_new_host(
 def test_a_deployment_password_is_never_sent_without_tls(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """A deployment password cannot be sent once TLS is turned off."""
     settings = make_settings(mqtt_host="broker.old", mqtt_password="from-env", mqtt_tls=True)
     rig = Rig(settings, locked={"mqtt_password": Source.ENV})
     errors, _, _ = rig.manager.check_mqtt({"mqtt_tls": False})
@@ -471,6 +499,7 @@ def test_a_deployment_password_is_never_sent_without_tls(
 async def test_the_api_test_never_sends_a_deployment_password_elsewhere(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """The API test refuses a changed host and never checks it with the deployment password."""
     settings = make_settings(mqtt_host="broker.old", mqtt_password="from-env")
     rig = Rig(settings, locked={"mqtt_password": Source.ENV})
     with pytest.raises(ConfigRefusedError) as refused:
@@ -488,6 +517,7 @@ async def test_the_api_test_never_sends_a_deployment_password_elsewhere(
 def test_tls_off_or_another_ca_drops_the_stored_password(
     old_broker: Settings, changes: dict[str, Any]
 ) -> None:
+    """Turning TLS off or changing the CA drops the stored password unless one is given."""
     rig = Rig(old_broker, stored={**OLD, "mqtt_tls": True})
     errors, candidate, settings = rig.manager.check_mqtt(changes)
     assert errors == []
@@ -507,6 +537,7 @@ def test_tls_off_or_another_ca_drops_the_stored_password(
 async def test_a_version_applied_during_the_window_is_kept_after_a_revert(
     old_broker: Settings,
 ) -> None:
+    """A config and connection applied during the trial window survive the revert."""
     rig = Rig(old_broker, stored=OLD_TYPED, live=False)
     assert rig.manager.connection["mqtt_port"] == "1883"
     run = asyncio.create_task(rig.ingest.run())
@@ -532,12 +563,14 @@ async def test_a_version_applied_during_the_window_is_kept_after_a_revert(
 async def test_a_failing_revert_raises_an_alarm_and_leaves_a_clear_state(
     old_broker: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A failing revert raises an alarm and keeps the trial record."""
     rig = Rig(old_broker, stored=OLD, live=False)
     run = asyncio.create_task(rig.ingest.run())
     await rig.setup.test({"host": "broker.new"})
     rig.setup.apply({"host": "broker.new"}, ADMIN)
 
     def broken(_previous: Any) -> Any:
+        """Fail as if the disk were gone."""
         raise OSError("disk gone")
 
     monkeypatch.setattr(rig.manager, "restore_mqtt", broken)
@@ -558,6 +591,7 @@ async def test_a_failing_revert_raises_an_alarm_and_leaves_a_clear_state(
 async def test_an_unfinished_trial_is_watched_again_after_a_restart(
     old_broker: Settings,
 ) -> None:
+    """An unfinished trial is watched and reverted after a restart."""
     rig = Rig(old_broker, stored=OLD, live=False)
     await rig.setup.test({"host": "broker.new"})
     rig.setup.apply({"host": "broker.new"}, ADMIN)
@@ -584,6 +618,7 @@ async def test_an_unfinished_trial_is_watched_again_after_a_restart(
 async def test_a_restart_with_commands_enabled_keeps_the_broker_of_an_unfinished_trial(
     old_broker: Settings,
 ) -> None:
+    """After a restart with commands enabled the unfinished trial's broker is kept."""
     rig = Rig(old_broker, stored=OLD, live=False)
     await rig.setup.test({"host": "broker.new"})
     rig.setup.apply({"host": "broker.new"}, ADMIN)
@@ -607,12 +642,14 @@ async def test_a_restart_with_commands_enabled_keeps_the_broker_of_an_unfinished
 async def test_a_successful_test_of_the_current_broker_ends_a_left_over_trial(
     old_broker: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Testing the current broker successfully ends a trial left over from a failed revert."""
     rig = Rig(old_broker, stored=OLD, live=False)
     run = asyncio.create_task(rig.ingest.run())
     await rig.setup.test({"host": "broker.new"})
     rig.setup.apply({"host": "broker.new"}, ADMIN)
 
     def broken(_previous: Any) -> Any:
+        """Fail as if the disk were gone."""
         raise OSError("disk gone")
 
     monkeypatch.setattr(rig.manager, "restore_mqtt", broken)
@@ -628,6 +665,7 @@ async def test_a_successful_test_of_the_current_broker_ends_a_left_over_trial(
 
 
 async def test_a_confirmed_trial_is_not_watched_again(old_broker: Settings) -> None:
+    """A confirmed trial is not watched again."""
     rig = Rig(old_broker, stored=OLD)
     run = asyncio.create_task(rig.ingest.run())
     await rig.setup.test({"host": "broker.new"})
@@ -643,10 +681,12 @@ async def test_a_confirmed_trial_is_not_watched_again(old_broker: Settings) -> N
 async def test_a_reconfigure_wakes_the_reconnect_delay(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """A reconfigure interrupts the reconnect delay so the new broker is used at once."""
     runtime = Runtime(StateStore(), clock=FakeClock(1_800_000_000.0))
     clients: list[FakeMqttClient] = []
 
     def connect() -> FakeMqttClient:
+        """Return a failing client for the down broker, otherwise a pump-delivering client."""
         if ingest.settings.mqtt_host == "broker.down":
             client = FakeMqttClient(fail_connect=True)
         else:
@@ -662,7 +702,7 @@ async def test_a_reconfigure_wakes_the_reconnect_delay(
     )
     run = asyncio.create_task(ingest.run())
     await settle(lambda: len(clients) == 1)
-    await asyncio.sleep(0.05)
+    await turns()
     started = time.monotonic()
     ingest.reconfigure(make_settings(mqtt_host="broker.up"))
     await settle(lambda: runtime.mqtt_connected, limit=2.0)

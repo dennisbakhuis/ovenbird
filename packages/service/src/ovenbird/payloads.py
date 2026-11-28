@@ -28,6 +28,7 @@ type Json = dict[str, Any]
 
 
 def _age(age: float | None) -> float | None:
+    """Round an age in seconds for the API, keeping ``None``."""
     return None if age is None else round(age, AGE_DECIMALS)
 
 

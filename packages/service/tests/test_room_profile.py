@@ -1,3 +1,5 @@
+"""The room sensor profile: settings, Home Assistant and MQTT link handling, alarms and status."""
+
 from __future__ import annotations
 
 import asyncio
@@ -38,11 +40,15 @@ HOUR = 3600.0
 
 
 def iso(t: float) -> str:
+    """Format an epoch timestamp as an ISO 8601 UTC string."""
     return datetime.fromtimestamp(t, UTC).isoformat()
 
 
 class TestSettings:
+    """Room profile and liveness settings: defaults, owner profile, environment and validation."""
+
     def test_defaults_keep_todays_behaviour(self, make_settings: Callable[..., Settings]) -> None:
+        """Without a profile the room sensor stays periodic with default limits."""
         settings = make_settings(control_room_signal=ROOM_ID, **HA)
         profile = settings.room_profile()
         assert profile.kind is RoomProfile.PERIODIC
@@ -55,6 +61,7 @@ class TestSettings:
         assert policy.held == frozenset()
 
     def test_owner_profile(self, make_settings: Callable[..., Settings]) -> None:
+        """The on-change profile allows a day-old value while the link is up."""
         settings = make_settings(**OWNER)
         policy = settings.staleness_policy()
         assert policy.max_age(ROOM_ID, SourceKind.HA) == 86_400.0
@@ -67,6 +74,7 @@ class TestSettings:
     def test_environment(
         self, make_settings: Callable[..., Settings], monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Room profile settings can be given through environment variables."""
         monkeypatch.setenv("OVENBIRD_CONTROL_ROOM_PROFILE", "on_change")
         monkeypatch.setenv("OVENBIRD_CONTROL_ROOM_STEP_K", "0.25")
         monkeypatch.setenv("OVENBIRD_CONTROL_ROOM_SILENCE_LIMIT_S", "43200")
@@ -86,10 +94,12 @@ class TestSettings:
     def test_room_and_liveness_alone_satisfy_the_entity_list(
         self, make_settings: Callable[..., Settings]
     ) -> None:
+        """Room and liveness entities suffice as subscriptions without an entity list."""
         settings = make_settings(**{**OWNER, "ha_entities": ()})
         assert settings.ha_subscriptions == (ROOM, HUMIDITY)
 
     def test_mqtt_liveness(self, make_settings: Callable[..., Settings]) -> None:
+        """MQTT liveness signals work without any Home Assistant subscription."""
         settings = make_settings(
             mqtt_inputs=MQTT_ROOM,
             control_room_signal="room_temperature",
@@ -119,18 +129,22 @@ class TestSettings:
     def test_rejected(
         self, make_settings: Callable[..., Settings], overrides: dict[str, Any], fragment: str
     ) -> None:
+        """Invalid room profile settings are rejected with an error naming the problem."""
         with pytest.raises(ConfigError, match=fragment):
             make_settings(**{**OWNER, **overrides})
 
     def test_liveness_needs_a_room_signal(self, make_settings: Callable[..., Settings]) -> None:
+        """Liveness signals without a room signal are rejected."""
         with pytest.raises(ConfigError, match="need control_room_signal"):
             make_settings(**HA, control_room_liveness_signals=(HUMIDITY_ID,))
 
     def test_ha_room_signal_needs_ha(self, make_settings: Callable[..., Settings]) -> None:
+        """A Home Assistant room signal without Home Assistant is rejected."""
         with pytest.raises(ConfigError, match="room signal"):
             make_settings(mqtt_inputs=MQTT_ROOM, control_room_signal=ROOM_ID)
 
     def test_ha_liveness_needs_ha(self, make_settings: Callable[..., Settings]) -> None:
+        """A Home Assistant liveness signal without Home Assistant is rejected."""
         with pytest.raises(ConfigError, match="liveness signal"):
             make_settings(
                 mqtt_inputs=MQTT_ROOM,
@@ -139,6 +153,7 @@ class TestSettings:
             )
 
     def test_empty_values_are_unset(self) -> None:
+        """Blank crosscheck and liveness settings count as unset."""
         settings = load_settings(
             control_room_crosscheck_signal=" ", control_room_liveness_signals=""
         )
@@ -147,10 +162,12 @@ class TestSettings:
 
 
 def owner_runtime(settings: Settings, clock: FakeClock) -> Runtime:
+    """Build a runtime with Home Assistant enabled and the staleness policy of ``settings``."""
     return Runtime(StateStore(settings.staleness_policy()), clock=clock, ha_enabled=True)
 
 
 def full_state(entity: str, state: str, reported: float, changed: float) -> dict[str, Any]:
+    """Build a Home Assistant state dict with separate reported and changed times."""
     return {
         "entity_id": entity,
         "state": state,
@@ -162,13 +179,17 @@ def full_state(entity: str, state: str, reported: float, changed: float) -> dict
 
 
 class TestHaLinkConditionalHold:
+    """Holding the room value while the Home Assistant link is up."""
+
     def reread(self, client: HaInput, states: list[Any], success: bool = True) -> None:
+        """Deliver the result of a full state re-read to the client."""
         message_id = client._next_id
         client._next_id += 1
         client._pending_reads.add(message_id)
         client.handle({"id": message_id, "type": "result", "success": success, "result": states})
 
     def test_hold_follows_the_link(self, make_settings: Callable[..., Settings]) -> None:
+        """A held room value stays fresh while liveness and link hold, and stale otherwise."""
         settings = make_settings(**OWNER)
         clock = FakeClock()
         runtime = owner_runtime(settings, clock)
@@ -197,6 +218,7 @@ class TestHaLinkConditionalHold:
         assert runtime.snapshot()["links"] == {"ha": False}
 
     async def test_session_end_drops_the_link(self, make_settings: Callable[..., Settings]) -> None:
+        """Ending a Home Assistant session marks its link down."""
         settings = make_settings(**OWNER)
         runtime = owner_runtime(settings, FakeClock())
         runtime.set_link(SourceKind.HA, up=True, confirmed=True)
@@ -206,9 +228,12 @@ class TestHaLinkConditionalHold:
 
 
 class TestMqttLinkAndRetained:
+    """Retained MQTT values and the MQTT link."""
+
     async def test_retained_seed_alive_after_live_liveness(
         self, make_settings: Callable[..., Settings]
     ) -> None:
+        """A retained room value turns fresh once a live liveness signal arrives."""
         settings = make_settings(
             mqtt_inputs=MQTT_ROOM,
             control_room_signal="room_temperature",
@@ -245,11 +270,15 @@ class TestMqttLinkAndRetained:
 
 
 def monitor(settings: Settings) -> MonitorConfig:
+    """Return the monitor configuration for ``settings`` at a 40 °C water limit."""
     return monitor_config(settings, 40.0)
 
 
 class TestAlarms:
+    """Room sensor and Home Assistant link alarms."""
+
     def test_room_sensor_silent(self, make_settings: Callable[..., Settings]) -> None:
+        """The silent-sensor alarm follows the silence limit and clears on a liveness report."""
         settings = make_settings(**{**OWNER, "control_room_silence_limit_s": 7200.0})
         clock = FakeClock()
         runtime = owner_runtime(settings, clock)
@@ -272,6 +301,7 @@ class TestAlarms:
         )
 
     def test_periodic_report_overdue(self, make_settings: Callable[..., Settings]) -> None:
+        """A periodic sensor raises the overdue alarm once its report is late."""
         settings = make_settings(control_room_signal=ROOM_ID, **HA)
         clock = FakeClock()
         runtime = owner_runtime(settings, clock)
@@ -289,6 +319,7 @@ class TestAlarms:
         assert "OVENBIRD_CONTROL_ROOM_PROFILE=on_change" in overdue.message
 
     def test_ha_link_down(self, make_settings: Callable[..., Settings]) -> None:
+        """The Home Assistant link alarm is pending, then active after its delay, then clears."""
         settings = make_settings(**OWNER)
         clock = FakeClock()
         runtime = owner_runtime(settings, clock)
@@ -308,6 +339,7 @@ class TestAlarms:
         assert AlarmCode.HA_LINK_DOWN not in since
 
     def test_no_ha_no_link_monitor(self, make_settings: Callable[..., Settings]) -> None:
+        """Without Home Assistant there is no link or room sensor alarm."""
         _, findings = evaluate(monitor(make_settings()), StateStore().snapshot(FakeClock()()), {})
         codes = {f.code for f in findings}
         assert AlarmCode.HA_LINK_DOWN not in codes
@@ -315,7 +347,10 @@ class TestAlarms:
 
 
 class TestControlLoop:
+    """The control loop's room status and sensor alarms."""
+
     def make(self, settings: Settings, clock: FakeClock) -> tuple[ControlLoop, Runtime]:
+        """Build a shadow-mode control loop and its runtime for ``settings``."""
         runtime = Runtime(StateStore(settings.staleness_policy()), clock=clock)
         loop = ControlLoop(
             runtime,
@@ -328,6 +363,7 @@ class TestControlLoop:
         return loop, runtime
 
     def feed(self, runtime: Runtime, room: str, thermostat: str) -> None:
+        """Ingest the pump thermostat reading and the room reading."""
         ingest = MqttIngest(load_settings(mqtt_inputs=MQTT_ROOM), runtime)
         for message in pump_messages(Room_Thermostat_Temp=thermostat):
             ingest.ingest(message)
@@ -336,6 +372,7 @@ class TestControlLoop:
     def test_room_implausible_alarm_and_status(
         self, make_settings: Callable[..., Settings]
     ) -> None:
+        """A room reading far from the thermostat raises the implausible alarm until they agree."""
         settings = make_settings(
             mqtt_inputs=MQTT_ROOM,
             control_room_signal="room_temperature",
@@ -373,6 +410,7 @@ class TestControlLoop:
     def test_room_sensor_quiet_warns_after_eight_hours_without_proof_of_life(
         self, make_settings: Callable[..., Settings]
     ) -> None:
+        """Eight hours without proof of life raise the quiet alarm, cleared by a liveness report."""
         settings = make_settings(
             mqtt_inputs=MQTT_ROOM,
             control_room_signal="room_temperature",
@@ -405,6 +443,7 @@ class TestControlLoop:
     def test_no_quiet_warning_for_a_periodic_sensor(
         self, make_settings: Callable[..., Settings]
     ) -> None:
+        """A periodic sensor never raises the quiet alarm."""
         settings = make_settings(mqtt_inputs=MQTT_ROOM, control_room_signal="room_temperature")
         clock = FakeClock()
         loop, runtime = self.make(settings, clock)
@@ -415,11 +454,13 @@ class TestControlLoop:
         assert not loop.alarms.is_active(AlarmCode.ROOM_SENSOR_QUIET)
 
     def test_status_without_room(self, make_settings: Callable[..., Settings]) -> None:
+        """Without a room signal the status has no room entry."""
         loop, _ = self.make(make_settings(), FakeClock())
         assert loop.status()["room"] is None
 
 
 def test_crosscheck_time_survives_a_restart() -> None:
+    """The crosscheck offset and start time survive saving and restoring the state."""
     now = Instant.from_unix(1_800_000_000.0)
     state = OvenbirdState(crosscheck_offset_k=1.2, crosscheck_since=now.monotonic - 600.0)
     later = now.shifted(60.0)

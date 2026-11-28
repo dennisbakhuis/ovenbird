@@ -25,6 +25,7 @@ class MemoryBroker:
     """Retained store and subscriptions; :attr:`log` keeps every publish."""
 
     def __init__(self) -> None:
+        """Create an empty store with no subscribers."""
         self.retained: dict[str, str] = {}
         self.subscribers: list[tuple[str, asyncio.Queue[Delivery]]] = []
         self.log: list[Delivery] = []
@@ -47,7 +48,10 @@ class MemoryBroker:
 
 
 class _Session:
+    """Async context manager that does nothing on enter or exit."""
+
     async def __aenter__(self) -> Self:
+        """Enter the session."""
         return self
 
     async def __aexit__(
@@ -56,7 +60,8 @@ class _Session:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        return None
+        """Leave the session without cleanup."""
+        return
 
 
 class IngestClient(_Session):
@@ -101,7 +106,10 @@ class LinkClient(_Session):
 
 
 class _Message:
+    """A delivered message with the topic, bytes payload and retain flag aiomqtt gives."""
+
     def __init__(self, topic: str, payload: str, retain: bool) -> None:
+        """Wrap ``payload`` as UTF-8 bytes and ``topic`` as an aiomqtt topic."""
         self.topic = aiomqtt.Topic(topic)
         self.payload = payload.encode("utf-8")
         self.retain = retain
@@ -143,7 +151,19 @@ class SimClient:
         self.broker.subscribe(topic, self.queue)
 
     async def publish(self, topic: str, payload: str, qos: int = 0, retain: bool = False) -> None:
-        """Publish."""
+        """Publish ``payload`` to ``topic`` on the broker.
+
+        Parameters
+        ----------
+        topic
+            Topic to publish to.
+        payload
+            Message body.
+        qos
+            Ignored; the broker has no QoS.
+        retain
+            Keep the message as the topic's retained value.
+        """
         self.broker.publish(topic, payload, retain)
 
     @property
@@ -151,6 +171,7 @@ class SimClient:
         """Deliveries as aiomqtt-like messages."""
 
         async def stream() -> AsyncIterator[_Message]:
+            """Yield deliveries forever as aiomqtt-like messages."""
             while True:
                 yield _Message(*(await self.queue.get()))
 

@@ -77,7 +77,19 @@ FAIL: Final = "fail"
 
 
 def item(id_: str, status: str, message: str, **evidence: Any) -> dict[str, Any]:
-    """Return one checklist item."""
+    """Return one checklist item.
+
+    Parameters
+    ----------
+    id_
+        Checklist item id.
+    status
+        Result of the check: pass, warn or fail.
+    message
+        Explanation for the operator.
+    **evidence
+        Facts the check was based on, stored with the item.
+    """
     return {
         "id": id_,
         "phase": PHASE_OF[id_],
@@ -382,7 +394,15 @@ def room_item(loop: ControlLoop | None, now: Instant) -> dict[str, Any]:
 
 
 def snapshot_item(loop: ControlLoop | None, now: Instant) -> dict[str, Any]:
-    """Return the ``pump_snapshot`` item: an armed, complete and recent snapshot."""
+    """Return the ``pump_snapshot`` item: an armed, complete and recent snapshot.
+
+    Parameters
+    ----------
+    loop
+        Control loop holding the pump snapshot; ``None`` without one.
+    now
+        Time of the check.
+    """
     release = loop.release if loop is not None else None
     if release is None:
         return item("pump_snapshot", WARN, "no control loop")
@@ -485,7 +505,19 @@ def status_body(
     items: list[dict[str, Any]],
     summary: dict[str, Any],
 ) -> dict[str, Any]:
-    """Return the body of ``GET api/v1/trial/status`` from the checklist and summary."""
+    """Return the body of ``GET api/v1/trial/status`` from the checklist and summary.
+
+    Parameters
+    ----------
+    now
+        Time of the status.
+    loop
+        Control loop, ``None`` without one.
+    items
+        Checklist items.
+    summary
+        Trial summary.
+    """
     groups = {
         phase: group([entry for entry in items if entry["phase"] == phase]) for phase in PHASES
     }

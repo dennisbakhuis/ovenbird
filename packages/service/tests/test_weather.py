@@ -46,15 +46,20 @@ HOUR = 3600.0
 
 
 def fixture_body() -> bytes:
+    """Return the bytes of the recorded Open-Meteo response."""
     return FIXTURE.read_bytes()
 
 
 class Sink:
+    """Forecast sink that keeps offered rows and optionally writes them to a history database."""
+
     def __init__(self, path: Path | None = None) -> None:
+        """Start with no rows and an optional history path to write to."""
         self.rows: list[Any] = []
         self.path = path
 
     def offer_forecast(self, rows: list[Any]) -> None:
+        """Record forecast rows and persist them when a path is set."""
         self.rows.extend(rows)
         if self.path is not None:
             conn = open_history(self.path)
@@ -65,10 +70,12 @@ class Sink:
 
 
 def run(coroutine: Any) -> Any:
+    """Run a coroutine to completion and return its result."""
     return asyncio.run(coroutine)
 
 
 def test_the_request_is_rounded_keyless_and_complete() -> None:
+    """The forecast URL rounds coordinates, asks for all hourly variables and carries no key."""
     url = forecast_url(52.09123, 5.11789)
     parts = urlsplit(url)
     query = {key: values[0] for key, values in parse_qs(parts.query).items()}
@@ -89,10 +96,12 @@ def test_the_request_is_rounded_keyless_and_complete() -> None:
 
 
 def test_the_fixture_is_the_synthetic_forecast() -> None:
+    """The recorded fixture equals the synthetic forecast generator's output."""
     assert FIXTURE.read_text(encoding="utf-8") == synthetic_open_meteo_text()
 
 
 def test_the_fixture_response_parses() -> None:
+    """The recorded response parses into 96 consecutive hourly forecast points."""
     forecast = parse_open_meteo(json.loads(fixture_body()), ISSUED)
     assert forecast.issued_ts == ISSUED
     assert len(forecast.hours) == 96
@@ -107,9 +116,11 @@ def test_the_fixture_response_parses() -> None:
 
 
 def test_the_provider_uses_only_its_opener() -> None:
+    """The provider fetches only through the supplied opener, using the rounded URL."""
     urls: list[str] = []
 
     def opener(url: str) -> bytes:
+        """Record the URL and serve the recorded response."""
         urls.append(url)
         return fixture_body()
 
@@ -123,12 +134,16 @@ def test_the_provider_uses_only_its_opener() -> None:
     [b"not json", b"[]", b'{"error": true, "reason": "bad coordinates"}', b'{"hourly": {}}'],
 )
 def test_bad_responses_raise(body: bytes) -> None:
+    """Malformed or error responses raise a weather error."""
     with pytest.raises(WeatherError):
         OpenMeteoProvider(lambda _: body).fetch(52.0, 5.0, ISSUED)
 
 
 def test_network_errors_raise_weather_errors() -> None:
+    """A network error is wrapped in a weather error naming its type."""
+
     def broken(_: str) -> bytes:
+        """Opener that always fails as an unreachable network would."""
         raise OSError("unreachable")
 
     with pytest.raises(WeatherError, match="OSError"):
@@ -136,6 +151,7 @@ def test_network_errors_raise_weather_errors() -> None:
 
 
 def test_mismatched_columns_raise() -> None:
+    """Hourly columns of unequal length raise an error naming the column."""
     body = json.loads(fixture_body())
     body["hourly"]["temperature_2m"] = body["hourly"]["temperature_2m"][:-1]
     with pytest.raises(WeatherError, match="temperature_2m"):
@@ -143,6 +159,7 @@ def test_mismatched_columns_raise() -> None:
 
 
 def test_km_per_hour_wind_is_converted() -> None:
+    """Wind speed given in km/h is converted to m/s."""
     body = json.loads(fixture_body())
     body["hourly_units"]["wind_speed_10m"] = "km/h"
     body["hourly"]["wind_speed_10m"] = [3.6] * 96
@@ -152,7 +169,10 @@ def test_km_per_hour_wind_is_converted() -> None:
 
 @pytest.fixture
 def weather_settings(make_settings: Callable[..., Settings]) -> Callable[..., Settings]:
+    """Fixture returning a factory for settings with weather enabled at a manual location."""
+
     def factory(**overrides: Any) -> Settings:
+        """Build settings with weather enabled, plus overrides."""
         values: dict[str, Any] = {
             "weather_enabled": True,
             "weather_latitude": 52.0912,
@@ -173,6 +193,7 @@ def service(
     home: tuple[float, float] | None = None,
     sink: Sink | None = None,
 ) -> WeatherService:
+    """Build a weather service over an Open-Meteo provider with a fake opener."""
     return WeatherService(
         settings,
         clock,
@@ -184,6 +205,7 @@ def service(
 
 
 def test_off_by_default_and_without_a_location(make_settings: Callable[..., Settings]) -> None:
+    """Weather is disabled by default and without a location, with a reason."""
     clock = FakeClock(ISSUED)
     off = service(make_settings(), clock)
     assert off.status() == "disabled"
@@ -197,6 +219,7 @@ def test_off_by_default_and_without_a_location(make_settings: Callable[..., Sett
 def test_the_location_comes_from_zone_home_rounded(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """Without a manual location the rounded Home Assistant zone home is used."""
     clock = FakeClock(ISSUED)
     weather = service(make_settings(weather_enabled=True), clock, home=(52.091234, 5.117891))
     location = weather.location()
@@ -207,6 +230,7 @@ def test_the_location_comes_from_zone_home_rounded(
 def test_a_manual_location_overrides_zone_home(
     weather_settings: Callable[..., Settings],
 ) -> None:
+    """A manual or browser location takes precedence over zone home."""
     settings = weather_settings(weather_location_source="browser")
     assert (settings.weather_latitude, settings.weather_longitude) == (52.09, 5.12)
     weather = service(settings, FakeClock(ISSUED), home=(40.0, 3.0))
@@ -218,12 +242,14 @@ def test_a_manual_location_overrides_zone_home(
 def test_issues_are_stored_as_issued_and_fetched_hourly(
     weather_settings: Callable[..., Settings],
 ) -> None:
+    """Forecast issues are stored as issued, fetched at most hourly and survive a restart."""
     settings = weather_settings()
     clock = FakeClock(ISSUED)
     sink = Sink(settings.history_path)
     urls: list[str] = []
 
     def opener(url: str) -> bytes:
+        """Record the URL and serve the recorded response."""
         urls.append(url)
         return fixture_body()
 
@@ -248,10 +274,12 @@ def test_issues_are_stored_as_issued_and_fetched_hourly(
 def test_stale_after_three_hours_and_backoff_on_failure(
     weather_settings: Callable[..., Settings],
 ) -> None:
+    """Failed fetches back off, and the status turns stale after three hours."""
     clock = FakeClock(ISSUED)
     healthy = [True]
 
     def opener(_: str) -> bytes:
+        """Serve the recorded response while healthy, otherwise fail."""
         if healthy[0]:
             return fixture_body()
         raise OSError("down")
@@ -275,10 +303,12 @@ def test_stale_after_three_hours_and_backoff_on_failure(
 def test_a_changed_location_is_fetched_at_once(
     weather_settings: Callable[..., Settings],
 ) -> None:
+    """Changing the location triggers an immediate fetch; disabling weather disables the service."""
     clock = FakeClock(ISSUED)
     urls: list[str] = []
 
     def opener(url: str) -> bytes:
+        """Record the URL and serve the recorded response."""
         urls.append(url)
         return fixture_body()
 
@@ -292,6 +322,7 @@ def test_a_changed_location_is_fetched_at_once(
 
 
 def _store_outside(path: Path, start: float, hours: int, value: Callable[[float], float]) -> None:
+    """Write one outside temperature sample per minute for the given hours."""
     db = HistoryDatabase(open_history(path))
     try:
         samples = [
@@ -313,6 +344,7 @@ def _store_outside(path: Path, start: float, hours: int, value: Callable[[float]
 def _store_issue(
     path: Path, issued: float, hours: int, temp: Callable[[float, float], float]
 ) -> None:
+    """Store one forecast issue whose temperature depends on issue and target time."""
     rows = forecast_rows(
         Forecast(
             issued,
@@ -330,6 +362,7 @@ def _store_issue(
 
 
 def test_lead_time_error_statistics(tmp_path: Path) -> None:
+    """Error statistics per lead time give the expected counts, bias and mean absolute error."""
     path = tmp_path / "history.db"
     start = datetime(2026, 11, 1, tzinfo=UTC).timestamp()
     _store_outside(path, start - HOUR, 4 * 24 + 2, lambda _: 5.0)
@@ -347,6 +380,7 @@ def test_lead_time_error_statistics(tmp_path: Path) -> None:
 
 
 def test_the_payload_has_every_part(weather_settings: Callable[..., Settings]) -> None:
+    """The weather payload has location, now, measured, forecast, error and outlook."""
     settings = weather_settings()
     path = settings.history_path
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -386,6 +420,7 @@ def test_the_payload_has_every_part(weather_settings: Callable[..., Settings]) -
 
 
 def test_the_disabled_payload(make_settings: Callable[..., Settings]) -> None:
+    """A disabled service yields a minimal payload with the reason."""
     settings = make_settings()
     weather = service(settings, FakeClock(ISSUED))
     body = weather_payload(
@@ -408,6 +443,7 @@ def test_the_disabled_payload(make_settings: Callable[..., Settings]) -> None:
 def test_the_simulated_provider_follows_the_scaled_clock(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """The simulated provider issues forecasts that follow the scaled clock."""
     start = datetime(2026, 11, 7, tzinfo=UTC)
     real = [1000.0]
     clock = ScaledClock(60.0, start, monotonic=lambda: real[0])
@@ -440,6 +476,7 @@ def test_the_simulated_provider_follows_the_scaled_clock(
 def test_simulation_mode_uses_the_simulated_provider(
     make_settings: Callable[..., Settings], tmp_path: Path
 ) -> None:
+    """Simulation settings select the simulated provider even when its file is missing."""
     sim = make_settings(simulation=True, mqtt_host="mosquitto", weather_sim_file=FIXTURE)
     assert build_provider(sim).name == "simulated"
     missing = make_settings(simulation=True, mqtt_host="mosquitto", weather_sim_file=tmp_path / "x")

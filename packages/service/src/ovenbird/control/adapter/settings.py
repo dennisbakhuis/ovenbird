@@ -98,6 +98,11 @@ class SettingsMixin(LinkMixin):
     def operator_block(self, read: Reader) -> tuple[str, str] | None:
         """Why an operator's pump setting may not be written now, if it may not.
 
+        Parameters
+        ----------
+        read
+            Signal reader.
+
         Returns
         -------
         tuple or None
@@ -132,6 +137,10 @@ class SettingsMixin(LinkMixin):
         return next((kind for kind in self._queue if isinstance(kind, PumpSetting)), None)
 
     def _check_operator_rate(self, setting: PumpSetting, now: Instant) -> None:
+        """Refuse an operator write that exceeds the per-setting spacing or the daily limit.
+
+        Raises ``SettingRefusedError`` (429).
+        """
         stamp = now.wall.timestamp()
         recent = [
             (t, s) for t, s in self._operator_requests if stamp - OPERATOR_WINDOW_S < t <= stamp
@@ -367,6 +376,7 @@ class SettingsMixin(LinkMixin):
         return restore_target(self.config, kind, value, band)
 
     def _confirm_setting(self, now: Instant, setting: PumpSetting, why: str) -> None:
+        """Forget a failed target of ``setting``; clear the verification alarm when none remain."""
         self._failed_targets.pop(setting, None)
         waiting = self._awaiting.get(AlarmCode.VERIFICATION_FAILED)
         if waiting is None or setting not in waiting:
@@ -378,7 +388,15 @@ class SettingsMixin(LinkMixin):
         self.alarms.clear(AlarmCode.VERIFICATION_FAILED, now, why)
 
     def _watch_settings(self, now: Instant, read: Reader) -> None:
-        """Notice pump-setting changes ovenbird did not make (``pump_setting_changed``)."""
+        """Notice pump-setting changes ovenbird did not make (``pump_setting_changed``).
+
+        Parameters
+        ----------
+        now
+            Current time.
+        read
+            Signal reader.
+        """
         busy = self.operator_busy()
         restarted = self._board.restarted_at
         recent_restart = (
@@ -410,6 +428,7 @@ class SettingsMixin(LinkMixin):
             )
 
     def _drop_operator(self, now: Instant, read: Reader) -> None:
+        """Drop queued operator writes while the pump is in a state that refuses them."""
         settings = [kind for kind in self._queue if isinstance(kind, PumpSetting)]
         if not settings:
             return

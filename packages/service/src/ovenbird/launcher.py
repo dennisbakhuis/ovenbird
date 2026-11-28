@@ -44,14 +44,27 @@ class LauncherError(RuntimeError):
 
 
 def _chown(path: str, uid: int, gid: int, *, dir_fd: int | None) -> None:
+    """Change the owner of ``path`` (relative to ``dir_fd``) without following a symlink.
+
+    Parameters
+    ----------
+    path
+        Path to change.
+    uid, gid
+        New owner and group.
+    dir_fd
+        Directory descriptor ``path`` is relative to, ``None`` for the working directory.
+    """
     os.chown(path, uid, gid, dir_fd=dir_fd, follow_symlinks=False)
 
 
 def _lstat(path: str, *, dir_fd: int | None) -> os.stat_result:
+    """Return the status of ``path`` (relative to ``dir_fd``) without following a symlink."""
     return os.stat(path, dir_fd=dir_fd, follow_symlinks=False)
 
 
 def _cannot_regain_root() -> bool:
+    """Return whether the process, after dropping privileges, can no longer become root."""
     try:
         os.setuid(ROOT)
     except PermissionError:

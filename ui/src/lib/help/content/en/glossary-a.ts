@@ -154,7 +154,7 @@ export const glossary: GlossaryEntry[] = [
     term: 'Weather forecast',
     short:
       'The expected outside temperature, sun, cloud and wind for the coming days, from an online provider.',
-    body: 'Opt-in: only your location, rounded to about 1 km, is sent. It is shown for your information; only the [[model-plan|model plan]] works with it, and until that is On it changes nothing in the control.',
+    body: 'Opt-in: only your location, rounded to about 1 km, is sent. It is shown for your information and changes nothing in the control.',
     related: ['lead-time', 'forecast-bias', 'mae'],
   },
   {
@@ -187,49 +187,5 @@ export const glossary: GlossaryEntry[] = [
       'How far and how long the room was below the comfort band: 1 K too cold for 2 hours is 2 K·h.',
     body: 'Zero means the room stayed comfortable all day.',
     related: ['comfort-band'],
-  },
-  {
-    id: 'ua',
-    term: 'Heat loss (UA)',
-    short:
-      'How many watts the house loses for every degree it is warmer inside than outside, in W/K.',
-    body: 'A house with a UA of 300 W/K at 20 °C inside and 0 °C outside loses about 6 kW. ovenbird learns it from your own history; with one room sensor it is an **apparent** figure: ventilation and the other rooms are in it too. Shown with a range that combines resampling of the days and separate training periods, so it is the wide, honest one. Divided by the floor area it gives the [indicative insulation score](#/house).',
-    related: ['balance-temperature', 'time-constant', 'energy-signature'],
-    aliases: ['UA', 'heat loss coefficient', 'HLC', 'warmteverlies', 'insulation'],
-  },
-  {
-    id: 'balance-temperature',
-    term: 'Balance temperature',
-    short:
-      'The outside temperature above which the house needs no heating: sun, people and appliances keep it warm.',
-    body: 'Below it the heat the pump must deliver grows with every degree it gets colder. ovenbird reads it from the [[energy-signature]]: where the line through the daily points reaches zero heat.',
-    related: ['energy-signature', 'ua'],
-    aliases: ['heating limit', 'stookgrens', 'base temperature'],
-  },
-  {
-    id: 'time-constant',
-    term: 'Time constant',
-    short:
-      'How slowly the house cools down: the hours it takes to lose about two thirds of a temperature difference without heating.',
-    body: 'A heavy, well-insulated house has a long time constant (often 100 hours or more) for the house as a whole, while the floor alone reacts in an hour or so: a night without heating costs little. A light house cools fast. It is why ovenbird can lower the water temperature for a while without the room noticing at once.',
-    related: ['ua'],
-    aliases: ['tau', 'thermal mass', 'tijdconstante'],
-  },
-  {
-    id: 'heat-capacity',
-    term: 'Heat capacity',
-    short:
-      'How much heat the floor and the house store for every degree, and how fast each part reacts.',
-    body: 'The house model is a chain of three parts: the **loop** (the water in the heating loop), the **emitter** (the floor and screed, fast) and the **building** (the whole house, slow). The heat pump warms the water, the water warms the floor, and the floor warms the house. The emitter reacts within hours, the building within days: that is why a house cools slowly and its [[time-constant]] is long. The [House page](#/house) shows the **total heat capacity** in kWh per K and both response times, for example "the floor responds in about 0.6 hours, the house in about 130 hours". In its picture the floor and the house together either store heat or give it back.',
-    related: ['time-constant', 'ua'],
-    aliases: ['thermal mass', 'storage', 'building mass', 'emitter', 'warmtecapaciteit'],
-  },
-  {
-    id: 'energy-signature',
-    term: 'Energy signature',
-    short: "A chart of the heat the house needed per day against that day's outside temperature.",
-    body: 'The colder the day, the more heat. The slope of the line through the points is the [[ua|heat loss]]; where it reaches zero is the [[balance-temperature]]. Sunny days sit below the line. Wood-stove days are left out.',
-    related: ['ua', 'balance-temperature'],
-    aliases: ['heat signature', 'energiesignatuur'],
   },
 ];

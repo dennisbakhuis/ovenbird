@@ -8,6 +8,11 @@ filled); ``coverage`` is the share of the day, up to now for the current day, fo
 which both heating power estimates have data. A figure is ``None`` when its
 source has no data that day. Days older than the 1 min rollup retention have no
 data.
+
+The house basics (:mod:`ovenbird.insight.basics`) read two more aggregates from the
+15 min rollups, which are kept longer: :func:`day_figures` (per day the loop heat,
+electricity, outside and room temperature) and :func:`heating_hours` (the hours in
+which the compressor heated the house throughout, with their mean water temperature).
 """
 
 from __future__ import annotations
@@ -21,7 +26,9 @@ from typing import Any, Final
 from zoneinfo import ZoneInfo
 
 from ovenbird.clock import iso_from_unix
+from ovenbird.history.database import HEAT_SIGNAL
 from ovenbird.history.schema import connect
+from ovenbird.sql import sql
 from ovenbird_core import HeishaSignal
 
 STEP: Final = 60
@@ -42,6 +49,12 @@ DEFROST: Final = HeishaSignal.DEFROSTING_STATE.value
 VALVE: Final = HeishaSignal.THREEWAY_VALVE_STATE.value
 OUTSIDE: Final = HeishaSignal.OUTSIDE_TEMP.value
 SETPOINT: Final = HeishaSignal.Z1_WATER_TARGET_TEMP.value
+INLET: Final = HeishaSignal.INLET_TEMP.value
+OUTLET: Final = HeishaSignal.OUTLET_TEMP.value
+FLOW: Final = HeishaSignal.PUMP_FLOW.value
+QUARTER: Final = 900
+QUARTERS_PER_HOUR: Final = 4
+FULL_QUARTER: Final = 0.9
 
 TOTALS_SQL: Final = """
 WITH {days}
@@ -71,6 +84,28 @@ SELECT days.idx,
     SUM(CASE WHEN r.prev IS NOT NULL AND r.last != r.prev THEN 1 ELSE 0 END)
 FROM days JOIN r ON r.bucket >= days.start AND r.bucket < days.stop
 GROUP BY days.idx
+"""
+
+HEATING_QUARTERS_SQL: Final = """
+SELECT c.bucket,
+    h.weighted_sum / h.duration, i.weighted_sum / i.duration, o.weighted_sum / o.duration,
+    r.weighted_sum / r.duration,
+    CASE WHEN f.duration > 0 THEN f.weighted_sum / f.duration END,
+    CASE WHEN x.duration > 0 THEN x.weighted_sum / x.duration END
+FROM rollup AS c
+JOIN rollup AS h ON h.step = c.step AND h.signal_id = ? AND h.bucket = c.bucket
+JOIN rollup AS i ON i.step = c.step AND i.signal_id = ? AND i.bucket = c.bucket
+JOIN rollup AS o ON o.step = c.step AND o.signal_id = ? AND o.bucket = c.bucket
+JOIN rollup AS r ON r.step = c.step AND r.signal_id = ? AND r.bucket = c.bucket
+LEFT JOIN rollup AS v ON v.step = c.step AND v.signal_id = ? AND v.bucket = c.bucket
+LEFT JOIN rollup AS d ON d.step = c.step AND d.signal_id = ? AND d.bucket = c.bucket
+LEFT JOIN rollup AS f ON f.step = c.step AND f.signal_id = ? AND f.bucket = c.bucket
+LEFT JOIN rollup AS x ON x.step = c.step AND x.signal_id = ? AND x.bucket = c.bucket
+WHERE c.step = ? AND c.signal_id = ? AND c.bucket >= ? AND c.bucket < ?
+    AND c.minimum >= ? AND c.duration >= ? AND h.duration >= ?
+    AND i.duration > 0 AND o.duration > 0 AND r.duration > 0
+    AND (v.maximum IS NULL OR v.maximum < ?) AND (d.maximum IS NULL OR d.maximum < ?)
+ORDER BY c.bucket
 """
 
 WRITES_SQL: Final = """
@@ -171,6 +206,7 @@ def local_days(now: datetime, days: int, timezone: str) -> list[LocalDay]:
     today = now.astimezone(zone).date()
 
     def midnight(day: date) -> float:
+        """Return the unix time of the local midnight starting ``day``."""
         return datetime(day.year, day.month, day.day, tzinfo=zone).timestamp()
 
     found = []
@@ -181,12 +217,14 @@ def local_days(now: datetime, days: int, timezone: str) -> list[LocalDay]:
 
 
 def _days_cte(windows: Sequence[LocalDay]) -> tuple[str, list[float]]:
+    """Return the ``days`` CTE of the windows and its parameters."""
     rows = ", ".join("(?, ?, ?)" for _ in windows)
     params = [value for idx, day in enumerate(windows) for value in (idx, day.start, day.end)]
     return f"days(idx, start, stop) AS (VALUES {rows})", params
 
 
 def _has_table(conn: sqlite3.Connection, table: str) -> bool:
+    """Return whether the database has ``table``."""
     found = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
     ).fetchone()
@@ -200,13 +238,31 @@ def _totals(
     *,
     on: float = FLAG_ON,
     band: float = 0.0,
+    step: int = STEP,
 ) -> list[Totals]:
+    """Sum one signal's rollups of ``step`` per window (empty totals without a signal).
+
+    Parameters
+    ----------
+    conn
+        Open history database connection.
+    windows
+        Local days to sum over.
+    signal_id
+        Signal to sum; ``None`` gives empty totals.
+    on
+        Value from which a flag counts as on.
+    band
+        Tolerance below the target that counts as being below it.
+    step
+        Rollup resolution, in seconds.
+    """
     found = [Totals() for _ in windows]
     if signal_id is None:
         return found
     cte, params = _days_cte(windows)
     rows = conn.execute(
-        TOTALS_SQL.format(days=cte), [*params, on, on, band, STEP, signal_id]
+        TOTALS_SQL.format(days=cte), [*params, on, on, band, step, signal_id]
     ).fetchall()
     for idx, integral, covered, minimum, on_s, below in rows:
         found[int(idx)] = Totals(
@@ -226,6 +282,19 @@ def _transitions(
     *,
     on: float = FLAG_ON,
 ) -> list[Transitions]:
+    """Count one signal's rises and changes per window in the 1 min rollups.
+
+    Parameters
+    ----------
+    conn
+        Open history database connection.
+    windows
+        Local days to count in.
+    signal_id
+        Signal to count; ``None`` gives no transitions.
+    on
+        Value from which a flag counts as on.
+    """
     found = [Transitions() for _ in windows]
     if signal_id is None or not windows:
         return found
@@ -241,6 +310,7 @@ def _transitions(
 
 
 def _writes(conn: sqlite3.Connection, windows: Sequence[LocalDay]) -> list[int | None]:
+    """Count the sent commands per window (``None`` without a command journal)."""
     if not windows or not _has_table(conn, "command"):
         return [None for _ in windows]
     cte, params = _days_cte(windows)
@@ -249,30 +319,35 @@ def _writes(conn: sqlite3.Connection, windows: Sequence[LocalDay]) -> list[int |
 
 
 def _signal_ids(conn: sqlite3.Connection, names: Sequence[str]) -> dict[str, int]:
+    """Return the ids of the named signals the history knows."""
     if not _has_table(conn, "signal"):
         return {}
-    marks = ", ".join("?" for _ in names)
     rows = conn.execute(
-        f"SELECT name, id FROM signal WHERE name IN ({marks})",  # noqa: S608
+        sql("SELECT name, id FROM signal WHERE name IN ({marks})", marks=len(names)),
         list(names),
     ).fetchall()
     return {str(name): int(signal_id) for name, signal_id in rows}
 
 
 def _round(value: float | None, digits: int) -> float | None:
+    """Round a value, keeping ``None``."""
     return None if value is None else round(value, digits)
 
 
 def _kwh(totals: Totals) -> float | None:
+    """Return the integral in kWh (``None`` without data)."""
     return round(totals.integral / JOULES_PER_KWH, 3) if totals.covered > 0 else None
 
 
 def _count(transitions: Transitions, source: Totals) -> int | None:
+    """Return the rises when the source has data that day, else ``None``."""
     return transitions.rises if source.covered > 0 else None
 
 
 @dataclass(frozen=True, slots=True)
 class _DayData:
+    """Every signal's totals and transitions of one day."""
+
     electric: Totals = Totals()
     heat: Totals = Totals()
     dhw_electric: Totals = Totals()
@@ -291,6 +366,19 @@ class _DayData:
 
 
 def _day_json(day: LocalDay, data: _DayData, now: float, comfort_c: float | None) -> dict[str, Any]:
+    """Return the API form of one day.
+
+    Parameters
+    ----------
+    day
+        Local day described.
+    data
+        Totals and transitions of that day.
+    now
+        Current Unix time, to bound the elapsed part of the day.
+    comfort_c
+        Comfort room temperature, in degrees Celsius.
+    """
     elapsed = max(0.0, min(day.end, now) - day.start)
     covered = min(data.electric.covered, data.heat.covered)
     coverage = min(1.0, covered / elapsed) if elapsed > 0 else 0.0
@@ -337,6 +425,19 @@ def _collect(
     room_signal: str | None,
     band_c: float,
 ) -> list[_DayData]:
+    """Read every signal of the daily figures for the windows.
+
+    Parameters
+    ----------
+    conn
+        Open history database connection.
+    windows
+        Local days to read.
+    room_signal
+        Room temperature signal; ``None`` without one.
+    band_c
+        Tolerance below the comfort target, in kelvin.
+    """
     names = [ELECTRIC, HEAT, DHW_ELECTRIC, DHW_HEAT, COMPRESSOR, DEFROST, VALVE, OUTSIDE, SETPOINT]
     if room_signal is not None:
         names.append(room_signal)
@@ -429,3 +530,251 @@ def daily_payload(
         "room_signal": room_signal,
         "days": rows,
     }
+
+
+@dataclass(frozen=True, slots=True)
+class DayFigures:
+    """One local day as the house basics read it (15 min rollups).
+
+    Parameters
+    ----------
+    day
+        The local day.
+    coverage
+        Share of the day (of its elapsed part for today) with the loop heat known or the
+        pump on hot water, the outside temperature and the room temperature, whichever
+        is lowest.
+    heat_coverage
+        The same share for the loop heat (or hot water) alone.
+    loop_heat_w
+        Mean heat into the space-heating loop (``derived/heat_delivered_w``) over the
+        time it is known, hot-water time counted as zero heat; a defrost's draw is
+        netted. ``None`` without data.
+    electric_w
+        Mean of ``Heat_Power_Consumption`` (``None`` without data).
+    outside_c, room_c
+        Time-weighted means (``None`` without data).
+    """
+
+    day: LocalDay
+    coverage: float
+    heat_coverage: float
+    loop_heat_w: float | None
+    electric_w: float | None
+    outside_c: float | None
+    room_c: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class HeatingHour:
+    """One clock hour in which the compressor heated the house throughout.
+
+    Parameters
+    ----------
+    start
+        Unix seconds of the hour's start.
+    heat_w
+        Mean heat into the space-heating loop.
+    water_c
+        Mean water temperature, the mean of inlet and outlet.
+    room_c
+        Mean room temperature.
+    flow_l_min
+        Mean pump flow (``None`` without data).
+    outside_c
+        Mean outside temperature (``None`` without data).
+    """
+
+    start: float
+    heat_w: float
+    water_c: float
+    room_c: float
+    flow_l_min: float | None
+    outside_c: float | None
+
+
+def _day_figures(
+    day: LocalDay,
+    now: float,
+    heat: Totals,
+    hot_water: Totals,
+    electric: Totals,
+    outside: Totals,
+    room: Totals,
+) -> DayFigures:
+    """Combine one day's totals into :class:`DayFigures`.
+
+    Parameters
+    ----------
+    day
+        Local day the figures are for.
+    now
+        Current Unix time.
+    heat
+        Heat output totals.
+    hot_water
+        Hot water totals.
+    electric
+        Electric input totals.
+    outside
+        Outside temperature totals.
+    room
+        Room temperature totals.
+    """
+    elapsed = max(0.0, min(day.end, now) - day.start)
+    known = min(elapsed, heat.covered + hot_water.on_s) if heat.covered > 0 else 0.0
+    covered = min(known, outside.covered, room.covered)
+
+    def share(seconds: float) -> float:
+        """Return ``seconds`` as a share of the elapsed part of the day."""
+        return min(1.0, seconds / elapsed) if elapsed > 0 else 0.0
+
+    return DayFigures(
+        day=day,
+        coverage=share(covered),
+        heat_coverage=share(known),
+        loop_heat_w=heat.integral / known if known > 0 else None,
+        electric_w=electric.mean,
+        outside_c=outside.mean,
+        room_c=room.mean,
+    )
+
+
+def day_figures(
+    path: Path,
+    windows: Sequence[LocalDay],
+    room_signal: str | None,
+    *,
+    now: float,
+    step: int = QUARTER,
+) -> list[DayFigures]:
+    """Return the house-basics figures of each window from the rollups of ``step``.
+
+    Parameters
+    ----------
+    path
+        History database; a missing file yields days without data.
+    windows
+        Local days, oldest first.
+    room_signal
+        Room temperature signal id; ``None`` leaves the room empty (coverage 0).
+    now
+        Unix seconds; the elapsed part of today is the base of its coverage.
+    step
+        Rollup step in seconds (15 min by default: kept longer than 1 min).
+
+    Returns
+    -------
+    list of DayFigures
+        One entry per window.
+    """
+    empty = Totals()
+    names = [HEAT_SIGNAL, VALVE, ELECTRIC, OUTSIDE]
+    if room_signal is not None:
+        names.append(room_signal)
+    columns: tuple[list[Totals], ...] = tuple([empty] * len(windows) for _ in range(5))
+    if windows and path.exists():
+        conn = connect(path, read_only=True)
+        try:
+            if _has_table(conn, "rollup"):
+                ids = _signal_ids(conn, names)
+                room_id = ids.get(room_signal) if room_signal is not None else None
+                columns = (
+                    _totals(conn, windows, ids.get(HEAT_SIGNAL), step=step),
+                    _totals(conn, windows, ids.get(VALVE), step=step),
+                    _totals(conn, windows, ids.get(ELECTRIC), step=step),
+                    _totals(conn, windows, ids.get(OUTSIDE), step=step),
+                    _totals(conn, windows, room_id, step=step),
+                )
+        finally:
+            conn.close()
+    return [_day_figures(day, now, *values) for day, *values in zip(windows, *columns, strict=True)]
+
+
+def _full_hours(quarters: Sequence[tuple[float, ...]]) -> list[HeatingHour]:
+    """Average complete hours of qualifying quarters, keeping those whose previous hour is full."""
+    by_hour: dict[int, list[tuple[float, ...]]] = {}
+    for row in quarters:
+        hour = int(row[0]) - int(row[0]) % int(SECONDS_PER_HOUR)
+        by_hour.setdefault(hour, []).append(row)
+    full = {hour for hour, rows in by_hour.items() if len(rows) == QUARTERS_PER_HOUR}
+    found = []
+    for hour in sorted(full):
+        if hour - int(SECONDS_PER_HOUR) not in full:
+            continue
+        rows = by_hour[hour]
+        flows = [row[5] for row in rows if row[5] is not None]
+        outsides = [row[6] for row in rows if row[6] is not None]
+        found.append(
+            HeatingHour(
+                start=float(hour),
+                heat_w=sum(row[1] for row in rows) / len(rows),
+                water_c=sum((row[2] + row[3]) / 2.0 for row in rows) / len(rows),
+                room_c=sum(row[4] for row in rows) / len(rows),
+                flow_l_min=sum(flows) / len(flows) if flows else None,
+                outside_c=sum(outsides) / len(outsides) if outsides else None,
+            )
+        )
+    return found
+
+
+def heating_hours(
+    path: Path, start: float, end: float, room_signal: str | None
+) -> list[HeatingHour]:
+    """Return the hours in which the compressor heated the house, in its second hour or later.
+
+    A 15 min quarter qualifies when the compressor ran at or above 1 Hz all through it,
+    the loop heat is known for at least 90 % of it, inlet, outlet and room have data,
+    and neither hot water nor a defrost touched it. An hour counts when its four
+    quarters and the four of the hour before qualify, so the start of a run, when the
+    water is still warming up, is left out.
+
+    Parameters
+    ----------
+    path
+        History database; a missing file yields no hours.
+    start, end
+        Unix seconds of the span.
+    room_signal
+        Room temperature signal id; ``None`` yields no hours.
+
+    Returns
+    -------
+    list of HeatingHour
+        Oldest first.
+    """
+    if room_signal is None or not path.exists():
+        return []
+    conn = connect(path, read_only=True)
+    try:
+        if not _has_table(conn, "rollup"):
+            return []
+        names = [COMPRESSOR, HEAT_SIGNAL, INLET, OUTLET, room_signal, VALVE, DEFROST, FLOW, OUTSIDE]
+        ids = _signal_ids(conn, names)
+        needed = (COMPRESSOR, HEAT_SIGNAL, INLET, OUTLET, room_signal)
+        if any(name not in ids for name in needed):
+            return []
+        optional = [ids.get(name, -1) for name in (VALVE, DEFROST, FLOW, OUTSIDE)]
+        rows = conn.execute(
+            HEATING_QUARTERS_SQL,
+            [
+                ids[HEAT_SIGNAL],
+                ids[INLET],
+                ids[OUTLET],
+                ids[room_signal],
+                *optional,
+                QUARTER,
+                ids[COMPRESSOR],
+                start - SECONDS_PER_HOUR,
+                end,
+                RUNNING_HZ,
+                FULL_QUARTER * QUARTER,
+                FULL_QUARTER * QUARTER,
+                FLAG_ON,
+                FLAG_ON,
+            ],
+        ).fetchall()
+    finally:
+        conn.close()
+    quarters = [tuple(row) for row in rows]
+    return [hour for hour in _full_hours(quarters) if hour.start >= start]

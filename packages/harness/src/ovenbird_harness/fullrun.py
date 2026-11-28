@@ -256,41 +256,48 @@ class FullRun:
         self._start_service()
 
     def _new_system(self) -> System:
+        """Build the service system on the simulated clock, publishing through the run."""
         system = System(self.settings, self.clock, self._publish, self._listen)
         system.config.on_applied.append(self._config_applied)
         return system
 
     def _listen(self, writer: HarnessWriter) -> None:
+        """Subscribe the run to the writer's decision, command, alarm and state rows."""
         writer.on_decision.append(self._decision)
         writer.on_command.append(self._command)
         writer.on_alarm.append(self._alarm)
         writer.on_state.append(self._state)
 
     def _config_applied(self, version: int | None, at: Instant) -> None:
+        """Rebuild the invariant checker's limits for the configuration version just applied."""
         system = self.system
         self.checker.reconfigure(
             version, controller_config(system.config.settings), system.adapter.config
         )
 
     def _decision(self, row: DecisionRow) -> None:
+        """Feed a decision row to the checker, the KPIs and the listeners."""
         self.checker.decision(row)
         self.kpis.decision(row)
         for listener in self.on_decision:
             listener(row)
 
     def _command(self, row: CommandRow) -> None:
+        """Feed a command row to the checker, the KPIs and the listeners."""
         self.checker.command(row)
         self.kpis.command(row)
         for listener in self.on_command:
             listener(row)
 
     def _alarm(self, row: AlarmRow) -> None:
+        """Feed an alarm row to the checker, the KPIs and the listeners."""
         self.checker.alarm(row)
         self.kpis.alarm(row)
         for listener in self.on_alarm:
             listener(row)
 
     def _state(self, row: StateRow) -> None:
+        """Pass a persisted state row to the listeners."""
         for listener in self.on_state:
             listener(row)
 
@@ -300,9 +307,23 @@ class FullRun:
         return self.clock.wall
 
     def _subscribed(self, topic: str) -> bool:
+        """Return whether the service's MQTT ingest is subscribed to a filter matching ``topic``."""
         return any(aiomqtt.Topic(topic).matches(item) for item in self.filters)
 
     def _publish(self, topic: str, payload: str, qos: int, retain: bool) -> None:
+        """Check a service publication, then deliver it to the board unless the link is cut.
+
+        Parameters
+        ----------
+        topic
+            Topic published to.
+        payload
+            Message body.
+        qos
+            Quality of service requested.
+        retain
+            Whether the message is retained.
+        """
         status = self.system.runtime.store.heishamon_status(self.clock())
         self.checker.publish(
             self.now, topic, payload, qos, retain, self.system.loop.guard, status.version
@@ -315,6 +336,7 @@ class FullRun:
             self.board.receive(topic, payload)
 
     def _broker_publish(self, topic: str, payload: str, retain: bool) -> None:
+        """Retain the message when asked and deliver it to the service if it is connected."""
         if not self.broker_up:
             return
         if retain:
@@ -323,6 +345,7 @@ class FullRun:
             self.system.deliver(topic, payload)
 
     def _from_board(self, publications: Sequence[Publication]) -> None:
+        """Pass the board's publications to the broker while the board is online."""
         if not self.board_online:
             return
         for item in publications:
@@ -337,6 +360,7 @@ class FullRun:
         self.system.connect_worker()
 
     def _start_service(self) -> None:
+        """Connect MQTT and bring the Home Assistant feed up with the current room reading."""
         self.connect_mqtt()
         if self.ha is not None and self.feed is not None:
             self.ha.attach(self.system.runtime)
@@ -418,6 +442,7 @@ class FullRun:
         self.kpis.plant(PlantSample(t, CYCLE_S, self.board.state.running, observation.room_temp))
 
     def _plant_check(self, t: float) -> PlantReading:
+        """Return the plant reading at ``t`` that the checker compares with the commands."""
         board = self.board
         registers = board.registers
         adapter = self.system.adapter
@@ -480,6 +505,7 @@ class FullRun:
         return RunResult(summary, passed)
 
     def _history(self) -> dict[str, Any]:
+        """Return the history database's row counts and size, and whether they match the checker."""
         path = self.settings.history_path
         with sqlite3.connect(path) as db:
             decisions = db.execute("SELECT count(*) FROM decision").fetchone()[0]
@@ -508,6 +534,23 @@ class FullRun:
     def _summary(
         self, stepped: float, wall: float, outcomes: list[dict[str, Any]]
     ) -> dict[str, Any]:
+        """Return the run summary.
+
+        Parameters
+        ----------
+        stepped
+            Wall time spent stepping the plant and service, in seconds.
+        wall
+            Total wall time of the run, in seconds.
+        outcomes
+            The fault scenario outcomes.
+
+        Returns
+        -------
+        dict[str, Any]
+            Span, profile, timing, KPIs, energy, board and adapter counters, invariants, faults
+            and history, as written to ``summary.json``.
+        """
         plant = self.board.state
         return {
             "span": {
@@ -575,6 +618,7 @@ def check_intervals(control_interval_s: float, safety_interval_s: float) -> None
 
 
 def _optional_path(raw: str) -> Path | None:
+    """Return ``raw`` as a path, or None when it is empty."""
     return Path(raw) if raw else None
 
 
@@ -642,7 +686,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run B1 from the command line; exit code 1 when the run fails."""
+    """Run B1 from the command line; exit code 1 when the run fails.
+
+    Parameters
+    ----------
+    argv
+        Command line arguments; ``sys.argv`` when None.
+
+    Returns
+    -------
+    int
+        Process exit code: 0 when the run passed, 1 otherwise.
+    """
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=args.log_level.upper(), format="%(levelname)s %(name)s %(message)s")
     LOGGER.setLevel(logging.INFO)
@@ -690,6 +745,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _sweep(args: argparse.Namespace, base: RunConfig, names: tuple[str, ...]) -> int:
+    """Run the scenario sweep and write ``sweep.json``; return 1 when any run failed."""
     from ovenbird_harness import sweep
 
     out = args.out / "sweep"

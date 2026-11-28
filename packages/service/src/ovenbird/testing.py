@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import math
-from collections.abc import AsyncIterator, Iterable
+import time
+from collections.abc import AsyncIterator, Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import TracebackType
@@ -25,6 +26,34 @@ from ovenbird_core.control import (
     shift_state,
 )
 from ovenbird_core.control.synthetic import PlantView, synthetic_snapshot
+
+
+async def until(condition: Callable[[], bool], limit: float = 5.0) -> None:
+    """Yield to the event loop until ``condition`` holds, without a fixed delay.
+
+    Parameters
+    ----------
+    condition
+        Called after every yield.
+    limit
+        Wall-clock seconds after which the wait fails.
+
+    Raises
+    ------
+    AssertionError
+        When ``condition`` does not hold within ``limit``.
+    """
+    deadline = time.monotonic() + limit
+    while not condition():
+        if time.monotonic() > deadline:
+            raise AssertionError("condition not met in time")
+        await asyncio.sleep(0)
+
+
+async def turns(count: int = 10) -> None:
+    """Give the event loop ``count`` turns so ready tasks and callbacks run."""
+    for _ in range(count):
+        await asyncio.sleep(0)
 
 
 class FakeClock:

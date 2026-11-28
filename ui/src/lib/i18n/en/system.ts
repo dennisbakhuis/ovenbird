@@ -19,7 +19,6 @@ export const system = {
   modeRefusals: 'Not sending because: {list}.',
   modeHelp:
     'Shadow reads and decides but never sends. Pause stops sending until you resume; Resume returns to Auto. Going live for the first time stays an installation setting.',
-  signalsTitle: 'Signals',
   search: 'Search signals',
   colId: 'Signal',
   colHeld: 'Held',
@@ -36,9 +35,6 @@ export const system = {
   healthApi: 'API version',
   healthLive: 'Live',
   healthReady: 'Ready',
-  healthChecks: 'Checks',
-  healthHeartbeat: 'HeishaMon heartbeat',
-  healthLwt: 'HeishaMon status',
   healthUnavailable: 'Health information unavailable.',
   apiMismatch:
     'This UI supports API v{ui} but the server reports v{server}. Some data may not display correctly.',
@@ -164,9 +160,6 @@ export const system = {
   sigval_60_min: '60 min',
   sigval_90_min: '90 min',
   sigval_no_error: 'no error',
-  signalGroupCount: '{group} ({n})',
-  signalGroupShow: 'Show {n} signals',
-  signalGroupHide: 'Hide {n} signals',
   systemLoadFailed: 'Could not load this. It retries every minute.',
   notifyTitle: 'Notifications',
   notifyMissing:

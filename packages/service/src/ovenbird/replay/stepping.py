@@ -13,6 +13,14 @@ caller can stream a long window without holding every record:
   recorded state just before the window (open loop: the candidate reacts to what the
   house did under the recorded control).
 
+A tick that applied a sun day shift slice (``control_dayshift_use`` = ``on``) gets that
+slice again (:func:`ovenbird_core.control.dayshift.recorded_slice`): its offset is the
+recorded room target minus the comfort target of the configuration the tick ran with,
+the quantity the runner records as ``derived/dayshift_offset_k``. So the identity check
+reproduces an ``on`` day, and a candidate replays it with the shift the house had, not
+the one the rule would have computed under the candidate's settings (the rule's inputs,
+the stored forecast, are not replayed).
+
 :class:`Tally` sums what the candidate did (setpoint changes, ladder levels, binding
 constraints, safety clamps, limited room feedback).
 """
@@ -32,20 +40,16 @@ from ovenbird_core.control import (
     OvenbirdConfig,
     OvenbirdController,
     OvenbirdState,
-    PlanSlice,
     clock_offset,
     replay_inputs,
     shift_state,
     state_from_flat,
 )
-from ovenbird_core.control import (
-    recorded_model_plan as core_recorded_model_plan,
-)
+from ovenbird_core.control.dayshift import recorded_slice
 from ovenbird_core.control.ovenbird import carry_state
 from ovenbird_core.control.safety import Bound
 
 DAY_S: Final = 86_400.0
-MODEL_SLICE_S: Final = 900.0
 RESTART_TOLERANCE_S: Final = 1.0
 EPSILON: Final = 1e-9
 SAFETY_BINDINGS: Final = frozenset(bound.value for bound in Bound)
@@ -98,7 +102,19 @@ def parse_rows(rows: Sequence[DecisionRow]) -> tuple[list[Tick], int]:
 def continue_state(
     state: OvenbirdState, previous: DecisionRecord, record: DecisionRecord, max_age_s: float
 ) -> OvenbirdState:
-    """Move ``state`` from ``previous``'s clock axis to ``record``'s (a restart in between)."""
+    """Move ``state`` from ``previous``'s clock axis to ``record``'s (a restart in between).
+
+    Parameters
+    ----------
+    state
+        Controller state after the previous record.
+    previous
+        Record the state belongs to.
+    record
+        Record that follows it.
+    max_age_s
+        Longest age, in seconds, the carried state may have.
+    """
     delta = clock_offset(previous.at) - clock_offset(record.at)
     if abs(delta) <= RESTART_TOLERANCE_S:
         return state
@@ -119,32 +135,37 @@ def seed_state(seed: Tick | None, target: OvenbirdConfig, config_of: ConfigOf) -
     return state
 
 
-def recorded_model_plan(record: DecisionRecord) -> PlanSlice | None:
-    """Return the model plan slice a decision was made with, rebuilt from its record.
-
-    Delegates to the controller core, which rebuilds a room-offset or a water-offset
-    slice valid for that tick alone; ``None`` for a record made without a model slice.
-    """
-    return core_recorded_model_plan(record)
-
-
 def step_tick(
     controller: OvenbirdController,
     state: OvenbirdState,
     record: DecisionRecord,
     settings: Settings,
+    recorded: OvenbirdConfig | None = None,
 ) -> tuple[OvenbirdState, DecisionRecord]:
     """Step ``controller`` once on the inputs rebuilt from ``record``.
 
-    A tick that was given a model plan slice gets it again (:func:`recorded_model_plan`),
-    so replaying with the recorded configuration reproduces the recorded setpoint.
+    ``recorded`` is the configuration the record was made with (``None``: the
+    controller's own); with it a tick that applied a rule slice gets that slice again.
+
+    Parameters
+    ----------
+    controller
+        Controller to step.
+    state
+        Controller state before the tick.
+    record
+        Recorded decision whose inputs are replayed.
+    settings
+        Settings of the version the record ran with.
+    recorded
+        Configuration the record was made with; ``None`` for the controller's own.
     """
     inputs = replay_inputs(
         record,
         room_signal=settings.control_room_signal,
         room_profile=controller.config.room,
     )
-    plan = recorded_model_plan(record)
+    plan = recorded_slice(record, controller.config if recorded is None else recorded)
     if plan is not None:
         inputs = replace(inputs, plan=plan)
     result = controller.step(state, inputs)
@@ -203,6 +224,8 @@ class Identity:
 
 @dataclass(slots=True)
 class _VersionCount:
+    """Replayed and mismatching ticks of one configuration version."""
+
     ticks: int = 0
     mismatches: int = 0
     first: float | None = None
@@ -232,6 +255,7 @@ class IdentityStepper:
         self._unknown = 0
 
     def _of(self, version: int | None) -> tuple[Settings, OvenbirdController] | None:
+        """Return the settings and controller of a version, built once; ``None`` when unknown."""
         if version not in self._known:
             settings = self._settings_of(version)
             self._known[version] = (
@@ -242,7 +266,13 @@ class IdentityStepper:
         return self._known[version]
 
     def feed(self, tick: Tick) -> bool | None:
-        """Replay ``tick``; ``True`` when it reproduced its setpoint, ``None`` when not compared."""
+        """Replay ``tick``; ``True`` when it reproduced its setpoint, ``None`` when not compared.
+
+        Parameters
+        ----------
+        tick
+            Recorded tick to replay.
+        """
         found = self._of(tick.version)
         if found is None:
             self._state = None
@@ -309,6 +339,7 @@ class CandidateStepper:
     def __init__(self, seed: Tick | None, candidate: Settings, config_of: ConfigOf) -> None:
         self.candidate = candidate
         self.controller = OvenbirdController(candidate.controller_config())
+        self._config_of = config_of
         self._max_age = candidate.control_state_max_age_s
         self._state = seed_state(seed, self.controller.config, config_of)
         self._previous = seed.record if seed is not None else None
@@ -321,7 +352,13 @@ class CandidateStepper:
             self._state = continue_state(self._state, self._previous, record, self._max_age)
         self._previous = record
         try:
-            self._state, decision = step_tick(self.controller, self._state, record, self.candidate)
+            self._state, decision = step_tick(
+                self.controller,
+                self._state,
+                record,
+                self.candidate,
+                self._config_of(tick.version),
+            )
         except ValueError, TypeError:
             self.skipped += 1
             return None
@@ -363,7 +400,15 @@ class Tally:
     feedback_terms: int = 0
 
     def add(self, recorded: DecisionRecord, decision: DecisionRecord) -> None:
-        """Count one replayed tick."""
+        """Count one replayed tick.
+
+        Parameters
+        ----------
+        recorded
+            Decision as recorded.
+        decision
+            Decision the replay produced.
+        """
         self.recorded.append(recorded.setpoint)
         self.replayed.append(decision.setpoint)
         self.ladders[decision.ladder.value] += 1

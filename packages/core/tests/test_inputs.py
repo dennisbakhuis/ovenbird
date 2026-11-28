@@ -27,6 +27,7 @@ ROOM = "sensor.living_room_temperature"
 
 
 def test_ha_numeric_state_becomes_float_reading_with_source_timestamp() -> None:
+    """A numeric Home Assistant state becomes a float Reading with the reported timestamp."""
     reported = datetime(2026, 11, 13, 11, 50, tzinfo=UTC)
     result = ha_reading(ROOM, "20.5", instant=NOW, unit="°C", last_reported=reported)
     assert result == Reading(
@@ -39,6 +40,7 @@ def test_ha_numeric_state_becomes_float_reading_with_source_timestamp() -> None:
     [("70.0", "°F", 21.11), ("32", "℉", 0.0), ("294.65", "K", 21.5), ("21.4", "℃", 21.4)],
 )
 def test_ha_temperatures_are_converted_to_celsius(state: str, unit: str, expected: float) -> None:
+    """Fahrenheit and Kelvin temperatures are converted to °C and the source unit is kept."""
     result = ha_reading(ROOM, state, instant=NOW, unit=unit)
     assert isinstance(result, Reading)
     assert result.value == pytest.approx(expected)
@@ -48,18 +50,21 @@ def test_ha_temperatures_are_converted_to_celsius(state: str, unit: str, expecte
 
 @pytest.mark.parametrize("unit", ["°C", None, "%", "lx"])
 def test_ha_other_units_pass_unchanged(unit: str | None) -> None:
+    """Non-temperature units and °C pass through unchanged."""
     result = ha_reading(ROOM, "21.37", instant=NOW, unit=unit)
     assert isinstance(result, Reading)
     assert (result.value, result.unit, result.source_unit) == (21.37, unit, None)
 
 
 def test_ha_garbage_in_fahrenheit_stays_text() -> None:
+    """A non-numeric state with a Fahrenheit unit stays text."""
     result = ha_reading(ROOM, "warm", instant=NOW, unit="°F")
     assert isinstance(result, Reading)
     assert (result.value, result.unit, result.source_unit) == ("warm", "°F", None)
 
 
 def test_ha_attribute_reading_gets_the_attribute_signal() -> None:
+    """An attribute reading gets an attribute signal name and is converted."""
     result = ha_reading(
         "climate.living", "68", instant=NOW, unit="°F", attribute="current_temperature"
     )
@@ -69,6 +74,7 @@ def test_ha_attribute_reading_gets_the_attribute_signal() -> None:
 
 
 def test_ha_signal_helpers() -> None:
+    """Signal-name building and splitting, attribute support and temperature-unit helpers work."""
     signal = ha_attribute_signal("climate.living", "current_temperature")
     assert signal == "ha/climate.living#current_temperature"
     assert split_ha_signal(signal) == ("climate.living", "current_temperature")
@@ -85,6 +91,7 @@ def test_ha_signal_helpers() -> None:
 
 
 def test_ha_text_state_stays_text() -> None:
+    """A non-numeric state is kept as text."""
     result = ha_reading("binary_sensor.window", "on", instant=NOW)
     assert isinstance(result, Reading)
     assert result.value == "on"
@@ -92,12 +99,14 @@ def test_ha_text_state_stays_text() -> None:
 
 @pytest.mark.parametrize("state", ["unavailable", "unknown", "", "Unavailable"])
 def test_ha_placeholder_states_are_unavailable(state: str) -> None:
+    """Placeholder states like unavailable or unknown give an UNAVAILABLE error."""
     result = ha_reading(ROOM, state, instant=NOW)
     assert isinstance(result, ParseError)
     assert result.kind is ParseErrorKind.UNAVAILABLE
 
 
 def test_ha_payload_prefers_last_reported_over_last_updated() -> None:
+    """The source timestamp is taken from last_reported when present."""
     payload = json.dumps(
         {
             "state": "21.0",
@@ -114,6 +123,7 @@ def test_ha_payload_prefers_last_reported_over_last_updated() -> None:
 
 
 def test_ha_payload_falls_back_to_last_updated() -> None:
+    """Without last_reported the source timestamp comes from last_updated, converted to UTC."""
     payload = json.dumps({"state": "21.0", "last_updated": "2026-11-13T10:00:00+01:00"})
     result = parse_ha_payload(ROOM, payload, instant=NOW)
     assert isinstance(result, Reading)
@@ -121,6 +131,7 @@ def test_ha_payload_falls_back_to_last_updated() -> None:
 
 
 def test_ha_payload_ignores_bad_timestamps() -> None:
+    """Unparseable timestamps leave the source timestamp unset."""
     payload = json.dumps({"state": "21.0", "last_reported": "yesterday", "last_updated": 5})
     result = parse_ha_payload(ROOM, payload, instant=NOW)
     assert isinstance(result, Reading)
@@ -129,6 +140,7 @@ def test_ha_payload_ignores_bad_timestamps() -> None:
 
 @pytest.mark.parametrize("payload", ["", "{", "[]", '{"state": 3}', '{"no": "state"}'])
 def test_malformed_ha_payload(payload: str) -> None:
+    """Payloads that are not valid state objects give a malformed error."""
     result = parse_ha_payload(ROOM, payload, instant=NOW)
     assert isinstance(result, ParseError)
     assert result.kind is ParseErrorKind.MALFORMED
@@ -140,10 +152,12 @@ ROUTER = InputRouter(mqtt_signals={"climate_manager_capture/room_temp": ROOM_MIR
 
 
 def message(topic: str, payload: str | bytes, retained: bool = False) -> MqttMessage:
+    """Return an MQTT message on ``topic`` received at the test instant."""
     return MqttMessage(topic, payload, retained, NOW)
 
 
 def test_router_reads_configured_plain_topics() -> None:
+    """A configured plain topic gives a Reading with the configured signal and unit."""
     result = ROUTER.route(message("climate_manager_capture/room_temp", "22.3", retained=True))
     assert result == Reading("room_temperature", 22.3, "°C", NOW, SourceKind.MQTT, True)
 
@@ -158,18 +172,21 @@ def test_router_reads_configured_plain_topics() -> None:
     ],
 )
 def test_router_rejects_bad_plain_payloads(payload: str | bytes, kind: ParseErrorKind) -> None:
+    """Bad plain payloads give errors of the expected kind."""
     result = ROUTER.route(message("climate_manager_capture/room_temp", payload))
     assert isinstance(result, ParseError)
     assert result.kind is kind
 
 
 def test_router_sends_heishamon_topics_to_the_parser() -> None:
+    """HeishaMon topics are routed to the HeishaMon parser."""
     result = ROUTER.route(message("panasonic_heat_pump/main/Outside_Temp", "2"))
     assert isinstance(result, Reading)
     assert result.source is SourceKind.HEISHAMON
 
 
 def test_router_ignores_unconfigured_topics() -> None:
+    """Unconfigured topics are ignored as not_configured."""
     assert ROUTER.route(message("zigbee2mqtt/plug", "{}")) == Ignored(
         "zigbee2mqtt/plug", "not_configured"
     )
@@ -188,6 +205,7 @@ def test_router_ignores_unconfigured_topics() -> None:
     ],
 )
 def test_router_never_lets_a_plain_topic_produce_a_reserved_signal(signal: str) -> None:
+    """A plain topic configured with a reserved signal name is ignored."""
     router = InputRouter(mqtt_signals={"garden/temp": MqttSignal(signal, "°C")})
     assert router.route(message("garden/temp", "25")) == Ignored("garden/temp", "reserved_signal")
 
@@ -203,12 +221,14 @@ def test_router_never_lets_a_plain_topic_produce_a_reserved_signal(signal: str) 
     ],
 )
 def test_router_keeps_the_board_topics_for_the_parser(topic: str) -> None:
+    """Topics of the board's own main, command, stats and LWT trees never produce a plain signal."""
     router = InputRouter(mqtt_signals={topic: MqttSignal("garden", "°C")})
     result = router.route(message(topic, "2"))
     assert not (isinstance(result, Reading) and result.signal == "garden")
 
 
 def test_router_reads_plain_inputs_in_other_board_subtrees() -> None:
+    """A plain input in another subtree of the board topic is read."""
     topic = "panasonic_heat_pump/1wire/28abcdef"
     router = InputRouter(mqtt_signals={topic: MqttSignal("room", "°C")})
     assert router.route(message(topic, "21.5")) == Reading(
@@ -217,6 +237,7 @@ def test_router_reads_plain_inputs_in_other_board_subtrees() -> None:
 
 
 def test_reserved_signals() -> None:
+    """reserved_signal recognises HeishaMon and Home Assistant names but not plain ones."""
     assert reserved_signal("main/Outside_Temp")
     assert reserved_signal("ha/sensor.room")
     assert not reserved_signal("garden_temperature")

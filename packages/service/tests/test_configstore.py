@@ -31,21 +31,27 @@ ADMIN = Actor("admin from 127.0.0.1", "127.0.0.1")
 
 @pytest.fixture
 def base(make_settings: Callable[..., Settings]) -> Settings:
+    """Default test settings."""
     return make_settings()
 
 
 def open_manager(settings: Settings, clock: FakeClock | None = None) -> ConfigManager:
+    """Open a config manager with env and file provided sources locked."""
     return ConfigManager.open(settings, clock or FakeClock(), locked=provided_sources())
 
 
 def apply(manager: ConfigManager, clock: FakeClock, **changes: Any) -> dict[str, Any]:
+    """Advance past the rate limit and apply changes with all warnings acknowledged."""
     clock.advance(61.0)
     warnings = [w.code for w in manager.validate(changes).warnings]
     return manager.apply(manager.version or 0, changes, ADMIN, acknowledge=warnings)
 
 
 class TestPrecedence:
+    """Which source wins for a field, and how that is reported."""
+
     def test_store_value_applies_and_is_reported(self, base: Settings) -> None:
+        """A stored value overrides the default, is reported as store and survives a reopen."""
         clock = FakeClock()
         manager = open_manager(base, clock)
         apply(manager, clock, control_comfort_c=21.6)
@@ -63,6 +69,7 @@ class TestPrecedence:
     def test_environment_locks_and_wins(
         self, monkeypatch: pytest.MonkeyPatch, make_settings: Callable[..., Settings]
     ) -> None:
+        """An environment variable beats the stored value, locks the field and refuses edits."""
         clock = FakeClock()
         manager = open_manager(make_settings(), clock)
         apply(manager, clock, control_dwell_s=1200)
@@ -85,6 +92,7 @@ class TestPrecedence:
         tmp_path: Path,
         make_settings: Callable[..., Settings],
     ) -> None:
+        """Values from the options file lock their fields and rank below the environment."""
         options = tmp_path / "options.json"
         options.write_text(json.dumps({"control_comfort_c": 20.5}))
         monkeypatch.setenv("OVENBIRD_OPTIONS_FILE", str(options))
@@ -96,6 +104,7 @@ class TestPrecedence:
         assert provided_sources()["control_comfort_c"] is Source.ENV
 
     def test_preset_and_default_sources(self, base: Settings) -> None:
+        """Unset fields report preset or default as source with the matching value."""
         fields = open_manager(base).payload()["fields"]
         assert fields["control_dwell_s"] == {
             "value": 900.0,
@@ -110,6 +119,7 @@ class TestPrecedence:
         assert fields["admin_password"]["value"] == "unset"
 
     def test_store_value_follows_emitter_presets(self, base: Settings) -> None:
+        """Changing the emitter in the store switches the preset-derived field values."""
         clock = FakeClock()
         manager = open_manager(base, clock)
         apply(manager, clock, control_emitter="radiators")
@@ -119,6 +129,7 @@ class TestPrecedence:
 
 
 def _numeric_bounds(settings: Settings) -> list[tuple[str, float, float, str, bool]]:
+    """Return name, min, max, type and exclusivity of each bounded numeric editable field."""
     schema = schema_payload(settings)["fields"]
     found = []
     for name in sorted(EDITABLE):
@@ -129,6 +140,7 @@ def _numeric_bounds(settings: Settings) -> list[tuple[str, float, float, str, bo
 
 
 def test_every_editable_field_is_in_the_schema(base: Settings) -> None:
+    """The schema covers every setting once, in groups, with presets and envelope."""
     schema = schema_payload(base)
     assert set(schema["fields"]) == set(Settings.model_fields)
     grouped = [name for group in schema["groups"] for name in group["fields"]]
@@ -146,6 +158,7 @@ def test_every_editable_field_is_in_the_schema(base: Settings) -> None:
 
 @pytest.mark.parametrize("edge", ["below", "above"])
 def test_every_editable_bound_is_enforced(base: Settings, edge: str) -> None:
+    """Every bounded editable field refuses values past its limit and accepts values at it."""
     manager = open_manager(base)
     bounds = _numeric_bounds(base)
     assert len(bounds) >= 20
@@ -214,11 +227,13 @@ def test_every_editable_bound_is_enforced(base: Settings, edge: str) -> None:
 def test_rules_report_field_and_code(
     base: Settings, changes: dict[str, Any], field: str, code: str
 ) -> None:
+    """Each validation rule reports the offending field with its specific error code."""
     result = open_manager(base).validate(changes)
     assert (field, code) in [(e.field, e.code) for e in result.errors], result.errors
 
 
 def test_curve_inside_the_envelope_is_accepted(base: Settings) -> None:
+    """A heating curve within the safety envelope validates and is echoed as floats."""
     result = open_manager(base).validate({"control_curve": [[-10, 40], [0, 35], [15, 25]]})
     assert result.valid, result.errors
     assert result.effective == {"control_curve": [[-10.0, 40.0], [0.0, 35.0], [15.0, 25.0]]}
@@ -226,18 +241,21 @@ def test_curve_inside_the_envelope_is_accepted(base: Settings) -> None:
 
 @pytest.mark.parametrize("name", sorted(NEVER_IN_STORE))
 def test_never_in_store_is_refused(base: Settings, name: str) -> None:
+    """Fields that must never be stored are refused with the matching error code."""
     result = open_manager(base).validate({name: True})
     code = "connection_field" if name in STORED_CONNECTION else "not_editable"
     assert [(e.field, e.code) for e in result.errors] == [(name, code)]
 
 
 def test_never_in_store_is_disjoint_from_editable() -> None:
+    """Stored-never fields do not overlap editable ones and expert fields are not editable."""
     assert not EDITABLE & NEVER_IN_STORE
     assert {"allow_commands", "command_brokers", "simulation", "admin_password"} <= NEVER_IN_STORE
     assert all(meta.tier is not Tier.EXPERT for name, meta in FIELDS.items() if name in EDITABLE)
 
 
 def test_a_planted_document_cannot_enable_publishing(base: Settings) -> None:
+    """Publishing settings written straight into the store are ignored on load."""
     manager = open_manager(base)
     manager.store.append(
         {"allow_commands": True, "command_brokers": ["localhost"], "control_comfort_c": 20.0},
@@ -253,6 +271,7 @@ def test_a_planted_document_cannot_enable_publishing(base: Settings) -> None:
 
 
 def test_warnings_need_acknowledgement(base: Settings) -> None:
+    """Applying a change with unacknowledged warnings is refused until all are acknowledged."""
     clock = FakeClock()
     manager = open_manager(base, clock)
     clock.advance(61)
@@ -268,6 +287,7 @@ def test_warnings_need_acknowledgement(base: Settings) -> None:
 
 
 def test_curve_shift_warning(base: Settings) -> None:
+    """A large shift of the curve from the default raises a warning but stays valid."""
     result = open_manager(base).validate({"control_curve": [[-10, 40], [0, 38.5], [15, 25]]})
     assert result.valid
     assert [w.code for w in result.warnings] == ["curve_shift_large"]
@@ -275,6 +295,7 @@ def test_curve_shift_warning(base: Settings) -> None:
 
 
 def test_stale_base_rate_and_no_change(base: Settings) -> None:
+    """Apply refuses a stale base version, a too-fast second apply and a no-op change."""
     clock = FakeClock()
     manager = open_manager(base, clock)
     first = manager.apply(0, {"control_comfort_c": 21.5}, ADMIN)
@@ -292,6 +313,7 @@ def test_stale_base_rate_and_no_change(base: Settings) -> None:
 
 
 def test_daily_apply_limit(base: Settings) -> None:
+    """At most 30 applies are accepted per day, after which the limit resets."""
     clock = FakeClock()
     manager = open_manager(base, clock)
     for index in range(30):
@@ -306,6 +328,7 @@ def test_daily_apply_limit(base: Settings) -> None:
 
 
 def test_versions_audit_rollback_and_snapshot(base: Settings) -> None:
+    """Versions, audit, rollback and snapshot stay consistent and tables are append-only."""
     clock = FakeClock()
     manager = open_manager(base, clock)
     apply(manager, clock, control_comfort_c=21.5)
@@ -336,6 +359,7 @@ def test_versions_audit_rollback_and_snapshot(base: Settings) -> None:
 
 
 def test_export_has_no_secret(make_settings: Callable[..., Settings]) -> None:
+    """The config export contains no passwords or tokens."""
     settings = make_settings(
         admin_password="pw-123-secret",
         operate_token="t" * 40,
@@ -358,9 +382,12 @@ def test_export_has_no_secret(make_settings: Callable[..., Settings]) -> None:
 
 
 class TestStartup:
+    """Config manager behaviour on first start, seeding and store loss."""
+
     def test_seed_becomes_version_one(
         self, tmp_path: Path, make_settings: Callable[..., Settings]
     ) -> None:
+        """A valid seed file becomes version one once and is not re-applied."""
         seed = tmp_path / "seed.json"
         seed.write_text(json.dumps({"ovenbird_config": 1, "values": {"control_comfort_c": 21.5}}))
         manager = open_manager(make_settings(config_seed=seed))
@@ -375,6 +402,7 @@ class TestStartup:
     def test_invalid_seed_stops_the_start(
         self, tmp_path: Path, make_settings: Callable[..., Settings]
     ) -> None:
+        """An out-of-range, malformed or missing seed aborts startup with an error."""
         seed = tmp_path / "seed.json"
         seed.write_text(json.dumps({"ovenbird_config": 1, "values": {"control_comfort_c": 99}}))
         with pytest.raises(ConfigError, match="seed"):
@@ -388,11 +416,13 @@ class TestStartup:
             )
 
     def test_first_start_is_not_a_loss(self, base: Settings) -> None:
+        """A fresh data directory is not reported as store loss and holds nothing back."""
         manager = open_manager(base)
         assert manager.loss is None
         assert not manager.hold.active
 
     def test_missing_store_starts_in_shadow(self, base: Settings) -> None:
+        """A vanished store without snapshot reverts to defaults and needs a reset ack."""
         clock = FakeClock()
         manager = open_manager(base, clock)
         apply(manager, clock, control_comfort_c=21.5)
@@ -407,6 +437,7 @@ class TestStartup:
         assert open_manager(base).hold.reset_pending
 
     def test_snapshot_restores_a_missing_store(self, base: Settings) -> None:
+        """A missing store is restored from its snapshot without loss."""
         clock = FakeClock()
         manager = open_manager(base, clock)
         apply(manager, clock, control_comfort_c=21.5)
@@ -417,6 +448,7 @@ class TestStartup:
         assert restored.settings.control_comfort_c == 21.5
 
     def test_corrupt_store_is_quarantined(self, base: Settings) -> None:
+        """A corrupt store file is set aside and flagged as loss."""
         open_manager(base).close()
         (base.data_dir / "config.snapshot.db").unlink(missing_ok=True)
         (base.data_dir / "config.db").write_bytes(b"not a database" * 100)
@@ -428,6 +460,7 @@ class TestStartup:
     def test_invalid_version_is_followed_by_a_reset_version(
         self, monkeypatch: pytest.MonkeyPatch, make_settings: Callable[..., Settings]
     ) -> None:
+        """A stored version that no longer validates is followed by an empty reset version."""
         clock = FakeClock()
         manager = open_manager(make_settings(), clock)
         apply(manager, clock, control_min_setpoint_c=30)
@@ -442,6 +475,7 @@ class TestStartup:
         assert invalid.settings.control_min_setpoint_c is None
 
     def test_reset_ack_and_pause_persist(self, base: Settings) -> None:
+        """Acknowledging a reset needs a pending reset and is audited."""
         manager = open_manager(base)
         with pytest.raises(ConfigRefusedError) as none:
             manager.reset_ack(ADMIN)
@@ -456,6 +490,7 @@ class TestStartup:
 
 
 def test_pause_needs_an_auto_installation(make_settings: Callable[..., Settings]) -> None:
+    """Pause is refused in shadow installs and persists across restarts in auto installs."""
     shadow = open_manager(make_settings())
     with pytest.raises(ConfigRefusedError) as refused:
         shadow.pause(ADMIN)
@@ -477,6 +512,7 @@ def test_pause_needs_an_auto_installation(make_settings: Callable[..., Settings]
 
 
 def test_store_schema_is_versioned(base: Settings) -> None:
+    """The config store uses schema version 2 in WAL mode."""
     store, loss = ConfigStore.open(base.data_dir)
     assert loss is None
     assert store._conn.execute("PRAGMA user_version").fetchone()[0] == 2
@@ -485,6 +521,7 @@ def test_store_schema_is_versioned(base: Settings) -> None:
 
 
 def test_load_settings_rejects_a_curve_outside_the_envelope() -> None:
+    """Loading settings refuses a curve that leaves the safety envelope."""
     with pytest.raises(ConfigError, match="envelope"):
         load_settings(control_curve=((-10.0, 45.0), (15.0, 25.0)), control_max_supply_c=50.0)
 
@@ -492,6 +529,7 @@ def test_load_settings_rejects_a_curve_outside_the_envelope() -> None:
 def test_merge_does_not_reread_the_environment(
     base: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Applying changes does not re-read environment variables set after startup."""
     clock = FakeClock()
     manager = ConfigManager.open(base, clock, locked={})
     monkeypatch.setenv("OVENBIRD_CONTROL_DWELL_S", "1800")
@@ -501,6 +539,7 @@ def test_merge_does_not_reread_the_environment(
 
 
 def test_config_db_commits_are_durable(base: Settings) -> None:
+    """The config database commits with full synchronous durability in WAL mode."""
     store, _ = ConfigStore.open(base.data_dir)
     try:
         assert store._conn.execute("PRAGMA synchronous").fetchone()[0] == 2

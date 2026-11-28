@@ -25,7 +25,6 @@ import {
   hotWaterState,
   exportDoc,
   houseFactsStored,
-  housePinStored,
   initialConfigState,
   preview,
   rollback,
@@ -52,6 +51,7 @@ import {
   type MqttMock,
 } from './integrations.ts';
 import { framePage } from './frame.ts';
+import { makeBasics } from './basics.ts';
 import { makeInsightDaily } from './insight.ts';
 import { parseScenario, scenarioKey, scenarioNow, type Scenario } from './scenario.ts';
 import { initialPumpState, pumpSettings, writeSetting } from './pump.ts';
@@ -66,20 +66,21 @@ import {
   sendDownload,
   seriesExport,
 } from './data.ts';
-import {
-  appliedPlanK,
-  makeBalance,
-  makeHouse,
-  makeHouseSeries,
-  makeWhatIf,
-  makeHouseControl,
-  makeHouseHistory,
-  makeProposalDraft,
-  makeRun,
-  startRunMock,
-  type RunMockState,
-} from './house.ts';
 import { archiveDelete, archiveDownload, makeArchive } from './archive.ts';
+import {
+  awayStatus,
+  boostStatus,
+  dayshiftOf,
+  featuresReport,
+  scenarioAway,
+  scenarioBoost,
+  startAway,
+  startBoost,
+  summerStatus,
+  type AwayRequestState,
+  type BoostRequestState,
+  type ManualContext,
+} from './manual.ts';
 import { explainEpisode, makeDivergence, withExplained, type LiveMinute } from './shadow.ts';
 import {
   cancelReplay,
@@ -133,14 +134,6 @@ const WAVE3_PATHS = [
   '/shadow/episodes/explain',
   '/system/about',
   '/diagnostics',
-  '/insight/house',
-  '/insight/house/history',
-  '/insight/house/balance',
-  '/insight/house/series',
-  '/insight/house/whatif',
-  '/insight/house/proposal/draft',
-  '/insight/house/run',
-  '/insight/house/control',
   '/history/signals',
   '/history/storage',
   '/history/compact',
@@ -150,11 +143,6 @@ const WAVE3_PATHS = [
   '/replay',
   '/archive',
   '/archive/delete',
-];
-const NEW_HOUSE_PATHS = [
-  '/insight/house/balance',
-  '/insight/house/series',
-  '/insight/house/whatif',
 ];
 const WAVE3_PREFIXES = ['/archive/'];
 const FOREIGN_TARGET = 31;
@@ -711,22 +699,24 @@ export function mockApi(): Plugin {
     if (scenarioCookie === '') return sharedConfig;
     let found = configStates.get(scenarioCookie);
     if (!found) {
-      found = initialConfigState(
-        Date.now(),
-        scenario.house === 'facts'
-          ? houseFactsStored()
-          : scenario.house === 'pin-cost'
-            ? housePinStored()
-            : {},
-      );
+      found = initialConfigState(Date.now(), {
+        ...(scenario.house === 'facts' ? houseFactsStored() : {}),
+        ...(scenario.basics === 'off' ? { house_basics_enabled: false } : {}),
+        ...(scenario.dayshift
+          ? { control_dayshift_use: scenario.dayshift === 'on' ? 'on' : 'shadow' }
+          : {}),
+        ...(scenario.dayshift === 'on' ? { control_dayshift_experimental_ok: true } : {}),
+        ...(scenario.summer ? { control_summer_enabled: true } : {}),
+      });
       configStates.set(scenarioCookie, found);
     }
     return found;
   };
   const pump = initialPumpState();
   const pausedKeys = new Set<string>();
-  const learnerRuns = new Map<string, RunMockState>();
   const stoveRequests = new Map<string, StoveRequestState>();
+  const boostRequests = new Map<string, BoostRequestState | null>();
+  const awayRequests = new Map<string, AwayRequestState | null>();
   const brokers = new Map<string, MqttMock>();
   return {
     name: 'ovenbird-mock-api',
@@ -781,13 +771,30 @@ export function mockApi(): Plugin {
         const modeDoc = () => doc().mode;
         const stove = () => stoveMock(scenario, stoveRequests.get(key) ?? null, now, doc());
         const stoveOn = () => stoveActiveAt(stove(), now);
+        const boostRequest = () =>
+          boostRequests.has(key) ? (boostRequests.get(key) ?? null) : scenarioBoost(scenario, now);
+        const awayRequest = () =>
+          awayRequests.has(key) ? (awayRequests.get(key) ?? null) : scenarioAway(scenario, now);
+        const manual = (): ManualContext => {
+          const summer = summerStatus(doc(), scenario);
+          const hold = stoveOn() ? 'stove' : summer.active ? 'summer' : null;
+          return {
+            doc: doc(),
+            scenario,
+            now,
+            autoMode: mode() === 'auto',
+            stoveActive: stoveOn(),
+            summer,
+            boost: boostStatus(doc(), boostRequest(), now, hold),
+            away: awayStatus(doc(), awayRequest(), now, hold),
+          };
+        };
         const configAt = configAtFor(configState);
         const comfort = () => configAt(now).comfortC;
         const decisionOptions = {
           roomStaleSince: scenario.room === 'stale' ? now - ROOM_STALE_S * 1000 : null,
           stove: stove(),
           configAt,
-          modelPlanK: appliedPlanK(scenario, doc()),
         };
         const holdActive = () =>
           Boolean(withScenario(makeControl(now, controlState()), scenario, now).adapter?.hold);
@@ -821,6 +828,9 @@ export function mockApi(): Plugin {
               {
                 ...withScenario(makeControl(now, controlState(), pumpWater()), scenario, now),
                 stove: stoveStatus(stove(), stoveRequests.get(key) ?? null, now, comfort()),
+                boost: manual().boost,
+                away: manual().away,
+                summer: manual().summer,
               },
               stoveOn(),
             ),
@@ -836,11 +846,6 @@ export function mockApi(): Plugin {
             WAVE3_PREFIXES.some((p) => path.includes(`/api/v1${p}`)))
         )
           return send({ detail: 'Not Found' }, 404);
-        if (
-          scenario.balance === 'absent' &&
-          NEW_HOUSE_PATHS.some((p) => path.endsWith(`/api/v1${p}`))
-        )
-          return send({ detail: 'Not Found' }, 404);
         const replayContext = (): ReplayContext => ({
           now,
           key,
@@ -851,7 +856,7 @@ export function mockApi(): Plugin {
         });
         const publishing = !inShadow(scenario, paused());
 
-        if (req.method === 'POST' || req.method === 'PUT') {
+        if (req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE') {
           if (!path.includes('/api/v1/')) return next();
           if (!String(req.headers['content-type'] ?? '').startsWith('application/json'))
             return send({ detail: 'content type must be application/json' }, 415);
@@ -970,15 +975,6 @@ export function mockApi(): Plugin {
                 return send({ detail: 'this action needs the admin role' }, 403);
               return send(compact(now, key), 202);
             }
-            if (path.endsWith('/api/v1/insight/house/run')) {
-              const outcome = startRunMock(now, scenario, learnerRuns.get(key));
-              if (outcome.started) learnerRuns.set(key, outcome.started);
-              return send(outcome.result.body, outcome.result.status);
-            }
-            if (path.endsWith('/api/v1/insight/house/proposal/draft')) {
-              const result = makeProposalDraft(now, scenario, doc());
-              return send(result.body, result.status);
-            }
             if (path.endsWith('/control/stove')) {
               const on = body['on'];
               const untilRaw = body['until'];
@@ -1005,6 +1001,29 @@ export function mockApi(): Plugin {
                 request: status.request,
                 stove: status,
               });
+            }
+            if (path.endsWith('/control/boost')) {
+              if (req.method === 'DELETE') {
+                const ended = manual().boost.request;
+                boostRequests.set(key, null);
+                return send({ request: ended, boost: manual().boost });
+              }
+              const started = startBoost(body, doc(), manual().away, now);
+              if (started.request === null) return send(started.result.body, started.result.status);
+              boostRequests.set(key, started.request);
+              return send({ request: manual().boost.request, boost: manual().boost });
+            }
+            if (path.endsWith('/control/away')) {
+              if (req.method === 'DELETE') {
+                const ended = manual().away.request;
+                awayRequests.set(key, null);
+                return send({ request: ended, away: manual().away });
+              }
+              const started = startAway(body, doc(), now);
+              if (started.request === null) return send(started.result.body, started.result.status);
+              awayRequests.set(key, started.request);
+              boostRequests.set(key, null);
+              return send({ request: manual().away.request, away: manual().away });
             }
             if (path.endsWith('/control/pause')) {
               pausedKeys.add(key);
@@ -1064,9 +1083,7 @@ export function mockApi(): Plugin {
           );
           if (![0, 300, 900, 3600].includes(step))
             return send({ detail: 'step must be 0, 300, 900 or 3600' }, 400);
-          return send(
-            makeSeries(from, to, step, now, stove(), configAt, appliedPlanK(scenario, doc())),
-          );
+          return send(makeSeries(from, to, step, now, stove(), configAt));
         }
         if (path.endsWith('/api/v1/decisions')) {
           const limit = Math.min(Math.max(Number(param('limit') ?? 500), 1), 5000);
@@ -1132,6 +1149,10 @@ export function mockApi(): Plugin {
           if (csv) return sendCsv(res, 'alarms', from, windowed.events);
           return send(windowed);
         }
+        if (path.endsWith('/api/v1/control/features')) return send(featuresReport(manual()));
+        if (path.endsWith('/api/v1/control/dayshift')) return send(dayshiftOf(manual()));
+        if (path.endsWith('/api/v1/control/boost')) return send(manual().boost);
+        if (path.endsWith('/api/v1/control/away')) return send(manual().away);
         if (path.endsWith('/api/v1/config')) return send(doc());
         if (path.endsWith('/api/v1/config/schema')) return send(schema);
         if (path.endsWith('/api/v1/config/signals'))
@@ -1191,6 +1212,10 @@ export function mockApi(): Plugin {
           if (!Number.isInteger(days) || days < 1 || days > 90)
             return send({ detail: 'days must be an integer from 1 to 90' }, 422);
           return send(makeInsightDaily(days, now));
+        }
+        if (path.endsWith('/api/v1/insight/basics')) {
+          if (scenario.basics === 'error') return send({ detail: 'internal error' }, 500);
+          return send(makeBasics(now, scenario.basics));
         }
         if (path.endsWith('/api/v1/audit')) {
           const audit = inWindow(
@@ -1309,34 +1334,6 @@ export function mockApi(): Plugin {
             return [];
           };
           return sendDownload(res, journalExport(kind, url.searchParams, now, rows));
-        }
-        if (path.endsWith('/api/v1/insight/house/control')) {
-          const result = makeHouseControl(now, scenario, doc());
-          return send(result.body, result.status);
-        }
-        if (path.endsWith('/api/v1/insight/house/run')) {
-          const result = makeRun(now, scenario, learnerRuns.get(key));
-          return send(result.body, result.status);
-        }
-        if (path.endsWith('/api/v1/insight/house/balance')) {
-          const result = makeBalance(now, scenario, stoveOn());
-          return send(result.body, result.status);
-        }
-        if (path.endsWith('/api/v1/insight/house/series')) {
-          const result = makeHouseSeries(now, scenario);
-          return send(result.body, result.status);
-        }
-        if (path.endsWith('/api/v1/insight/house/whatif')) {
-          const result = makeWhatIf(now, scenario, doc(), url.searchParams);
-          return send(result.body, result.status);
-        }
-        if (path.endsWith('/api/v1/insight/house/history')) {
-          const result = makeHouseHistory(now, scenario, doc());
-          return send(result.body, result.status);
-        }
-        if (path.endsWith('/api/v1/insight/house')) {
-          const result = makeHouse(now, scenario, doc());
-          return send(result.body, result.status);
         }
         next();
       });

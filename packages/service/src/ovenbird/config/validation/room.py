@@ -12,7 +12,13 @@ if TYPE_CHECKING:
 
 
 def room_issues(settings: Settings) -> list[Issue]:
-    """Return the violated rules of the room signal, its liveness signals and its cross-check."""
+    """Return the violated rules of the room signal, its liveness signals and its cross-check.
+
+    Parameters
+    ----------
+    settings
+        Settings holding the room signal, its liveness signals and its cross-check.
+    """
     room = settings.control_room_signal
     liveness = settings.control_room_liveness_signals
     crosscheck = settings.control_room_crosscheck_signal

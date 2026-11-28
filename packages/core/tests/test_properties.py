@@ -34,11 +34,13 @@ SIGNAL = "main/Main_Outlet_Temp"
 
 
 def at(seconds: float) -> Instant:
+    """Return the instant ``seconds`` after the test origin."""
     return Instant.from_unix(T0 + seconds)
 
 
 @given(suffix=SUFFIXES, payload=PAYLOADS, retained=st.booleans(), t=TIMES)
 def test_parser_never_raises(suffix: str, payload: str | bytes, retained: bool, t: float) -> None:
+    """The parser never raises on arbitrary payloads and every Reading respects the catalogue."""
     result = PARSER.parse(f"{DEFAULT_BASE}/{suffix}", payload, retained=retained, instant=at(t))
     assert isinstance(result, RESULT_TYPES)
     if isinstance(result, Reading):
@@ -57,17 +59,20 @@ def test_parser_never_raises(suffix: str, payload: str | bytes, retained: bool, 
 
 @given(topic=st.text(max_size=80), payload=PAYLOADS)
 def test_parser_never_raises_on_any_topic(topic: str, payload: str | bytes) -> None:
+    """The parser returns a result for any topic and payload."""
     assert isinstance(PARSER.parse(topic, payload, retained=False, instant=at(0)), RESULT_TYPES)
 
 
 @given(payload=st.text(max_size=400), state=st.text(max_size=40))
 def test_ha_parsing_never_raises(payload: str, state: str) -> None:
+    """Home Assistant payload and state parsing never raise."""
     assert isinstance(parse_ha_payload("sensor.x", payload, instant=at(0)), Reading | ParseError)
     assert isinstance(ha_reading("sensor.x", state, instant=at(0)), Reading | ParseError)
 
 
 @given(line=st.text(max_size=300))
 def test_capture_line_parsing_never_raises(line: str) -> None:
+    """Capture-line parsing never raises and a parsed record can be turned into an input."""
     record = parse_capture_line(line)
     if record is not None:
         capture_input(record)
@@ -83,6 +88,7 @@ EVENTS = st.lists(
 def test_retained_never_refreshes_freshness(
     events: list[tuple[float, float, bool]], probe: float
 ) -> None:
+    """A retained message never makes a signal fresher or younger."""
     store = StateStore()
     t = 0.0
     for dt, value, retained in events:
@@ -104,6 +110,7 @@ def test_retained_never_refreshes_freshness(
 def test_age_is_monotonic_in_time(
     events: list[tuple[float, float, bool]], t1: float, t2: float
 ) -> None:
+    """The age of a signal never decreases as the probe time moves later."""
     store = StateStore()
     t = 0.0
     for dt, value, retained in events:
@@ -122,6 +129,7 @@ def test_age_is_monotonic_in_time(
     step=st.floats(0, 120, allow_nan=False),
 )
 def test_ha_age_never_below_reported_lag(lags: list[float], step: float) -> None:
+    """The age of a Home Assistant reading is never negative, whatever lag it reports."""
     store = StateStore()
     t = 0.0
     for lag in lags:
@@ -136,6 +144,7 @@ def test_ha_age_never_below_reported_lag(lags: list[float], step: float) -> None
 
 @given(beats=st.lists(st.tuples(st.floats(0, 30, allow_nan=False), st.booleans()), max_size=30))
 def test_only_live_stats_make_heishamon_alive(beats: list[tuple[float, bool]]) -> None:
+    """Only live, non-retained stats heartbeats make HeishaMon alive, within the liveness window."""
     store = StateStore()
     t = 0.0
     last_live: float | None = None

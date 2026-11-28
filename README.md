@@ -6,11 +6,17 @@ inside it, and keeps running when Home Assistant restarts.
 
 It sets the water target of the heat pump from a heating curve and a room-temperature
 feedback term, inside safety limits that follow the outside temperature. It shows the
-weather forecast. A house model learned from its history, refitted weekly inside the
-service, proposes curve changes for you to review, shows what the house needs at a given
-outside temperature and how the heat flows now, and can compute a bounded room-target shift
-ahead of sun or cold in shadow, where it changes nothing. Every decision carries a plain-language explanation, and every decision
-can be replayed on recorded data.
+weather forecast and daily figures for energy, COP, compressor starts and comfort. Every
+decision carries a plain-language explanation, and every decision can be replayed on recorded
+data.
+
+Besides the heating curve and the room feedback it has a few features, each with its own
+switch in Settings → Features: a wood-stove mode, a slow start, a minimum run time, quiet
+mode (also after a compressor start), a summer switch, boost and away for a temporary room
+target, and a sun day shift (experimental: it records only, unless you accept that it did
+not pass its simulator evaluation and switch it on). House shows the heat loss of the
+house and the heat the pump puts in, estimated from the daily figures.
+Everything new is off or acts only on request; see the [changelog](CHANGELOG.md).
 
 ## Status
 
@@ -24,7 +30,7 @@ nothing. It has not controlled a real pump yet; trials against a real pump come 
 | --- | --- |
 | `packages/core` | `ovenbird-core`: pure domain logic and the control algorithm, no I/O |
 | `packages/service` | `ovenbird`: asyncio service (MQTT, storage, REST and WebSocket API), one package per feature |
-| `packages/sim` | `ovenbird-sim`: model identification, open-loop run, learning, the simulated HeishaMon |
+| `packages/sim` | `ovenbird-sim`: the simulated plant and HeishaMon, open-loop and closed-loop runs, the paired-replica gate |
 | `packages/harness` | `ovenbird-harness`: stepped closed-loop runs of the whole service on the simulated plant, invariants, fault scenarios, the golden decision log |
 | `ui/` | Web UI (Svelte 5, TypeScript, Vite) |
 | `capture/` | Live MQTT recorder, replayer and overview tooling |
@@ -65,8 +71,7 @@ Run `make help` for all of them.
 | `fullrun`, `fullrun-faults`, `fullrun-replay` | Closed-loop harness runs over the recorded span |
 | `golden`, `golden-check` | Write or verify the golden decision log |
 | `test-fixture`, `ui-sim-fixtures` | Regenerate the synthetic capture slice and the simulated UI responses |
-| `evaluate-identify`, `evaluate-open-loop`, `evaluate-counterfactual` | Fit the plant, run ovenbird open loop over the recording, compare ovenbird with the recorded setpoints on the fitted plant |
-| `learn` | Refit the house model on a history database |
+| `evaluate-open-loop` | Run ovenbird open loop over the recording |
 | `image-check` | Build the container image and smoke-test it |
 | `shadow-check` | Read-only check of a deployed instance in shadow (`URL=`, password in `OVENBIRD_ADMIN_PASSWORD`) |
 

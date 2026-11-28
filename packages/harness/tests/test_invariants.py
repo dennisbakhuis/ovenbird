@@ -24,35 +24,42 @@ CONTROL = ("schedule_curve_feedback", "curve_only")
 
 
 def checker(short_run: RecordedRun) -> InvariantChecker:
+    """Return a fresh invariant checker on the recorded run's controller and adapter settings."""
     run = short_run.run
     return InvariantChecker(controller_config(run.settings), run.system.adapter.config)
 
 
 def mutate(row: DecisionRow, change: Callable[[dict[str, Any]], None]) -> DecisionRow:
+    """Return ``row`` with its decision record changed in place by ``change``."""
     record = json.loads(row.record)
     change(record)
     return dataclasses.replace(row, record=json.dumps(record), setpoint=record["setpoint"])
 
 
 def intent(record: dict[str, Any], kind: str) -> dict[str, Any]:
+    """Return the intent of ``kind`` in the decision record."""
     return next(item for item in record["intents"] if item["kind"] == kind)
 
 
 def ref(record: dict[str, Any], signal: str) -> dict[str, Any]:
+    """Return the used input of ``signal`` in the decision record."""
     return next(item for item in record["inputs_used"] if item["signal"] == signal)
 
 
 def controlled(short_run: RecordedRun) -> list[int]:
+    """Return the indices of the decisions made under automatic control."""
     return [i for i, row in enumerate(short_run.decisions) if row.ladder in CONTROL]
 
 
 def feed(check: InvariantChecker, rows: list[DecisionRow]) -> InvariantChecker:
+    """Show ``rows`` to ``check`` in order and return it."""
     for row in rows:
         check.decision(row)
     return check
 
 
 def test_the_recorded_run_is_clean(short_run: RecordedRun) -> None:
+    """The unmodified recorded run has no violation and all 720 decisions are checked."""
     assert short_run.result.passed
     check = feed(checker(short_run), short_run.decisions)
     assert check.total == 0, check.summary()
@@ -60,9 +67,11 @@ def test_the_recorded_run_is_clean(short_run: RecordedRun) -> None:
 
 
 def test_setpoint_outside_the_envelope(short_run: RecordedRun) -> None:
+    """A setpoint above the safety envelope is a violation."""
     index = controlled(short_run)[-1]
 
     def above(record: dict[str, Any]) -> None:
+        """Raise the setpoint one degree above the safety maximum."""
         high = record["controller_state"]["safety_high_c"]
         record["setpoint"] = int(high) + 1
         intent(record, "water_setpoint")["value"] = int(high) + 1
@@ -74,6 +83,7 @@ def test_setpoint_outside_the_envelope(short_run: RecordedRun) -> None:
 
 
 def test_unexplained_rounding_needs_a_binding(short_run: RecordedRun) -> None:
+    """A rounded setpoint that differs from plain rounding of the unrounded one needs a binding."""
     rows = short_run.decisions
     index = next(
         i
@@ -84,6 +94,7 @@ def test_unexplained_rounding_needs_a_binding(short_run: RecordedRun) -> None:
     )
 
     def shift(record: dict[str, Any]) -> None:
+        """Shift the unrounded setpoint by 0.8 K."""
         record["pre_round"] += 0.8
 
     check = feed(checker(short_run), [*rows[:index], mutate(rows[index], shift)])
@@ -91,9 +102,11 @@ def test_unexplained_rounding_needs_a_binding(short_run: RecordedRun) -> None:
 
 
 def test_non_integer_setpoint(short_run: RecordedRun) -> None:
+    """A fractional water setpoint intent is a violation."""
     index = controlled(short_run)[0]
 
     def fractional(record: dict[str, Any]) -> None:
+        """Make the water setpoint intent half a degree fractional."""
         intent(record, "water_setpoint")["value"] = record["setpoint"] + 0.5
 
     check = feed(checker(short_run), [mutate(short_run.decisions[index], fractional)])
@@ -101,11 +114,13 @@ def test_non_integer_setpoint(short_run: RecordedRun) -> None:
 
 
 def test_idle_pump_duty_while_the_compressor_runs(short_run: RecordedRun) -> None:
+    """The idle pump duty while the compressor runs is a violation."""
     rows = short_run.decisions
     pump = controller_config(short_run.run.settings).pump_duty
     assert pump is not None
 
     def running(i: int) -> bool:
+        """Return whether the compressor of decision ``i`` runs."""
         record = json.loads(rows[i].record)
         frequency = ref(record, "main/Compressor_Freq")
         return bool(frequency["fresh"]) and frequency["value"] >= 1
@@ -113,6 +128,7 @@ def test_idle_pump_duty_while_the_compressor_runs(short_run: RecordedRun) -> Non
     index = next(i for i in controlled(short_run) if running(i))
 
     def idle(record: dict[str, Any]) -> None:
+        """Replace the pump duty intent by the idle duty."""
         intent(record, "max_pump_duty")["value"] = pump.idle
 
     check = feed(checker(short_run), [mutate(rows[index], idle)])
@@ -120,7 +136,10 @@ def test_idle_pump_duty_while_the_compressor_runs(short_run: RecordedRun) -> Non
 
 
 def test_integrator_beyond_its_clamp(short_run: RecordedRun) -> None:
+    """An integrator beyond its clamp is a violation."""
+
     def wound(record: dict[str, Any]) -> None:
+        """Wind the integrator up to 4 K."""
         record["controller_state"]["integral_k"] = 4.0
 
     check = feed(checker(short_run), [mutate(short_run.decisions[-1], wound)])
@@ -128,6 +147,7 @@ def test_integrator_beyond_its_clamp(short_run: RecordedRun) -> None:
 
 
 def _change_pair(short_run: RecordedRun) -> tuple[DecisionRow, DecisionRow]:
+    """Return two consecutive decisions that are both under automatic control."""
     rows = short_run.decisions
     first, second = next(
         (rows[i], rows[i + 1])
@@ -138,10 +158,12 @@ def _change_pair(short_run: RecordedRun) -> tuple[DecisionRow, DecisionRow]:
 
 
 def test_dwell_is_enforced(short_run: RecordedRun) -> None:
+    """A setpoint change inside the dwell time is a violation."""
     first, second = _change_pair(short_run)
     stages = controller_config(short_run.run.settings).stages
 
     def changed(record: dict[str, Any]) -> None:
+        """Change the setpoint by 2 K with the dwell time still running."""
         state = record["controller_state"]
         reference = json.loads(first.record)["controller_state"]["setpoint"]
         record["setpoint"] = reference + 2
@@ -152,6 +174,7 @@ def test_dwell_is_enforced(short_run: RecordedRun) -> None:
         state["dwell_remaining_s"] = stages.dwell_s
 
     def recent(record: dict[str, Any]) -> None:
+        """Mark the previous setpoint change as having just happened."""
         state = record["controller_state"]
         state["last_change_at"] = record["at"]["monotonic"]
         state["ramp_phase"] = "idle"
@@ -161,9 +184,11 @@ def test_dwell_is_enforced(short_run: RecordedRun) -> None:
 
 
 def test_deadband_is_enforced(short_run: RecordedRun) -> None:
+    """A setpoint change smaller than the deadband is a violation."""
     first, second = _change_pair(short_run)
 
     def nudged(record: dict[str, Any]) -> None:
+        """Nudge the setpoint by 1 K, rounded from only 0.6 K."""
         reference = json.loads(first.record)["controller_state"]["setpoint"]
         record["setpoint"] = reference + 1
         record["pre_round"] = reference + 0.6
@@ -175,9 +200,11 @@ def test_deadband_is_enforced(short_run: RecordedRun) -> None:
 
 
 def test_no_decrease_during_defrost(short_run: RecordedRun) -> None:
+    """A setpoint decrease while the pump defrosts is a violation."""
     first, second = _change_pair(short_run)
 
     def defrosting(record: dict[str, Any]) -> None:
+        """Report a defrost and lower the setpoint by 2 K."""
         reference = json.loads(first.record)["controller_state"]["setpoint"]
         ref(record, "main/Defrosting_State")["value"] = 1
         ref(record, "main/Defrosting_State")["fresh"] = True
@@ -191,6 +218,24 @@ def test_no_decrease_during_defrost(short_run: RecordedRun) -> None:
 
 
 def _command(ts: float, status: str, value: int = 30, detail: str = "x") -> CommandRow:
+    """Return a ``water_setpoint`` command row of ``status`` at ``ts``.
+
+    Parameters
+    ----------
+    ts
+        Time of the event in unix seconds.
+    status
+        Command status (``queued``, ``sent``, ``verified``).
+    value
+        Water setpoint in °C.
+    detail
+        Free-text detail of the event.
+
+    Returns
+    -------
+    CommandRow
+        A first-attempt row with the matching SetCurves payload.
+    """
     return CommandRow(
         ts,
         "water_setpoint",
@@ -204,6 +249,7 @@ def _command(ts: float, status: str, value: int = 30, detail: str = "x") -> Comm
 
 
 def test_a_sent_command_must_be_concluded(short_run: RecordedRun) -> None:
+    """A command sent but never concluded as verified or failed is reported at the end."""
     check = checker(short_run)
     guard = short_run.run.system.loop.guard
     row = _command(1000.0, "queued")
@@ -215,6 +261,7 @@ def test_a_sent_command_must_be_concluded(short_run: RecordedRun) -> None:
 
 
 def test_publish_without_the_guard(short_run: RecordedRun) -> None:
+    """A publish while the guard refuses, or too soon after the last one, is a violation."""
     check = checker(short_run)
     settings = short_run.run.settings.model_copy(update={"control_mode": "shadow"})
     refusing = PublishGuard.from_settings(settings)
@@ -228,6 +275,7 @@ def test_publish_without_the_guard(short_run: RecordedRun) -> None:
 
 @pytest.mark.parametrize("extra", [0, 1])
 def test_daily_budget(short_run: RecordedRun, extra: int) -> None:
+    """Writes within the daily budget are clean; one more is a violation."""
     check = checker(short_run)
     guard = short_run.run.system.loop.guard
     budget = check.adapter.daily_budget
@@ -244,9 +292,11 @@ def test_daily_budget(short_run: RecordedRun, extra: int) -> None:
 
 
 def test_independent_envelope_formula(short_run: RecordedRun) -> None:
+    """The independent envelope formula also flags a setpoint above the maximum."""
     index = controlled(short_run)[-1]
 
     def above(record: dict[str, Any]) -> None:
+        """Raise the setpoint one degree above the safety maximum."""
         high = record["controller_state"]["safety_high_c"]
         record["setpoint"] = int(high) + 1
         intent(record, "water_setpoint")["value"] = int(high) + 1
@@ -256,6 +306,7 @@ def test_independent_envelope_formula(short_run: RecordedRun) -> None:
 
 
 def test_envelope_bounds_are_written_out() -> None:
+    """The envelope bounds follow the curve and margins for several outside temperatures."""
     points = [(-10.0, 39.0), (0.0, 34.0), (15.0, 25.0)]
     assert envelope_bounds(points, 6.0, 5.0, 25.0, 40.0, 0.0) == (28, 39)
     assert envelope_bounds(points, 6.0, 5.0, 25.0, 40.0, -20.0) == (33, 40)
@@ -264,6 +315,7 @@ def test_envelope_bounds_are_written_out() -> None:
 
 
 def test_sent_value_must_be_the_latest_intent(short_run: RecordedRun) -> None:
+    """A sent value that is not the latest decided intent is a violation."""
     check = checker(short_run)
     guard = short_run.run.system.loop.guard
     row = short_run.decisions[controlled(short_run)[-1]]
@@ -279,6 +331,7 @@ def test_sent_value_must_be_the_latest_intent(short_run: RecordedRun) -> None:
 
 
 def test_queued_value_must_match_its_decision(short_run: RecordedRun) -> None:
+    """A queued value that differs from its decision's intent is a violation."""
     check = checker(short_run)
     row = short_run.decisions[controlled(short_run)[-1]]
     wanted = json.loads(row.record)["setpoint"]
@@ -291,10 +344,12 @@ def test_queued_value_must_match_its_decision(short_run: RecordedRun) -> None:
 
 
 def test_no_pump_duty_in_defrost(short_run: RecordedRun) -> None:
+    """A pump duty command or decision during a defrost is a violation."""
     rows = short_run.decisions
     index = next(i for i in controlled(short_run) if '"max_pump_duty"' in rows[i].record)
 
     def defrosting(record: dict[str, Any]) -> None:
+        """Report a defrost in the decision's inputs."""
         ref(record, "main/Defrosting_State")["value"] = 1
         ref(record, "main/Defrosting_State")["fresh"] = True
 
@@ -316,9 +371,11 @@ def test_no_pump_duty_in_defrost(short_run: RecordedRun) -> None:
 
 
 def test_integrator_and_ramp_cap_frozen_in_defrost(short_run: RecordedRun) -> None:
+    """The integrator changing during a defrost is a violation."""
     first, second = _change_pair(short_run)
 
     def defrosting(record: dict[str, Any]) -> None:
+        """Report a defrost, move the integrator and drop the pump duty intent."""
         ref(record, "main/Defrosting_State")["value"] = 1
         ref(record, "main/Defrosting_State")["fresh"] = True
         record["controller_state"]["integral_k"] = (
@@ -332,6 +389,7 @@ def test_integrator_and_ramp_cap_frozen_in_defrost(short_run: RecordedRun) -> No
 
 
 def test_cycling_floor_binding_outside_the_window(short_run: RecordedRun) -> None:
+    """The cycling-floor binding outside the minimum-run window is a violation."""
     rows = short_run.decisions
     index = next(
         i
@@ -340,6 +398,7 @@ def test_cycling_floor_binding_outside_the_window(short_run: RecordedRun) -> Non
     )
 
     def floor(record: dict[str, Any]) -> None:
+        """Bind the decision to the cycling floor."""
         record["binding"] = "cycling_floor"
 
     check = feed(checker(short_run), [mutate(rows[index], floor)])
@@ -348,10 +407,12 @@ def test_cycling_floor_binding_outside_the_window(short_run: RecordedRun) -> Non
 
 
 def test_safety_binding_away_from_the_bound(short_run: RecordedRun) -> None:
+    """A safety binding while the setpoint is away from the bound is a violation."""
     rows = short_run.decisions
     index = controlled(short_run)[-1]
 
     def bound(record: dict[str, Any]) -> None:
+        """Bind the decision to the envelope maximum with the setpoint two degrees below it."""
         record["binding"] = "envelope_max"
         record["setpoint"] = int(record["controller_state"]["safety_high_c"]) - 2
         intent(record, "water_setpoint")["value"] = record["setpoint"]
@@ -361,6 +422,20 @@ def test_safety_binding_away_from_the_bound(short_run: RecordedRun) -> None:
 
 
 def _reading(ts: float, **values: Any) -> PlantReading:
+    """Return a plant reading at ``ts`` with ``values`` overriding an idle pump at 30 °C.
+
+    Parameters
+    ----------
+    ts
+        Time of the reading in unix seconds.
+    **values
+        Fields of the reading to override.
+
+    Returns
+    -------
+    PlantReading
+        The reading.
+    """
     base: dict[str, Any] = {
         "setpoint_register": 30,
         "max_pump_duty": 102,
@@ -374,6 +449,7 @@ def _reading(ts: float, **values: Any) -> PlantReading:
 
 
 def test_plant_register_outlet_and_duty(short_run: RecordedRun) -> None:
+    """Plant register, outlet temperature and pump duty deviations are counted once each."""
     check = checker(short_run)
     check.plant(_reading(0.0))
     for k in range(1, 40):
@@ -394,6 +470,7 @@ def test_plant_register_outlet_and_duty(short_run: RecordedRun) -> None:
 
 
 def test_plant_duty_waits_out_a_defrost_after_the_start(short_run: RecordedRun) -> None:
+    """The plant duty check waits out a defrost after a compressor start, then applies."""
     check = checker(short_run)
     check.plant(_reading(0.0))
     check.plant(_reading(5.0, running=True))
@@ -413,6 +490,24 @@ def test_plant_duty_waits_out_a_defrost_after_the_start(short_run: RecordedRun) 
 def _setting(
     ts: float, status: str, value: int, detail: str = "operator: admin: test"
 ) -> CommandRow:
+    """Return a ``heat_delta`` command row of ``status`` at ``ts``.
+
+    Parameters
+    ----------
+    ts
+        Time of the event in unix seconds.
+    status
+        Command status (``queued``, ``sent``, ``verified``).
+    value
+        Delta-T in K.
+    detail
+        Free-text detail of the event.
+
+    Returns
+    -------
+    CommandRow
+        The row, attempt 0 when queued.
+    """
     return CommandRow(
         ts=ts,
         kind="heat_delta",
@@ -426,6 +521,7 @@ def _setting(
 
 
 def test_an_operator_write_is_clean(short_run: RecordedRun) -> None:
+    """A named operator write that is sent outside a defrost raises no violation."""
     check = checker(short_run)
     guard = short_run.run.system.loop.guard
     check.command(_setting(3000.0, "queued", 6))
@@ -450,6 +546,7 @@ def test_an_operator_write_is_clean(short_run: RecordedRun) -> None:
 def test_pump_setting_publishes_stay_in_their_clamp(
     short_run: RecordedRun, topic: str, payload: str
 ) -> None:
+    """A pump setting publish outside its permitted clamp is a violation."""
     check = checker(short_run)
     guard = short_run.run.system.loop.guard
     check.publish(4000.0, topic, payload, 1, False, guard, "3.9-sim")
@@ -457,6 +554,7 @@ def test_pump_setting_publishes_stay_in_their_clamp(
 
 
 def test_only_the_three_settings_are_allowlisted(short_run: RecordedRun) -> None:
+    """Only the three pump settings are allowlisted; any other setting is a guard violation."""
     check = checker(short_run)
     guard = short_run.run.system.loop.guard
     for name in ("SetHeaterOnOutdoorTemp", "SetHeatpump", "SetQuietModePriority"):
@@ -468,6 +566,7 @@ def test_only_the_three_settings_are_allowlisted(short_run: RecordedRun) -> None
 
 
 def test_operator_writes_must_name_the_operator_and_avoid_defrost(short_run: RecordedRun) -> None:
+    """An operator write without the operator's name, or during a defrost, is a violation."""
     run = short_run.run
     check = InvariantChecker(
         controller_config(run.settings), run.system.adapter.config, defrosting=lambda: True
@@ -478,9 +577,11 @@ def test_operator_writes_must_name_the_operator_and_avoid_defrost(short_run: Rec
 
 
 def test_a_held_setpoint_must_stay_within_the_bounds(short_run: RecordedRun) -> None:
+    """A held setpoint above the safety bounds is a violation of the envelope and ladder rules."""
     index = controlled(short_run)[-1]
 
     def held_above(record: dict[str, Any]) -> None:
+        """Hold the setpoint three degrees above the safety maximum."""
         value = int(record["controller_state"]["safety_high_c"]) + 3
         record["ladder"] = "hold"
         record["reason"] = "inputs_missing"

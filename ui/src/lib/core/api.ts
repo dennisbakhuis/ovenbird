@@ -9,8 +9,12 @@ import type {
   ConfigExport,
   ConfigSchema,
   ConfigSignals,
+  AwayResult,
+  BoostResult,
   ConfigVersion,
+  DayShift,
   ErrorDetail,
+  Features,
   DecisionSeries,
   CompactResult,
   HaConnectionResult,
@@ -93,7 +97,11 @@ export async function getJson<T>(path: string, signal?: AbortSignal): Promise<T>
   return (await response.json()) as T;
 }
 
-async function sendJson<T>(method: 'POST' | 'PUT', path: string, body: unknown): Promise<T> {
+async function sendJson<T>(
+  method: 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  body: unknown,
+): Promise<T> {
   const response = await fetch(path, {
     method,
     headers: {
@@ -275,6 +283,31 @@ export const setStove = (on: boolean, untilMs?: number) =>
     'api/v1/control/stove',
     untilMs === undefined ? { on } : { on, until: new Date(untilMs).toISOString() },
   );
+
+export interface BoostBody {
+  offset_k: number;
+  duration_s: number;
+}
+
+export interface AwayBody {
+  until: string;
+  target_c?: number;
+  comfort_lead_s?: number;
+}
+
+export const fetchFeatures = (signal?: AbortSignal) =>
+  getJson<Features>('api/v1/control/features', signal);
+
+export const fetchDayShift = (signal?: AbortSignal) =>
+  getJson<DayShift>('api/v1/control/dayshift', signal);
+
+export const startBoost = (body: BoostBody) => postJson<BoostResult>('api/v1/control/boost', body);
+
+export const endBoost = () => sendJson<BoostResult>('DELETE', 'api/v1/control/boost', {});
+
+export const setAway = (body: AwayBody) => sendJson<AwayResult>('PUT', 'api/v1/control/away', body);
+
+export const endAway = () => sendJson<AwayResult>('DELETE', 'api/v1/control/away', {});
 
 export const resumeControl = () => postJson<ModeChange>('api/v1/control/resume', {});
 

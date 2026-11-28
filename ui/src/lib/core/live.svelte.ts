@@ -40,11 +40,14 @@ export function parseMessage(raw: unknown): ServerMessage | null {
 
 /**
  * Reactive live state: latest snapshot and health, WebSocket connectivity and a 1 s clock.
+ * `connected` is false until the first open; `lost` is true only once a connection attempt has
+ * ended without a stream, so a page still opening its first socket shows no outage.
  */
 export class LiveStore {
   snapshot = $state<Snapshot | null>(null);
   health = $state<Health | null>(null);
   connected = $state(false);
+  lost = $state(false);
   receivedAt = $state(0);
   decisionSeq = $state(0);
   configVersion = $state<number | null>(null);
@@ -85,6 +88,7 @@ export class LiveStore {
       socket.close();
     }
     this.connected = false;
+    this.lost = false;
   }
 
   applySnapshot(snapshot: Snapshot): void {
@@ -153,6 +157,7 @@ export class LiveStore {
     socket.onopen = () => {
       this.attempt = 0;
       this.connected = true;
+      this.lost = false;
       void this.#refresh();
     };
     socket.onmessage = (event) => {
@@ -167,6 +172,7 @@ export class LiveStore {
       this.connected = false;
       this.#socket = null;
       if (!this.#running) return;
+      this.lost = true;
       const delay = backoffDelay(this.attempt, this.#deps.random);
       this.attempt += 1;
       this.#retryTimer = this.#deps.setTimer(() => this.#connect(), delay);

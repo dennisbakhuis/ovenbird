@@ -10,6 +10,15 @@ Home Assistant entities), decides every minute and shows what it would send, but
 nothing to the heat pump or the broker. Sending stays off unless the deployment enables
 commands.
 
+## Features
+
+Settings → Features has one switch per feature: weather compensation, room correction,
+slow start, minimum run, pump duty, quiet mode (also after a compressor start), wood-stove
+mode, sun day shift (experimental; records only unless you accept that and switch it on),
+summer switch, boost, away, house basics and the compressor-starts alarm. The House page
+shows the heat loss of the house and the heat from the heat pump, from the daily figures;
+it needs about 10 heating days before it shows a number. Set the time zone in the control settings for the day shift and the quiet windows.
+
 ## Production recommendation
 
 Run ovenbird as a standalone container next to the MQTT broker for production use. A controller
@@ -35,21 +44,6 @@ direct port rejects every request.
 | `ha_entities` | Optional extra Home Assistant entity ids to read. The sensors chosen in ovenbird's settings are read without listing them here. Uses the Supervisor proxy; no token needed. |
 | `admin_password` | HTTP Basic password (user `admin`) for the optional direct port. |
 | `log_level` | `debug`, `info`, `warning`, `error` or `critical`. |
-
-## House model
-
-The House page shows what ovenbird has learned about your house: how fast it loses heat and how
-the heat pump and the sun warm it. It also shows how well the model predicts the measured
-temperatures.
-
-The learner runs inside the app. It starts once a week at night at low priority. A run takes
-about 15 seconds to a few minutes and uses up to about 250 MB of memory for that time. The
-first model needs about three weeks of history. Until then the page has nothing to show.
-
-The learner makes the image larger (about 356 MB).
-
-Using the model in the controller is off by default. It can first run in shadow mode, where it
-is compared with the current decisions and changes nothing.
 
 ## Data and backups
 

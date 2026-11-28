@@ -59,3 +59,4 @@ dev/ha-config/*
 
 # Notes on the real install behind a local recording
 docs/local/
+coverage.json

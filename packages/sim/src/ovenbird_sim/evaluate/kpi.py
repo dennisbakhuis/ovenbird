@@ -1,12 +1,11 @@
-"""Outcome KPIs per UTC day and over a period, for simulated runs and for the recording.
+"""Outcome KPIs per UTC day and over a period of a simulated run.
 
 Per day (sums unless noted):
 
 ``heat_kwh``
     heat delivered to the heating loop;
 ``elec_kwh``
-    electrical input (simulated: the model's COP map plus circulation; recorded:
-    the pump's own ``Heat_Power_Consumption`` estimate the COP map was fitted to);
+    electrical input (the model's COP map plus circulation);
 ``starts``
     heating starts (a restart after a defrost is not a start);
 ``runs``, ``short_runs``
@@ -27,7 +26,7 @@ repeats allowed, for the day-block bootstrap.
 
 Comfort statistics (:func:`comfort`) are taken on the room temperature of occupied
 hours (:data:`OCCUPIED_HOURS`, local time): mean, 10th percentile and degree-hours
-below a given threshold (the counterfactual uses the baseline's 10th percentile).
+below a given threshold.
 """
 
 from __future__ import annotations
@@ -40,14 +39,11 @@ from typing import Final
 
 import numpy as np
 
-from ovenbird_sim.data.dataset import Dataset
 from ovenbird_sim.data.series import FloatArray
 from ovenbird_sim.evaluate.closedloop import Trace
-from ovenbird_sim.identify.building import observations
-from ovenbird_sim.identify.validate import heating_starts
-from ovenbird_sim.identify.validate import recorded_runs as _recorded_runs
 
 SECONDS_PER_DAY: Final = 86400.0
+DEFROST_GUARD_BINS: Final = 3
 J_PER_KWH: Final = 3.6e6
 SHORT_RUN_S: Final = 20 * 60.0
 DAY_KPIS: Final = (
@@ -168,56 +164,38 @@ def from_trace(trace: Trace, dt: float) -> Series:
 def recorded_runs(
     t: FloatArray, running: FloatArray, defrost: FloatArray, dt: float
 ) -> tuple[FloatArray, FloatArray]:
-    """Completed runs of the recording (:func:`~ovenbird_sim.identify.validate.recorded_runs`)."""
-    return _recorded_runs(t, running, defrost, dt)
-
-
-def from_dataset(ds: Dataset, i0: int, i1: int) -> Series:
-    """KPI inputs of the recording over bins ``i0:i1``.
+    """Completed runs of a recording; compressor pauses around a defrost do not split a run.
 
     Parameters
     ----------
-    ds
-        Dataset on the tick grid.
-    i0, i1
-        Bin range.
+    t
+        Bin start times.
+    running, defrost
+        Per-bin flags (0/1).
+    dt
+        Bin length.
 
     Returns
     -------
-    Series
-        Recorded heat (loop), electricity (pump estimate), room, starts, setpoint
-        changes and defrost.
+    run_start, run_length_s
+        Start and length of every run that starts and ends inside the span.
     """
-    c = ds.columns
-    t = ds.t[i0:i1]
-    _, room = observations(ds)
-    running = (np.nan_to_num(c["compressor_frac"]) > 0.0).astype(np.float64)
-    defrost = ds.flags["defrost"].astype(np.float64)
-    target = c["z1_target"]
-    held = np.copy(target)
-    for k in range(1, held.size):
-        if not np.isfinite(held[k]):
-            held[k] = held[k - 1]
-    rounded = np.round(held)
-    change = np.zeros(held.size)
-    change[1:] = np.where(
-        np.isfinite(rounded[1:]) & np.isfinite(rounded[:-1]) & (rounded[1:] != rounded[:-1]),
-        1.0,
-        0.0,
-    )
-    run_start, run_length = recorded_runs(t, running[i0:i1], defrost[i0:i1], ds.grid.step)
-    return Series(
-        t=t,
-        dt=ds.grid.step,
-        heat_w=c["heat_w"][i0:i1],
-        elec_w=c["elec_hp_est_w"][i0:i1],
-        room_c=room[i0:i1],
-        start=heating_starts(ds)[i0:i1].astype(np.float64),
-        write=change[i0:i1],
-        defrost=defrost[i0:i1],
-        run_start=run_start,
-        run_length_s=run_length,
-    )
+    del dt
+    kernel = np.ones(2 * DEFROST_GUARD_BINS + 1)
+    near = np.convolve(defrost.astype(np.float64), kernel, "same") > 0
+    starts: list[float] = []
+    lengths: list[float] = []
+    current: float | None = None
+    for k in range(1, t.size):
+        rising = running[k] > 0.5 >= running[k - 1]
+        falling = running[k] <= 0.5 < running[k - 1]
+        if rising and not near[k] and current is None:
+            current = float(t[k])
+        elif falling and not near[k] and current is not None:
+            starts.append(current)
+            lengths.append(float(t[k]) - current)
+            current = None
+    return np.asarray(starts, dtype=np.float64), np.asarray(lengths, dtype=np.float64)
 
 
 def compute(series: Series, band_low_c: float) -> KpiTable:
@@ -282,6 +260,7 @@ def aggregate_rows(
         return dict.fromkeys(TOTAL_KPIS, math.nan)
 
     def total(name: str) -> float:
+        """Return the sum of column ``name`` over the rows."""
         return float(sum(d[name] for d in rows))
 
     minutes = total("room_minutes")

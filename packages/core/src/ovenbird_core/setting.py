@@ -79,7 +79,23 @@ def setting_metadata(
     lt: float | None = None,
     le: float | None = None,
 ) -> Mapping[str, SettingSpec]:
-    """Return the dataclass field metadata of a setting (for a required field)."""
+    """Return the dataclass field metadata of a setting (for a required field).
+
+    Parameters
+    ----------
+    doc
+        Description shown to the user.
+    unit
+        Unit of the value, ``None`` if dimensionless.
+    gt
+        Exclusive lower limit.
+    ge
+        Inclusive lower limit.
+    lt
+        Exclusive upper limit.
+    le
+        Inclusive upper limit.
+    """
     return {SETTING: SettingSpec(doc=doc, unit=unit, gt=gt, ge=ge, lt=lt, le=le)}
 
 
@@ -117,6 +133,7 @@ def setting(
 
 
 def _spec_of(item: Field[Any]) -> SettingSpec | None:
+    """Return the setting spec attached to a dataclass field, ``None`` for other fields."""
     found = item.metadata.get(SETTING)
     return found if isinstance(found, SettingSpec) else None
 

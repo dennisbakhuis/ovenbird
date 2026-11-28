@@ -1,6 +1,6 @@
 # Control interface (phase 2)
 
-The contract between controllers, the evaluation harnesses (open-loop run, counterfactual replay,
+The contract between controllers, the evaluation harnesses (open-loop run, closed-loop
 simulation) and the service. Everything here lives in `ovenbird_core.control` and is pure:
 no I/O, no wall-clock reads, no randomness without an explicit seed.
 
@@ -36,6 +36,8 @@ class ControlInputs:
     override: Override | None        # manual setpoint/boost/stove request with expiry
     actual: PumpActual               # what the pump currently reports as applied (Z1 water target,
                                      # max pump duty, quiet mode, heating mode), with freshness
+    room_override: Override | None = None  # temporary room target (room_target or away),
+                                     # next to `override` so a stove request can coexist
 ```
 
 The caller resolves the room sensor into a `RoomInput`, so the controller does not need to
@@ -76,8 +78,8 @@ plausible_max_c, max_deviation_k)`, service settings `control_outside_signal`,
   `missing`, `stale`, `implausible` or `deviates`).
 - **Keeps the pump's sensor:** the safety envelope (`SafetyLimits.bounds`, the
   HeishaMon fallback rule knows only that sensor), the held bounds while inputs are
-  missing, the safety monitors, the measured outside line of the weather report, the
-  daily house-model learning and the trial summaries.
+  missing, the safety monitors, the measured outside line of the weather report and the
+  trial summaries.
 - **Stale:** while the chosen signal is missing, not fresh or older than `max_age_s`,
   the curve uses the pump's value; the note then reads `… °C raw from the pump:
   ha/sensor.garden is stale, 42 min old` (`has no value`, or `has no usable value, unit:
@@ -252,59 +254,94 @@ the integrator for afterwards.
   `stove` term with a note; the decision note starts with "Wood-stove mode (auto, level at
   23.4 °C, 1 h 20 m): room PI paused with the integrator held at +0.4 K; …".
 
-## Model plan
+## Plan slices
 
-A plan slice from the learned house model (`PlanSource.MODEL`, produced by
-`ovenbird_core.control.planner.plan_offset`; `docs/decisions/2026-11-27-learned-model-in-controller.md`)
-is the one path by which the learned model reaches the controller. It only shifts the room
-target of an active room feedback, by at most `ModelPlanConfig.max_setback_k` below and
-`max_preheat_k` above comfort (defaults 0.5 K and 0.3 K; absolute ceilings 1.0 K and 0.5 K).
+A `PlanSlice` is the hook by which a planner reaches the controller: a room-temperature
+offset (`room_offset_k`) with a reason (`plan_preheat` or `plan_setback`), a half-open
+validity interval and its source (`PlanSource.RULE` or `PlanSource.OPTIMISER`). With an
+active room feedback the slice shifts the room target; without one it maps to water through
+the curve slope, clamped to `plan_max_water_k`. During a wood-stove episode the plan is paused
+(the `plan` term reads "paused by wood-stove mode"). The ladder level follows the source
+(`rule_plan` or `optimiser_plan`).
 
-A model slice is one of two kinds, never both at once (`PlanSlice` refuses a slice with a
-room and a water offset):
+### The plan-slice contract
 
-- a *room-target slice* (`room_offset_k`, from `plan_offset`): the kind above. The service
-  issues only this kind today.
-- a *water slice* (`PlanSlice.water_offset_k`, from `plan_water`, a feed-forward from the
-  forecast sun; `docs/decisions/2026-11-28-model-plan-after-evaluation.md`). It does not
-  shift the room target. The controller clamps it to `[-max_lower_water_k,
-  +max_raise_water_k]` (defaults 3 K and 0 K; ceilings 4 K and 2 K) and scales it by the room
-  authority of the trusted room value against comfort: full while the room is at most
-  `authority_full_k` (0.1 K, at least one sensor step) below comfort, none from
-  `authority_zero_k` (0.4 K) below, linear between; mirrored above comfort for a raise. So the
-  plan loses its effect when the room is below comfort by more than a sensor step. The result
-  is the `plan` term, added after the curve and the room feedback and before the start ramp,
-  the cycling floor, rounding, dwell and the safety clamps. The room-target bounds do not
-  apply to water slices and the fade does not apply to room-target slices. Only the core
-  package and the evaluation produce water slices; the evaluation does not unlock either
-  kind.
+What a planner may rely on, and what it must do, when it hands the controller a slice:
 
-- The controller clamps every model slice to those bounds, whatever the planner sent, and
-  gives it the reason of its sign (`plan_setback` or `plan_preheat`). The ladder level is
-  `model_plan`: richer than `rule_plan` (it predicts the house), poorer than
-  `optimiser_plan` (no prices, no heat pump model).
-- A slice has no effect at all (no plan term; ladder and reason as without a plan) from the
-  first tick on which the room value is not trusted, a wood-stove episode is active, the
-  wood-stove detection is still waiting after an episode or a sensor fault, or the slice is
-  valid for longer than 3600 s (`MODEL_PLAN_MAX_SLICE_S`), so a plan cannot outlive its
-  planner by more than that. Start ramp, cycling floor, rounding, dwell and the safety clamps act
-  after it as always.
-- `controller_state` carries `model_plan_requested_k` (what the planner sent),
-  `model_plan_applied_k` (after the bounds, 0 while ignored) and `model_plan_ignored`
-  (`room_untrusted`, `stove_active`, `stove_recovery`, `slice_too_long`, or `null`), only on
-  ticks that were given a model slice; every other record is unchanged. A replay of such a
-  record feeds the slice back from `model_plan_requested_k`, valid for that tick, so it
-  reproduces the recorded setpoint (`ovenbird.replay.stepping.recorded_model_plan`).
-  On a tick given a *water* slice, `controller_state` also carries
-  `model_plan_water_requested_k` (what the planner sent), `model_plan_water_applied_k`
-  (after the bounds and the authority) and `model_plan_authority` (`null` while the slice is
-  ignored). The replay rebuilds room slices only: it does not rebuild a water slice from
-  `model_plan_water_requested_k`, so a replay of a record made with a water slice does not
-  reproduce its setpoint. The service issues no water slice today, so no such record exists
-  yet.
-- The service side (``control_model_use`` `off` / `shadow` / `on`, the guards, the quarter-hour
-  cadence, what is recorded) is `ovenbird.control.modelplan`; see `docs/api-v1.md`
-  (`insight/house/control`). With `shadow` the controller is never given the slice.
+- **Bound.** A `rule` slice is clamped to `±plan_rule_max_k` (setting
+  `control_plan_rule_max_k`, default 1 K, at most 1.5 K; 0 disables rule slices) whatever
+  the planner sent; the `plan` term and the decision note say when it was cut. An
+  `optimiser` slice is not clamped.
+- **Pauses.** A slice has no effect during a wood-stove episode, in its tail (the
+  detection waits for the room to cool below the exit threshold) and while a room sensor
+  exists but its value is not trusted (stale or implausible). A raised target lifts the
+  stove's entry thresholds by the same bounded amount, so a room following a boost is not
+  taken for a stove.
+- **Everything after it still applies.** Start ramp, cycling floor, deadband and dwell,
+  the defrost and hot-water freezes and the safety envelope act on the shifted sum as
+  always; a set-back never lowers the water during a defrost or a hot-water run.
+- **Validity.** The interval is half-open; an expired or future slice is ignored. A
+  planner issues slices that expire by themselves shortly after its next evaluation is
+  due, so a planner that stops leaves no offset behind.
+- **One slot.** The service loop has one plan slot (`ControlLoop.plan_rule`). Its rule
+  is asked for a slice before every controller step and told the decision afterwards; a
+  rule that returns `None` (or fails, which is logged) leaves the controller's inputs
+  exactly as without a rule, so `off` and `shadow` decide byte for byte like no rule.
+- **Comfort floor.** The safety monitor's `room_below_floor` alarm follows the applied
+  room-target shift downward (the effective target minus comfort), by at most
+  `plan_rule_max_k`; a raised target never lifts the floor.
+
+The sun day shift (the pure rule `ovenbird_core.control.dayshift`, re-exported by
+`ovenbird.control.dayshift`; runner `ovenbird.control.dayshiftrun`; switch
+`control_dayshift_use`) is the rule in the slot. Every window is a local time in
+`control_timezone`, which defaults to UTC: set it to the house's zone before using the
+shift. Every quarter hour it decides:
+
+- **Boost** (`plan_preheat`, `+control_dayshift_boost_k`): inside the local day window
+  when the forecast mean irradiance over the rest of the window is at least
+  `control_dayshift_min_sun_wm2` and the filtered outside temperature and the forecast
+  minimum over the rest of the window are at least `control_dayshift_min_outside_c`.
+  While boosting the temperature limit is 1 K lower and the sun limit half, so the boost
+  does not flicker around the limit nor end with the natural afternoon fall of the sun.
+  The sun must also be there now: the forecast irradiance from an hour before to an hour
+  after the evaluation must reach the same limit, so sun that the clouds overtake ends
+  the boost.
+- **Warm stop**: once the room reaches the boosted target, the boost ends for the rest of
+  that day (`room_warm`). The sun then heats the room by itself; the day still counts as
+  sunny.
+- **Sunny day**: a day qualifies for a set-back in its night only after the boost
+  conditions held with the offset at its full size for at least 2 h of its day window
+  (with the boost at 0: the conditions alone). The time counts from one evaluation to
+  the next, at most 15 minutes per interval, so one boosted quarter hour or a missed
+  evaluation never qualifies a day.
+- **Set-back** (`plan_setback`, `-control_dayshift_setback_k`): in the night after a
+  sunny day, when the forecast minimum over the night is at least the outside limit
+  (1 K lower once set back), and only while the room is at least 0.5 K above comfort
+  when it starts (`room_below_target` otherwise): it spends heat the sun stored, not the
+  next morning's comfort. It ends at `control_dayshift_night_end` or
+  `control_dayshift_recovery_s` (default 4 h, about the recovery time of under-floor
+  heating from a 0.5 to 1 K set-back) before `control_dayshift_comfort_at` (default
+  07:00), whichever comes first, and starts back early enough that the offset is zero by
+  then. With the defaults the set-back runs from 23:00 to 03:00 and the room has 4 h to
+  return to comfort by 07:00.
+- **Cancel**: a guard (forecast older than 3 h, room untrusted, wood stove, 12 h stove
+  tail) ends the shift at once; a room more than 0.3 K below the lowered target ends the
+  set-back for the rest of that night.
+- **Steps**: planned moves change the offset by at most 0.25 K per quarter hour; each
+  slice is valid for 20 minutes.
+- **Replay**: a recorded tick that applied a day shift slice (ladder `rule_plan`) gets it
+  back in an open-loop replay: its offset is the recorded `room_target_c` minus the
+  comfort target the tick ran with (the value recorded as `derived/dayshift_offset_k`),
+  or, without a room sensor, the `plan` term's water offset over the curve slope. The
+  identity check therefore reproduces an `on` day. A candidate replays the shift the
+  house had, not the one the rule would compute with the candidate's settings: the
+  rule's own input, the stored forecast, is not replayed.
+
+`on` is experimental: its simulator evaluation did not pass (see
+[evaluation/dayshift.md](evaluation/dayshift.md)), so it is valid only together with
+`control_dayshift_experimental_ok` (`dayshift_on_needs_ack` otherwise); see
+`GET api/v1/control/dayshift` in `docs/api-v1.md` for the state, the recorded signals and
+the journal entries.
 
 ## Vocabulary
 
@@ -317,7 +354,7 @@ water_setpoint, max_pump_duty, quiet_mode
 `LadderLevel`, from the richest to the most defensive behaviour:
 
 ```text
-optimiser_plan, model_plan, rule_plan, schedule_curve_feedback, curve_only, hold, refuse
+optimiser_plan, rule_plan, schedule_curve_feedback, curve_only, hold, refuse
 ```
 
 `ReasonCode`, a closed `StrEnum`:
@@ -326,7 +363,8 @@ optimiser_plan, model_plan, rule_plan, schedule_curve_feedback, curve_only, hold
 curve, room_feedback, start_ramp, cycling_protect, defrost_freeze, dhw_freeze, room_stale,
 room_implausible, heishamon_dead, mode_mismatch, mode_unknown, mode_off, inputs_missing,
 safety_clamp, deadband_hold, dwell_hold, override, override_missing, plan_preheat,
-plan_setback, pump_duty_heat, pump_duty_idle, quiet_schedule, stove
+plan_setback, pump_duty_heat, pump_duty_idle, quiet_schedule, quiet_start, stove,
+room_target, away, summer
 ```
 
 `RoomProfile`:

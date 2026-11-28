@@ -49,6 +49,7 @@ class StoveSettings(FeatureSettings):
     @field_validator("control_stove_reference_signal", mode="before")
     @classmethod
     def _empty_reference_is_unset(cls, value: Any) -> Any:
+        """Treat an empty reference signal as unset."""
         if isinstance(value, str) and not value.strip():
             return None
         return value

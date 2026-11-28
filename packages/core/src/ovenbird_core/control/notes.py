@@ -8,14 +8,15 @@ one-line ``note`` the UI shows.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 from ovenbird_core.catalogue import HeishaSignal
 from ovenbird_core.control.safety import EPSILON, Bound, SafetyBounds
 from ovenbird_core.control.types import (
     ControlInputs,
+    OverrideKind,
     PlanSlice,
-    PlanSource,
     ReasonCode,
     RoomInput,
     RoomProfile,
@@ -51,8 +52,10 @@ TERMS: Final = (
     "curve",
     "room_feedback",
     "plan",
+    "room_target",
     "boost",
     "stove",
+    "summer",
     "start_ramp",
     "override",
     "cycling_floor",
@@ -144,7 +147,19 @@ def room_status(room: RoomInput, authority: float, cooling: bool = False) -> str
 
 
 def kept(held_offset: float, lost_for: float, why: str, fade_s: float) -> str:
-    """Return the note fragment on the held offset (fading to zero over ``fade_s``)."""
+    """Return the note fragment on the held offset (fading to zero over ``fade_s``).
+
+    Parameters
+    ----------
+    held_offset
+        The held offset in K (``0`` or less: none).
+    lost_for
+        Seconds since the room value was lost.
+    why
+        Why the room value counts as lost.
+    fade_s
+        Seconds over which the offset fades to zero.
+    """
     if held_offset <= 0.0:
         return " (curve only)"
     return (
@@ -166,7 +181,31 @@ def soft_binding(
     plan_w: float,
     plan_raw: float,
 ) -> str | None:
-    """Return what bound the continuous value when no stage or hard constraint did."""
+    """Return what bound the continuous value when no stage or hard constraint did.
+
+    Parameters
+    ----------
+    manual
+        A manual setpoint override applies.
+    pre_clamp
+        The continuous setpoint before the safety clamps in °C.
+    bounds
+        Safety bounds of this tick.
+    cycling
+        Lift of the min-run window in K.
+    ramp
+        The start ramp's term in K (negative while it caps).
+    u
+        Room PI output after the cooling authority in K.
+    u_lim
+        Room PI output after its limit in K.
+    u_raw
+        Room PI output before its limit in K.
+    plan_w
+        The plan's term after its limit in K water.
+    plan_raw
+        The plan's term before its limit in K water.
+    """
     if pre_clamp > bounds.high + EPSILON:
         return bounds.high_source.value
     if pre_clamp < bounds.low - EPSILON:
@@ -197,15 +236,52 @@ def reason_code(
     implausible: bool = False,
     *,
     stove: bool = False,
+    summer: bool = False,
+    room_target: OverrideKind | None = None,
 ) -> ReasonCode:
-    """Return the reason code of the setpoint intent (the binding first, then the mode)."""
+    """Return the reason code of the setpoint intent (the binding first, then the mode).
+
+    ``summer`` is the summer switch being on; ``room_target`` the kind of a manual room
+    target that applies this tick (``room_target`` or ``away``).
+
+    Parameters
+    ----------
+    binding
+        What bound the setpoint, ``None`` when nothing did.
+    overridden
+        A manual setpoint override applies.
+    plan
+        The active plan slice, ``None`` without one.
+    defrost
+        A defrost is in progress.
+    dhw
+        A DHW run is in progress.
+    room
+        The room value the feedback used, ``None`` without one.
+    inputs
+        This tick's control inputs.
+    implausible
+        The cross-check flagged the room value.
+    stove
+        A wood-stove episode is active.
+    summer
+        The summer switch is on.
+    room_target
+        Kind of the manual room target that applies, ``None`` without one.
+    """
     mapped = BINDING_REASONS.get(binding) if binding is not None else None
     if mapped is not None:
         return mapped
+    if summer:
+        return ReasonCode.SUMMER
     if stove:
         return ReasonCode.STOVE
     if overridden:
         return ReasonCode.OVERRIDE
+    if room_target is OverrideKind.AWAY:
+        return ReasonCode.AWAY
+    if room_target is not None:
+        return ReasonCode.ROOM_TARGET
     if plan is not None:
         return plan.reason
     if defrost:
@@ -240,6 +316,29 @@ def flip_distance(
     unclamped it is converted to K of room temperature (``/ kp``); on the curve
     alone to K of outside temperature (``/ curve slope``); otherwise (clamped)
     it stays in K of ``pre_round``.
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration.
+    final
+        The integer setpoint issued this tick.
+    pre_round
+        The continuous setpoint after the safety clamps in °C.
+    pre_clamp
+        The continuous setpoint before the safety clamps in °C.
+    bounds
+        Safety bounds of this tick.
+    room
+        The room value the feedback used, ``None`` without one.
+    kp
+        Proportional gain of the room PI in K water per K room.
+    u_raw
+        Room PI output before its limit in K.
+    outside_f
+        Filtered outside temperature in °C.
+    feedback_limited
+        The room feedback was limited this tick.
     """
     threshold = cfg.stages.change_threshold_k
     water = max(0.0, min(final + threshold - pre_round, pre_round - (final - threshold)))
@@ -252,106 +351,219 @@ def flip_distance(
     return water, PRE_ROUND_INPUT
 
 
-def decision_note(
-    curve_sp: float,
-    outside_f: float,
-    room: RoomInput | None,
-    error: float | None,
-    u: float,
-    plan: PlanSlice | None,
-    plan_w: float,
-    boost: float,
-    cap: float | None,
-    ramp: float,
-    floor: float | None,
-    cycling: float,
-    pre_clamp: float,
-    pre_round: float,
-    bounds: SafetyBounds,
-    final: int,
-    reference: int | None,
-    binding: str | None,
-    dwell_left: float,
-    status: str | None = None,
-    implausible: bool = False,
-    *,
-    defrost: bool = False,
-    dhw: bool = False,
-    duty_skipped: bool = False,
-    integer_clamp: tuple[int, int] | None = None,
-    held_offset: float = 0.0,
-    stove: str | None = None,
-    fixed: bool = False,
-    model_ignored: str | None = None,
-    model_water: str | None = None,
-) -> str:
+@dataclass(frozen=True, slots=True)
+class NoteInputs:
+    """What one tick computed, as far as the decision note tells it.
+
+    Parameters
+    ----------
+    curve_sp
+        Water setpoint of the curve (or the fixed setpoint) in °C.
+    outside_f
+        Filtered outside temperature in °C.
+    final
+        The integer setpoint issued this tick.
+    reference
+        The setpoint a change is measured from, ``None`` without one.
+    binding
+        What bound the setpoint (a :data:`BINDINGS` entry), ``None`` when nothing did.
+    pre_clamp, pre_round
+        The continuous setpoint before and after the safety clamps.
+    fixed
+        Weather-dependent control is off (the curve is a fixed setpoint).
+    summer
+        The summer switch's sentence, ``None`` while it is off.
+    stove
+        The wood-stove sentence, ``None`` without an episode.
+    room
+        The room value the feedback used, ``None`` without one.
+    error
+        Room error in K (target minus room), ``None`` without feedback.
+    pi_k
+        What the room PI adds to the curve in K.
+    status
+        State of an on-change room value, ``None`` to leave it out.
+    implausible
+        The cross-check flagged the room value.
+    held_offset
+        Offset kept on the curve while the room value is lost, in K.
+    defrost, dhw
+        A defrost or DHW run freezes the integrator.
+    duty_skipped
+        No pump duty command during defrost.
+    plan
+        The plan's clause (:func:`~ovenbird_core.control.terms.plan_clause`), ``None``
+        without an active slice.
+    room_target
+        The manual room target's clause, ``None`` without one.
+    boost
+        Boost in K (``0``: none).
+    ramp_k
+        The start ramp's term in K (negative while it caps).
+    ramp_cap_c
+        The start ramp's cap in °C, ``None`` without one.
+    floor_c
+        The cycling floor in °C, ``None`` without one.
+    cycling_lift_k
+        How far the min-run window lifts the target in K.
+    integer_clamp
+        The integer setpoint before and after a safety bound clamped it.
+    dwell_left_s
+        Seconds until the dwell time is over.
+    """
+
+    curve_sp: float
+    outside_f: float
+    final: int
+    reference: int | None
+    binding: str | None
+    pre_clamp: float
+    pre_round: float
+    fixed: bool = False
+    summer: str | None = None
+    stove: str | None = None
+    room: RoomInput | None = None
+    error: float | None = None
+    pi_k: float = 0.0
+    status: str | None = None
+    implausible: bool = False
+    held_offset: float = 0.0
+    defrost: bool = False
+    dhw: bool = False
+    duty_skipped: bool = False
+    plan: str | None = None
+    room_target: str | None = None
+    boost: float = 0.0
+    ramp_k: float = 0.0
+    ramp_cap_c: float | None = None
+    floor_c: float | None = None
+    cycling_lift_k: float = 0.0
+    integer_clamp: tuple[int, int] | None = None
+    dwell_left_s: float = 0.0
+
+
+def decision_note(note: NoteInputs) -> str:
     """Return the decision note: what drove the water setpoint and what held or moved it.
 
-    ``model_water`` is the sentence on a model water slice (what became of it); it
-    replaces the plan sentence.
+    The lead sentence, the freezes, the plan and room-target clauses, the boost, the
+    start ramp, the cycling floor and the safety clamps follow each other, separated
+    by ``; ``, and the outcome on the setpoint ends it.
     """
-    parts: list[str] = []
-    curve = f"the curve's {curve_sp:.1f} °C at {outside_f:.1f} °C outside"
-    if fixed:
-        curve = f"the fixed {curve_sp:.1f} °C (weather-dependent control off)"
-    if stove is not None:
-        parts.append(stove)
-    elif room is not None and error is not None:
-        side = "below" if error > 0 else "above"
-        parts.append(f"Room {abs(error):.1f} K {side} target; PI adds {signed(u)} K to {curve}")
-        if status is not None:
-            parts.append(status)
-    elif implausible and held_offset > 0.0:
-        parts.append(
-            f"Room value implausible (cross-check), so {curve} plus the held "
-            f"offset {signed(held_offset)} K (fading)"
-        )
-    elif implausible:
-        parts.append(f"Room value implausible (cross-check), so {curve} alone")
-    elif held_offset > 0.0:
-        parts.append(
-            f"No usable room temperature, so {curve} plus the held offset "
-            f"{signed(held_offset)} K (fading)"
-        )
-    else:
-        parts.append(f"No usable room temperature, so {curve} alone")
-    if defrost:
+    parts = [
+        *_lead_parts(note),
+        *_freeze_parts(note),
+        *_clause_parts(note),
+        *_ramp_parts(note),
+        *_floor_parts(note),
+        *_clamp_parts(note),
+    ]
+    return "; ".join(parts) + f"; {_outcome(note)}."
+
+
+def _curve_text(note: NoteInputs) -> str:
+    """Return the curve as the lead sentence names it (or the fixed setpoint)."""
+    if note.fixed:
+        return f"the fixed {note.curve_sp:.1f} °C (weather-dependent control off)"
+    return f"the curve's {note.curve_sp:.1f} °C at {note.outside_f:.1f} °C outside"
+
+
+def _lead_parts(note: NoteInputs) -> list[str]:
+    """Return the lead: summer, stove, room feedback (with its status) or the curve alone."""
+    if note.summer is not None:
+        return [note.summer]
+    if note.stove is not None:
+        return [note.stove]
+    if note.room is not None and note.error is not None:
+        return _feedback_parts(note, note.error)
+    return [_without_feedback(note)]
+
+
+def _feedback_parts(note: NoteInputs, error: float) -> list[str]:
+    """Return the room feedback sentence and the room value's status."""
+    side = "below" if error > 0 else "above"
+    lead = (
+        f"Room {abs(error):.1f} K {side} target; PI adds {signed(note.pi_k)} K to "
+        f"{_curve_text(note)}"
+    )
+    return [lead] if note.status is None else [lead, note.status]
+
+
+def _without_feedback(note: NoteInputs) -> str:
+    """Return the lead without room feedback: implausible or no value, with a held offset."""
+    curve = _curve_text(note)
+    why = (
+        "Room value implausible (cross-check)" if note.implausible else "No usable room temperature"
+    )
+    if note.held_offset > 0.0:
+        return f"{why}, so {curve} plus the held offset {signed(note.held_offset)} K (fading)"
+    return f"{why}, so {curve} alone"
+
+
+def _freeze_parts(note: NoteInputs) -> list[str]:
+    """Return the defrost, DHW and skipped-duty clauses."""
+    parts = []
+    if note.defrost:
         parts.append("defrost in progress: integrator frozen, no decrease")
-    if dhw:
+    if note.dhw:
         parts.append("DHW run in progress: integrator frozen, no decrease")
-    if duty_skipped:
+    if note.duty_skipped:
         parts.append("defrost: the pump sets its own duty; no duty command")
-    if model_water is not None:
-        parts.append(model_water)
-    elif plan is not None and plan.source is PlanSource.MODEL:
-        parts.append(f"model plan {signed(plan.room_offset_k)} K on the room target")
-    elif plan is not None:
-        parts.append(f"plan {signed(plan.room_offset_k)} K room ({signed(plan_w)} K water)")
-    elif model_ignored is not None:
-        parts.append(model_ignored)
-    if boost:
-        parts.append(f"boost {signed(boost)} K")
-    if ramp < 0.0 and cap is not None:
-        parts.append(f"start ramp caps at {cap:.1f} °C")
-    if binding == "cycling_floor" and floor is not None:
-        if reference is not None and final <= reference:
-            parts.append(f"cycling floor {floor:.1f} °C limits the decrease")
-        else:
-            parts.append(f"cycling floor raises to {final} °C")
-    elif cycling > 0.0 and floor is not None:
-        parts.append(f"min-run window lifts the target to {floor:.1f} °C")
-    if pre_round != pre_clamp:
-        parts.append(f"safety clamps {pre_clamp:.1f} to {pre_round:.1f} °C")
-    if integer_clamp is not None:
-        before, after = integer_clamp
-        parts.append(f"safety bound {binding} clamps {before} → {after} °C")
-    if reference is not None and final == reference and binding in HOLD_EXPLANATIONS:
-        held = HOLD_EXPLANATIONS[binding]
-        if binding == "dwell":
-            held = f"{held} ({dwell_left / 60:.0f} min left)"
-        outcome = f"setpoint stays {final} °C, {held}"
-    elif reference is not None and final != reference:
-        outcome = f"setpoint {reference} → {final} °C"
-    else:
-        outcome = f"setpoint {final} °C"
-    return "; ".join(parts) + f"; {outcome}."
+    return parts
+
+
+def _clause_parts(note: NoteInputs) -> list[str]:
+    """Return the plan clause, the manual room target clause and the boost."""
+    parts = [clause for clause in (note.plan, note.room_target) if clause is not None]
+    if note.boost:
+        parts.append(f"boost {signed(note.boost)} K")
+    return parts
+
+
+def _ramp_parts(note: NoteInputs) -> list[str]:
+    """Return the start ramp's cap while it lowers the setpoint."""
+    if note.ramp_k < 0.0 and note.ramp_cap_c is not None:
+        return [f"start ramp caps at {note.ramp_cap_c:.1f} °C"]
+    return []
+
+
+def _floor_parts(note: NoteInputs) -> list[str]:
+    """Return what the cycling floor or the min-run window did to the setpoint."""
+    if note.floor_c is None:
+        return []
+    if note.binding == "cycling_floor":
+        if note.reference is not None and note.final <= note.reference:
+            return [f"cycling floor {note.floor_c:.1f} °C limits the decrease"]
+        return [f"cycling floor raises to {note.final} °C"]
+    if note.cycling_lift_k > 0.0:
+        return [f"min-run window lifts the target to {note.floor_c:.1f} °C"]
+    return []
+
+
+def _clamp_parts(note: NoteInputs) -> list[str]:
+    """Return the safety clamps of the continuous and of the integer setpoint."""
+    parts = []
+    if note.pre_round != note.pre_clamp:
+        parts.append(f"safety clamps {note.pre_clamp:.1f} to {note.pre_round:.1f} °C")
+    if note.integer_clamp is not None:
+        before, after = note.integer_clamp
+        parts.append(f"safety bound {note.binding} clamps {before} → {after} °C")
+    return parts
+
+
+def _outcome(note: NoteInputs) -> str:
+    """Return the closing clause: the setpoint held (and why), changed or issued."""
+    if note.reference is None:
+        return f"setpoint {note.final} °C"
+    if note.final != note.reference:
+        return f"setpoint {note.reference} → {note.final} °C"
+    if note.binding is not None and note.binding in HOLD_EXPLANATIONS:
+        return f"setpoint stays {note.final} °C, {_held(note, note.binding)}"
+    return f"setpoint {note.final} °C"
+
+
+def _held(note: NoteInputs, binding: str) -> str:
+    """Return why the setpoint holds under ``binding`` (with the dwell time left)."""
+    held = HOLD_EXPLANATIONS[binding]
+    if binding == "dwell":
+        return f"{held} ({note.dwell_left_s / 60:.0f} min left)"
+    return held

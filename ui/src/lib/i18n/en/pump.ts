@@ -3,9 +3,6 @@ export const pump = {
   navSettings: 'Settings',
   navMore: 'More',
   moreTitle: 'More',
-  moreAboutPump: 'Live pump values and the few pump settings you can change.',
-  moreAboutActivity: 'Alarms, holds, commands and the audit log.',
-  moreAboutSystem: 'Health, signals and control mode.',
   pumpTitle: 'Pump',
   pumpFailed: 'Pump settings could not be loaded.',
   pumpUnavailable: 'Pump settings are not available from this version of the service.',
@@ -83,7 +80,6 @@ export const pump = {
     'COP over {n} hours at outside temperatures from {min} to {max}, between {low} and {high}.{trend}',
   copWhy:
     'Each dot is one hour in which the pump drew power. Hours with a defrost sit low. COP is heat out divided by electricity in.',
-  insightSlot: 'Daily overview',
   pumpSettingsTitle: 'Settings you can change',
   settingsRefused: 'Pump settings cannot be changed right now',
   settingsRefusedWhy: 'Reported by the service',

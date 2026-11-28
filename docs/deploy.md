@@ -273,34 +273,43 @@ trusted room value. Going live is a local change of all three gates
 Rollback: pin the previous image. If the newer one migrated a database, restore the copy
 from step 2 (decisions recorded meanwhile are lost; the pump is unaffected in shadow).
 
-### Upgrading to 0.5.0
+### Upgrading from 0.5.0
 
-Nothing to migrate: the databases are unchanged and the first start creates the `models/`
-and `learner/` directories in the data directory.
+The house model of 0.5.0 is removed: the learner, the model plan, the what-if and the
+House page tabs built on them. Nothing to migrate: the databases are unchanged.
 
-- The image is larger: about 356 MB, was 146 MB, because it now carries numpy and scipy.
-- The house model learner is on by default and runs inside the service as a low-priority
-  child process, weekly in the night window (02:00 to 05:00 in `control_timezone`). Switch
-  it off with `house_learn_enabled` (Settings → House). Run now still works then.
-- Memory: a fit takes up to about 270 MB for under a minute next to the service. It is
-  skipped, and tried again the next night, when less than 400 MB is free, and stopped
-  above 512 MB.
-- The first model needs about three weeks of history. Until then the House page says what
-  is missing.
-- The `models/` and `learner/` directories are created in the data directory.
-- The model plan (`control_model_use`) is off by default. `shadow` computes and records a
-  plan without any effect on decisions; `on` is locked.
-- Settings is now an icon in the top bar; the House page is in the navigation.
+- The image is smaller again, about 146 MB instead of 356 MB: it no longer carries numpy
+  and scipy.
+- Stored settings of the removed features (`house_learn_*`, the `house_*` bounds,
+  `control_model_*`) are ignored on load; the facts about the house (floor area, volume,
+  build period, windows, occupants) are kept.
+- The `models/` and `learner/` directories in the data directory are no longer read or
+  written and are left as they are; delete them by hand when you no longer want them.
+- The recorded `derived/model_plan_*` signals are no longer written; rows already in the
+  history stay readable.
+- Every new feature is off by default: the sun day shift, the summer switch and quiet mode
+  after a compressor start. House basics (`house_basics_enabled`) is on, and boost and
+  away act only when you ask for them. The `compressor_starts` alarm is on as well. The
+  Features section in Settings lists all of them; `GET api/v1/control/features` shows
+  their state.
+- The sun day shift is experimental: its simulator evaluation did not pass (a house with
+  large sun-facing windows got too warm). `shadow` records what it would do; `on` needs
+  `control_dayshift_experimental_ok` as well (the checkbox under the switch in Settings →
+  Features). In the environment or the options file, set both together, or the service
+  refuses the configuration (`dayshift_on_needs_ack`). A client of
+  `GET api/v1/control/dayshift` that read `locked` reads `on_available` and
+  `experimental` instead.
+- The heat-loss estimate of House basics shows no number until about 10 heating days
+  (days that qualify, see `GET api/v1/insight/basics`) are in the history; until then the
+  page says how many are missing.
+- Set the time zone (`control_timezone`, for example `Europe/Amsterdam`) before you use
+  the day shift or the quiet windows: both follow the local clock, as do the local days of
+  the house basics.
+- Details of what changed: [../CHANGELOG.md](../CHANGELOG.md#060---2026-11-28) and
+  [notes/house-model-attempt.md](notes/house-model-attempt.md).
 
-After upgrading, check in this order:
-
-1. `GET api/v1/health` shows `live` and `ready` true.
-2. `GET api/v1/insight/house/run` shows `state` idle, `enabled` true, a `next_due_at`
-   inside the night window and no `failure`.
-3. While a Run now is going, decisions keep their one-minute cadence on the Setpoint page.
-4. `control_model_use` is `off`.
-5. After switching it to `shadow`: the House page's Control tab shows a verdict and the
-   journal stays calm (informational `model_plan` entries only).
+After upgrading, check that `GET api/v1/health` shows `live` and `ready` true and that
+decisions keep their one-minute cadence on the Setpoint page.
 
 ## Backup and restore
 

@@ -1,5 +1,7 @@
 """Pure domain logic for the ovenbird heat pump controller."""
 
+from importlib.metadata import version
+
 from ovenbird_core.catalogue import CATALOGUE, HeishaSignal, TopicSpec, ValueKind
 from ovenbird_core.control import (
     ControlInputs,
@@ -50,7 +52,7 @@ from ovenbird_core.store import (
     StateStore,
 )
 
-__version__ = "0.5.0"
+__version__ = version("ovenbird-core")
 
 __all__ = [
     "CATALOGUE",

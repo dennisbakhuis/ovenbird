@@ -114,6 +114,19 @@ SETTING_IDS: Final = (*(setting.value for setting in PumpSetting), *(r.id for r 
 
 
 def _row(row_id: str, signal: SignalId, view: SignalView | None, owner: str) -> dict[str, Any]:
+    """Return the API row of one read-only pump setting.
+
+    Parameters
+    ----------
+    row_id
+        Identifier of the row.
+    signal
+        Signal the value comes from.
+    view
+        Current reading, ``None`` when never seen.
+    owner
+        Who reports the value.
+    """
     spec = CATALOGUE.get(signal)
     supported = view is not None and view.reason is None
     value = view.value if view is not None and supported else None
@@ -169,6 +182,7 @@ class PumpSettings:
         )
 
     def _reader(self, now: Instant) -> Reader:
+        """Return a signal reader over the store as of ``now``."""
         store = self.runtime.store
         return lambda signal: store.view(signal, now)
 
@@ -186,6 +200,10 @@ class PumpSettings:
         return reasons
 
     def _last_write(self, setting: PumpSetting) -> dict[str, Any] | None:
+        """Return the last operator write of ``setting``, from the adapter or the audit trail.
+
+        The command journal supplies the outcome for a write found in the audit trail.
+        """
         if self.adapter is not None:
             write = self.adapter.operator_writes.get(setting)
             if write is not None:

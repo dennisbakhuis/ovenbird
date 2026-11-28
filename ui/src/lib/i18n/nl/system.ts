@@ -21,7 +21,6 @@ export const system: Record<keyof typeof en, string> = {
   modeRefusals: 'Stuurt niet omdat: {list}.',
   modeHelp:
     'Schaduw leest en beslist maar stuurt nooit. Pauzeren stopt het sturen tot je hervat; Hervatten gaat terug naar Automatisch. De eerste keer live gaan blijft een installatie-instelling.',
-  signalsTitle: 'Signalen',
   search: 'Signalen zoeken',
   colId: 'Signaal',
   colHeld: 'Ongewijzigd',
@@ -38,9 +37,6 @@ export const system: Record<keyof typeof en, string> = {
   healthApi: 'API-versie',
   healthLive: 'Live',
   healthReady: 'Gereed',
-  healthChecks: 'Controles',
-  healthHeartbeat: 'HeishaMon heartbeat',
-  healthLwt: 'HeishaMon status',
   healthUnavailable: 'Statusinformatie niet beschikbaar.',
   apiMismatch:
     'Deze UI ondersteunt API v{ui} maar de server meldt v{server}. Sommige gegevens worden mogelijk onjuist getoond.',
@@ -166,9 +162,6 @@ export const system: Record<keyof typeof en, string> = {
   sigval_60_min: '60 min',
   sigval_90_min: '90 min',
   sigval_no_error: 'geen fout',
-  signalGroupCount: '{group} ({n})',
-  signalGroupShow: 'Toon {n} signalen',
-  signalGroupHide: 'Verberg {n} signalen',
   systemLoadFailed: 'Dit kon niet worden geladen. Elke minuut wordt het opnieuw geprobeerd.',
   notifyTitle: 'Meldingen',
   notifyMissing:

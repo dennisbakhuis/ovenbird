@@ -8,7 +8,7 @@ from pydantic import Field
 
 from ovenbird.api.models.app import SourceName
 from ovenbird.api.models.base import ApiModel, JsonObject, Number, absent
-from ovenbird.api.models.control import ConfigMode, DecisionRecord
+from ovenbird.api.models.control import ConfigMode, DecisionRecord, FeatureName
 
 type ValueSourceName = Literal["env", "file", "store", "preset", "default"]
 type TierName = Literal["basic", "advanced", "expert"]
@@ -21,7 +21,6 @@ type FieldTypeName = Literal[
     "enum",
     "curve",
     "windows",
-    "dates",
     "list",
     "secret",
     "signal",
@@ -79,6 +78,8 @@ class FieldDef(ApiModel):
     tier: TierName
     group: str
     editable: bool
+    read_only: bool
+    feature: FeatureName | None
     env: str
     preset_default: bool
     options: list[str] = absent()

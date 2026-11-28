@@ -248,6 +248,23 @@ def _switch(
     dt: float,
     rh_pct: float = math.nan,
 ) -> PlantState:
+    """Return the state after a step: defrost progress, compressor stop or start.
+
+    Parameters
+    ----------
+    p
+        Heat pump parameters.
+    s
+        Plant state before the step.
+    setpoint
+        Water setpoint (degC) the pump regulates to.
+    outside_c
+        Outside temperature (degC).
+    dt
+        Step length (s).
+    rh_pct
+        Outside relative humidity (%); NaN uses the default frosting humidity.
+    """
     inlet, outlet = _readings(p, s)
     changed = s.last_setpoint is not None and setpoint != s.last_setpoint
     if s.defrosting:
@@ -323,10 +340,12 @@ def _switch(
 
 
 def _start_frequency(p: hp.HeatPumpParams, outside_c: float) -> float:
+    """Return the compressor start frequency (Hz) at ``outside_c``, at least the minimum."""
     return max(p.hz_start, hp.min_frequency(p, hp.sensor_outside(p, outside_c, running=True)))
 
 
 def _readings(p: hp.HeatPumpParams, s: PlantState) -> tuple[float, float]:
+    """Return the inlet and outlet water temperatures (degC) implied by heat and flow."""
     flow = p.flow_running_lpm if s.running else p.flow_idle_lpm
     half = s.heat_w / (2.0 * hp.mass_flow_cp(flow))
     inlet = s.returns[0] if s.returns else s.t_water - half
@@ -334,6 +353,7 @@ def _readings(p: hp.HeatPumpParams, s: PlantState) -> tuple[float, float]:
 
 
 def _returns(p: hp.HeatPumpParams, s: PlantState, dt: float) -> tuple[float, ...]:
+    """Return the return temperatures extended by the current one, cut to the return delay."""
     if p.return_delay_s <= 0:
         return ()
     flow = p.flow_running_lpm if s.running else p.flow_idle_lpm
@@ -343,6 +363,7 @@ def _returns(p: hp.HeatPumpParams, s: PlantState, dt: float) -> tuple[float, ...
 
 
 def _heat(p: hp.HeatPumpParams, s: PlantState, outside_c: float) -> float:
+    """Return ``value`` rounded to the nearest multiple of ``step``."""
     if not s.running:
         return 0.0
     if s.defrosting:
@@ -352,6 +373,7 @@ def _heat(p: hp.HeatPumpParams, s: PlantState, outside_c: float) -> float:
 
 
 def _quantise(value: float, step: float) -> float:
+    """Round ``value`` to the nearest multiple of ``step``."""
     return round(value / step) * step
 
 

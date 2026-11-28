@@ -233,12 +233,14 @@ class MqttSetup:
         return {str(name): str(value) for name, value in previous.items() if name in MQTT_FIELDS}
 
     def _save_trial(self, previous: Mapping[str, str]) -> None:
+        """Store the previous broker so a restart during the trial can revert to it."""
         self.manager.store.runtime_set(
             TRIAL_KEY,
             json.dumps({"previous": dict(previous), "at": self.manager.clock().wall.isoformat()}),
         )
 
     def _start_watch(self, previous: Mapping[str, str]) -> asyncio.Task[None]:
+        """Start the task that waits for HeishaMon data from the new broker."""
         self._set("applying", f"waiting up to {self.window_s:.0f} s for HeishaMon data")
         self._watch = asyncio.get_running_loop().create_task(self.watch(previous))
         return self._watch
@@ -288,6 +290,7 @@ class MqttSetup:
             self.alarms.raise_alarm(AlarmCode.MQTT_CONNECTION_REVERTED, text, self.manager.clock())
 
     def _revert_failed(self, why: str, exc: Exception) -> None:
+        """Record and alarm that the previous broker could not be restored after a failed trial."""
         detail = (
             "the previous broker no longer fits the configuration"
             if isinstance(exc, ValidationError)
@@ -306,6 +309,7 @@ class MqttSetup:
     def _candidate(
         self, body: Mapping[str, Any], *, allow_same: bool
     ) -> tuple[dict[str, str], Settings]:
+        """Return the broker values and settings a request would produce, refusing invalid ones."""
         try:
             changes = changes_from(body)
         except ValueError as exc:
@@ -320,25 +324,30 @@ class MqttSetup:
         return candidate, settings
 
     def _current(self) -> dict[str, str]:
+        """Return the stored broker fields now in force."""
         return {
             name: value for name, value in self.manager.connection.items() if name in MQTT_FIELDS
         }
 
     def _watching(self) -> bool:
+        """Return whether a trial watch is still running."""
         return self._watch is not None and not self._watch.done()
 
     def _set(self, state: str, message: str) -> None:
+        """Set the state and message shown to the user and stamp the change time."""
         self.state = state
         self.message = message
         self.changed_at = self.manager.clock().wall.isoformat()
 
     def _clear_alarm(self, why: str) -> None:
+        """Clear the broker-reverted and revert-failed alarms."""
         if self.alarms is not None:
             for code in (AlarmCode.MQTT_CONNECTION_REVERTED, AlarmCode.MQTT_REVERT_FAILED):
                 self.alarms.clear(code, self.manager.clock(), why)
 
 
 def _refused(status: int, code: str, message: str) -> ConfigRefusedError:
+    """Return the refusal that answers a request with one issue."""
     return ConfigRefusedError(
         status, {"errors": [Issue(None, code, message).to_json()], "warnings": []}
     )

@@ -8,6 +8,7 @@
   locked; while commands to the pump are on, the broker can be tested but not changed.
 -->
 <script lang="ts">
+  import { poll } from '$lib/core/poll.svelte';
   import ActionRow from '$ui/ActionRow.svelte';
   import Button from '$ui/Button.svelte';
   import Card from '$ui/Card.svelte';
@@ -109,8 +110,7 @@
 
   $effect(() => {
     if (applyState !== 'applying') return;
-    const timer = setInterval(() => void load(), pollMs);
-    return () => clearInterval(timer);
+    return poll(() => load(), { intervalMs: pollMs, immediate: false });
   });
 
   function edit(key: MqttKey, value: string | boolean): void {

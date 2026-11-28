@@ -16,8 +16,8 @@ MQTT_PORT ?= 1884
         recorder-deploy nas-status nas-logs capture-pull capture-overview \
         capture-info capture-synthetic replay replay-ignore replay-fixture \
         dev-up dev-down dev-logs image image-check ui-dev ui-build ui-check \
-        ui-e2e ui-fixtures dev-check shadow-check dev-sim-logs sim evaluate-identify evaluate-open-loop evaluate-counterfactual \
-        evaluate-sensorcheck convert-capture api-schema api-check
+        ui-e2e ui-fixtures dev-check shadow-check dev-sim-logs sim evaluate-open-loop \
+        evaluate-sensorcheck convert-capture api-schema api-check bump coverage
 
 .DEFAULT_GOAL := help
 
@@ -33,7 +33,6 @@ DEPLOY_TAR := COPYFILE_DISABLE=1 tar -C $(CAPTURE_DIR) --exclude captures --excl
 SPEED ?= 1
 START ?= $(or $(SIM_START),2026-01-06)
 REFERENCE_PLANT ?=
-BOOTSTRAP ?= 50
 COMFORT_C ?= 21.0
 MIN_SETPOINT_C ?= 24
 RECORDED_ROOM_SOURCE ?= auto
@@ -43,14 +42,8 @@ ROOM_MAX_AGE ?= 1800
 CONVERT_ROOM_MAX_AGE ?=
 CONVERT_CONFIG ?= dev/config-seed.json
 CONVERT_OUT ?= capture/captures/replay-db
-ROOM_CONFIRM ?= inf
-ROOM_PROFILE ?= on_change
-CROSSCHECK ?= main/Room_Thermostat_Temp
 CF_FROM ?=
 CF_TO ?=
-CF_ARGS ?=
-FOLDS ?= 2
-MODELS ?= capture/captures/models
 SIM_ROOM_PROFILE ?= on_change
 SENSOR_ENTITY ?= sensor.living_room_temperature
 SENSOR_LIVENESS ?= sensor.living_room_humidity
@@ -89,9 +82,7 @@ help:
 	@echo "  shadow-check   Read-only check of a deployed ovenbird in shadow URL=https://... (password in OVENBIRD_ADMIN_PASSWORD)."
 	@echo "  dev-sim-logs   Follow the simulated HeishaMon logs."
 	@echo "  sim            Run the simulated HeishaMon locally [SPEED= START=YYYY-MM-DD SIM_ROOM_PROFILE=on_change|periodic]."
-	@echo "  evaluate-identify        Fit the plant (all days and one train-only file per rolling-origin fold) into $(MODELS) [FOLDS=2 CF_TO=last day]."
 	@echo "  evaluate-open-loop       Open-loop run with the install profile [RECORDED_ROOM_SOURCE=auto|datalake|mirror ROOM_MAX_AGE=1800 OUT=dir]."
-	@echo "  evaluate-counterfactual  Closed loop on the fitted plant: ovenbird vs the recorded setpoints [BOOTSTRAP=50 ROOM_PROFILE=on_change CROSSCHECK=main/Room_Thermostat_Temp CF_FROM=first day CF_TO=last day MODELS=dir OUT=dir CF_ARGS=--no-known-events]."
 	@echo "  convert-capture          Convert a recorded period into an ovenbird history.db for System -> Replay: CF_FROM= CF_TO= [CONVERT_CONFIG=dev/config-seed.json CONVERT_OUT=capture/captures/replay-db RECORDED_ROOM_SOURCE=auto CONVERT_ROOM_MAX_AGE=s, default the room profile's silence limit CONVERT_ARGS=--force]."
 	@echo "  evaluate-sensorcheck     Propose a room sensor profile from the Datalake HA states [SENSOR_ENTITY= SENSOR_LIVENESS=]."
 	@echo "  fullrun        B1: stepped closed-loop run of the whole service over the recorded span [ARGS=--from/--to/--out]."
@@ -104,7 +95,6 @@ help:
 	@echo "                 checked only when \$$CAPTURES_DIR/live exists, otherwise skipped with a note (CI, fresh clone)."
 	@echo "  test-fixture   Regenerate the synthetic two-hour capture slice the replay tests use."
 	@echo "  ui-sim-fixtures  Regenerate the simulated service responses in ui/mock/fixtures (decisions, weather)."
-	@echo "  learn          Refit the house model on a history.db [LEARN_HISTORY=$(LEARN_HISTORY) LEARN_CONFIG=$(LEARN_CONFIG) LEARN_MODELS=$(LEARN_MODELS) WEATHER=dir FLOOR_AREA=m2 LEARN_ARGS=]."
 	@echo "  dev-down       Stop the dev stack."
 	@echo "  dev-logs       Tail dev stack logs."
 	@echo "  ui-dev         Run the UI dev server against mock data."
@@ -114,6 +104,8 @@ help:
 	@echo "  ui-fixtures    Regenerate the service UI fixtures and copy them to ui/mock/fixtures."
 	@echo "  api-schema     Regenerate docs/openapi.json and the UI's api-types.gen.ts from the response models."
 	@echo "  api-check      Fail when docs/openapi.json or ui/src/lib/core/api-types.gen.ts is stale."
+	@echo "  bump           Set every version literal and the lockfiles: make bump VERSION=x.y.z."
+	@echo "  coverage       Run the tests with pytest-cov (not part of the default gates)."
 	@echo "  image          Build the ovenbird image (ovenbird:dev)."
 	@echo "  image-check    Build the image and run it with --check."
 
@@ -212,6 +204,15 @@ image-check: image
 test:
 	uv run pytest
 
+coverage:
+	uv run pytest --cov=packages --cov=capture/src --cov-report=term --cov-report=json:coverage.json
+
+bump:
+	@test -n "$(VERSION)" || { echo "usage: make bump VERSION=x.y.z"; exit 2; }
+	python3 .github/scripts/check_version.py --set $(VERSION)
+	uv lock --offline
+	npm --prefix ui install --package-lock-only --offline
+
 test-fast:
 	uv run pytest -m "not slow"
 
@@ -220,6 +221,7 @@ typecheck:
 
 lint:
 	uv run ruff check .
+	uv run python .github/scripts/check_docstrings.py
 
 format:
 	uv run ruff format .
@@ -266,14 +268,8 @@ dev-sim-logs:
 sim:
 	uv run python -m ovenbird_sim.heishamon --host localhost --port $(MQTT_PORT) --speed $(SPEED) --start $(START) $(if $(REFERENCE_PLANT),--params $(REFERENCE_PLANT),) --room-profile $(SIM_ROOM_PROFILE) --humidity-topic climate_manager_capture/room_humidity
 
-evaluate-identify:
-	uv run python -m ovenbird_sim.identify capture/captures --folds $(FOLDS) --out $(MODELS)/plant_params.json $(if $(CF_TO),--to $(CF_TO),)
-
 evaluate-open-loop:
 	uv run python -m ovenbird_sim.evaluate open-loop --capture capture/captures/live --datalake capture/captures/datalake --room $(RECORDED_ROOM_SOURCE) --room-max-age $(ROOM_MAX_AGE) --comfort $(COMFORT_C) --min-setpoint $(MIN_SETPOINT_C) --pump-duty --pump-duty-heat $(PUMP_DUTY_HEAT) --pump-duty-idle $(PUMP_DUTY_IDLE) --emitter mixed --out $(OUT)
-
-evaluate-counterfactual:
-	uv run python -m ovenbird_sim.evaluate counterfactual --capture capture/captures/live --params $(MODELS)/plant_params.json --bootstrap $(BOOTSTRAP) --comfort $(COMFORT_C) --ovenbird-target $(COMFORT_C) --ovenbird-min-setpoint $(MIN_SETPOINT_C) --pump-duty --pump-duty-heat $(PUMP_DUTY_HEAT) --pump-duty-idle $(PUMP_DUTY_IDLE) --room-confirm-s $(ROOM_CONFIRM) --room-profile $(ROOM_PROFILE) --room-crosscheck "$(CROSSCHECK)" $(if $(CF_FROM),--from $(CF_FROM),) $(if $(CF_TO),--to $(CF_TO),) --out $(OUT) $(CF_ARGS)
 
 convert-capture:
 	uv run python -m ovenbird_harness.convert --capture capture/captures/live --datalake capture/captures/datalake --from $(CF_FROM) --to $(CF_TO) --config $(CONVERT_CONFIG) --room $(RECORDED_ROOM_SOURCE) $(if $(CONVERT_ROOM_MAX_AGE),--room-max-age $(CONVERT_ROOM_MAX_AGE),) --out $(CONVERT_OUT) $(CONVERT_ARGS)
@@ -292,17 +288,7 @@ fullrun-faults:
 fullrun-replay:
 	uv run python -m ovenbird_harness.validate $(ARGS)
 
-.PHONY: learn golden golden-check test-fixture ui-sim-fixtures
-
-LEARN_HISTORY ?= capture/captures/fullrun/plain/history.db
-LEARN_CONFIG ?= dev/learner-config.json
-LEARN_MODELS ?= capture/captures/models/house
-LEARN_ARGS ?=
-
-learn:
-	uv run python -m ovenbird_sim.learn --history $(LEARN_HISTORY) --config $(LEARN_CONFIG) \
-	    --models $(LEARN_MODELS) $(if $(WEATHER),--weather-dir $(WEATHER),) \
-	    $(if $(FLOOR_AREA),--floor-area $(FLOOR_AREA),) $(LEARN_ARGS)
+.PHONY: golden golden-check test-fixture ui-sim-fixtures
 
 golden:
 	uv run python -m ovenbird_harness.golden write

@@ -1,22 +1,11 @@
-"""Integer sensors that dither, calibrated on the recording.
+"""Simulated sensors: integer sensors that dither, and the living-room sensor device.
 
 The pump reports the outside temperature and the remote's room thermostat as whole
-degrees. In the recording both readings flip between neighbouring integers far more
-often than the smooth temperatures behind them cross a threshold (measurement
-noise), and every flip a controller sees can move a setpoint: a weather curve
-follows ``Outside_Temp``. A noise-free plant would therefore under-state how often
-a controller changes its setpoint, which is what triggers most compressor starts.
-
-:class:`SensorModel` adds seeded Gaussian noise before the rounding. The noise level
-is calibrated (:func:`calibrate`) so that the readings sampled at the end of every
-minute flip as often per day as the recorded ones, with the smooth references being
-the fused outside temperature (plus the running bias) and the living-room
-temperature (plus the thermostat's offset). The thermostat reads warmer than the
-living room by an offset that drifts (about 1 K in October, 0-0.5 K in the coldest
-days), so the offset is estimated per day (:attr:`SensorModel.offset_by_day`).
-Both runs of a paired comparison see the same noise sequence (common random
-numbers). Every device model is calibrated on a reference as smooth as the air
-node (:func:`smooth_level`) and with known events (stove fires) left out.
+degrees, and both readings flip between neighbouring integers far more often than the
+smooth temperatures behind them cross a threshold (measurement noise); every flip a
+controller sees can move a setpoint. :class:`SensorModel` adds seeded Gaussian noise
+before the rounding, and a thermostat offset (per day or one value). Both runs of a
+paired comparison see the same noise sequence (common random numbers).
 
 The living-room sensor ovenbird controls on is one model shared by the closed loop
 (:mod:`~ovenbird_sim.evaluate.closedloop`) and the simulated HeishaMon board
@@ -32,7 +21,7 @@ device, :class:`RoomSensorDevice` runs it.
 * **Heartbeat**: an unchanged value is re-sent every ``confirm_s`` (``0``: every
   sample, the ideal sensor; ``inf``: never, as the recorded device).
 * **Liveness**: a sibling signal of the same device proves it alive. In the
-  counterfactual these are the recorded humidity report times (exogenous: they do
+  closed loop these are recorded humidity report times (exogenous: they do
   not follow the simulated room); on the board a companion humidity with its own
   send-on-delta rule (:class:`HumidityModel`).
 * **Dropouts**: the recorded ``unavailable`` periods are replayed at their times.
@@ -46,7 +35,6 @@ from __future__ import annotations
 
 import bisect
 import math
-from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Final
 
@@ -55,19 +43,10 @@ import numpy as np
 from ovenbird_core.control.config import RoomSensorProfile
 from ovenbird_core.control.types import RoomProfile
 from ovenbird_sim import local
-from ovenbird_sim.data.dataset import Dataset
-from ovenbird_sim.data.grid import hold
 from ovenbird_sim.data.series import BoolArray, FloatArray, Series
-from ovenbird_sim.identify.building import observations
 
 OUTSIDE_SIGNAL: Final = "main/Outside_Temp"
-THERMOSTAT_SIGNAL: Final = "main/Room_Thermostat_Temp"
-SENSOR_MAX_AGE_S: Final = 330.0
-UNUSED_BELOW: Final = -100.0
 CALIBRATION_SEED: Final = 12345
-BISECTION_STEPS: Final = 30
-MAX_SIGMA_K: Final = 2.0
-MIN_OFFSET_SAMPLES: Final = 120
 IDEAL_ROOM_STEP_K: Final = 0.2
 SAMPLE_S: Final = 60.0
 HYSTERESIS_GRID_K: Final = tuple(round(0.01 * k, 2) for k in range(21))
@@ -80,7 +59,6 @@ EXAMPLE_HYSTERESIS_K: Final = 0.08
 EXAMPLE_CHANGES_PER_DAY: Final = 30.0
 EXAMPLE_REVERSAL_SHARE: Final = 0.35
 HUMIDITY_SIGNAL: Final = "ha/sensor.living_room_humidity"
-LEVEL_S: Final = 2 * 3600.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +93,7 @@ class RoomSensorModel:
     """The living-room sensor device (see the module docstring).
 
     The default is the ideal sensor of earlier versions (0.2 K steps, re-sent every
-    sample, never stale); :func:`calibrate` returns the recorded one and
+    sample, never stale); :func:`calibrate_room` fits one to recorded states and
     :func:`example_room_sensor` the example install's device (:func:`install_room_sensor`
     the recorded install's, from the local settings).
 
@@ -223,7 +201,7 @@ def install_room_sensor(
 ) -> RoomSensorModel:
     """Return the recorded install's room sensor: the local ``ROOM_SENSOR_*`` constants.
 
-    The constants come from :func:`calibrate` on the recording and are kept in the local
+    The constants come from :func:`calibrate_room` on the recording and are kept in the local
     settings (:mod:`ovenbird_sim.local`); missing ones are the example's.
     """
     return RoomSensorModel(
@@ -307,7 +285,13 @@ class RoomSensorDevice:
         return times[end - 1]
 
     def humidity(self, t: float) -> float | None:
-        """Return the humidity the device sends at ``t`` (modelled), or ``None``."""
+        """Return the humidity the device sends at ``t`` (modelled), or ``None``.
+
+        Parameters
+        ----------
+        t
+            Unix time (s); must advance between calls.
+        """
         model = self.model.humidity
         if model is None:
             return None
@@ -372,75 +356,6 @@ class SensorModel:
         return self.offset_by_day[min(max(index, 0), len(self.offset_by_day) - 1)]
 
 
-@dataclass(frozen=True, slots=True)
-class Calibration:
-    """Result of :func:`calibrate`.
-
-    Parameters
-    ----------
-    model
-        Calibrated sensor model.
-    outside_flips_per_day, thermostat_flips_per_day
-        Recorded minute-end flip rates the noise reproduces.
-    room_changes_per_day
-        Recorded living-room state changes per day.
-    """
-
-    model: SensorModel
-    outside_flips_per_day: float
-    thermostat_flips_per_day: float
-    room_changes_per_day: float = math.nan
-
-
-def flips_per_day(values: FloatArray, days: float) -> float:
-    """Count changes between consecutive finite samples, per day."""
-    ok = np.isfinite(values[1:]) & np.isfinite(values[:-1])
-    return float(np.sum((values[1:] != values[:-1]) & ok)) / days if days > 0 else math.nan
-
-
-def _minute_end(series: Series | None, times: FloatArray) -> FloatArray:
-    if series is None or not len(series):
-        return np.full(times.shape, np.nan)
-    keep = series.v > UNUSED_BELOW
-    values, _ = hold(Series(series.t[keep], series.v[keep]), times, SENSOR_MAX_AGE_S)
-    return values
-
-
-def _match(reference: FloatArray, target: float, days: float, seed: int) -> float:
-    if not math.isfinite(target):
-        return 0.0
-    noise = np.random.default_rng(seed).standard_normal(reference.size)
-
-    def rate(sigma: float) -> float:
-        return flips_per_day(np.round(reference + sigma * noise), days)
-
-    if rate(0.0) >= target:
-        return 0.0
-    lo, hi = 0.0, MAX_SIGMA_K
-    for _ in range(BISECTION_STEPS):
-        mid = 0.5 * (lo + hi)
-        if rate(mid) < target:
-            lo = mid
-        else:
-            hi = mid
-    return 0.5 * (lo + hi)
-
-
-def offsets_by_day(
-    thermostat: FloatArray, room: FloatArray, t: FloatArray, t0: float, fallback: float
-) -> tuple[float, ...]:
-    """Daily median of ``thermostat - room`` (days with too few samples get ``fallback``)."""
-    day = ((t - t0) // 86400.0).astype(np.int64)
-    both = np.isfinite(thermostat) & np.isfinite(room)
-    out = []
-    for d in range(int(day.max()) + 1 if day.size else 0):
-        m = both & (day == d)
-        out.append(
-            float(np.median(thermostat[m] - room[m])) if m.sum() >= MIN_OFFSET_SAMPLES else fallback
-        )
-    return tuple(out)
-
-
 def room_grid(values: FloatArray) -> tuple[float, float]:
     """Step and offset of the grid the recorded sensor values sit on."""
     v = values[np.isfinite(values)]
@@ -468,6 +383,7 @@ def dropouts(states: Series) -> tuple[tuple[float, float], ...]:
 
 
 def _outside(t: FloatArray, exclude: tuple[tuple[float, float], ...]) -> BoolArray:
+    """Return a mask of the samples outside every ``(start, end)`` interval of ``exclude``."""
     keep = np.ones(t.shape, dtype=np.bool_)
     for a, b in exclude:
         keep &= (t < a) | (t >= b)
@@ -541,7 +457,24 @@ def report_stats(
 def _fit_noise(
     reference: FloatArray, noise: FloatArray, sensor: RoomSensorModel, target: float, days: float
 ) -> float:
+    """Return the sensor noise (K) at which the change rate per day matches ``target``.
+
+    Parameters
+    ----------
+    reference
+        Air temperature per sample (degC).
+    noise
+        Standard-normal draws per sample, scaled by the fitted noise.
+    sensor
+        Sensor model whose noise is fitted.
+    target
+        Wanted number of reported changes per day.
+    days
+        Length of the series in days.
+    """
+
     def rate(sigma: float) -> float:
+        """Return the reported changes per day with noise of ``sigma`` K."""
         changes, _ = report_stats(reference, noise, replace(sensor, noise_k=sigma))
         return changes / days
 
@@ -680,120 +613,3 @@ def calibrate_room(
         changes_per_day=target,
         reversal_share=reversals,
     )
-
-
-def _centred_mean(values: FloatArray, width: int) -> FloatArray:
-    csum = np.concatenate([[0.0], np.cumsum(values)])
-    inner = (csum[width:] - csum[:-width]) / width
-    pad = values.size - inner.size
-    out = np.concatenate([np.full(pad // 2, np.nan), inner, np.full(pad - pad // 2, np.nan)])
-    return np.asarray(out, dtype=np.float64)
-
-
-def smooth_level(values: FloatArray, step_s: float) -> FloatArray:
-    """Centred :data:`LEVEL_S` mean of a temperature (as smooth as the air node).
-
-    Both device models are calibrated on a reference this smooth, because in closed
-    loop they read the plant's air node, which hardly varies below an hour; gaps are
-    filled before and kept where the window is not covered.
-    """
-    finite = np.isfinite(values)
-    if not finite.any():
-        return np.asarray(values, dtype=np.float64)
-    filled = np.interp(np.arange(values.size), np.flatnonzero(finite), values[finite])
-    level = _centred_mean(filled, max(round(LEVEL_S / step_s), 1))
-    return np.asarray(np.where(np.isfinite(level), level, values), dtype=np.float64)
-
-
-def calibrate(
-    ds: Dataset,
-    capture: Mapping[str, Series],
-    outside_bias_running_k: float,
-    seed: int = 0,
-    *,
-    room_states: Series | None = None,
-    room_reference: FloatArray | None = None,
-    room_confirm_s: float = math.inf,
-    room_profile: RoomSensorProfile | None = None,
-    room_liveness: Series | None = None,
-    per_day_offset: bool = True,
-    exclude: tuple[tuple[float, float], ...] = (),
-) -> Calibration:
-    """Calibrate the simulated sensors on the recording.
-
-    Parameters
-    ----------
-    ds
-        Dataset on the 60 s grid.
-    capture
-        Raw capture series (``main/Outside_Temp`` and ``main/Room_Thermostat_Temp``).
-    outside_bias_running_k
-        The plant's outdoor-sensor bias while running.
-    seed
-        Seed stored in the model (the calibration itself uses a fixed seed).
-    room_states
-        Recorded states of the living-room sensor (without them the ideal sensor).
-    room_reference
-        Smooth room temperature per bin for the living-room noise calibration.
-    room_confirm_s
-        Assumed heartbeat of the living-room sensor (``inf``: none, as recorded).
-    room_profile
-        The room sensor profile ovenbird is configured with.
-    room_liveness
-        Recorded states of the room sensor's liveness signal (humidity).
-    per_day_offset
-        Estimate the thermostat offset per day (else one median).
-    exclude
-        ``(start, end)`` periods left out of every calibration (known events).
-
-    Returns
-    -------
-    Calibration
-        Noise levels, thermostat offsets, the room sensor and the matched rates.
-    """
-    times = ds.t + ds.grid.step
-    left_out = np.zeros(ds.grid.n, dtype=np.bool_)
-    for a, b in exclude:
-        left_out |= (ds.t >= a) & (ds.t < b)
-    days = float((~left_out).sum()) * ds.grid.step / 86400.0
-    _, room = observations(ds)
-    room = np.where(left_out, np.nan, room)
-    thermostat = _minute_end(capture.get(THERMOSTAT_SIGNAL), times)
-    thermostat = np.where(left_out, np.nan, thermostat)
-    outside = _minute_end(capture.get(OUTSIDE_SIGNAL), times)
-    both = np.isfinite(thermostat) & np.isfinite(room)
-    offset = float(np.median(thermostat[both] - room[both])) if both.any() else 0.0
-    t0 = math.floor(ds.grid.start / 86400.0) * 86400.0
-    by_day = offsets_by_day(thermostat, room, ds.t, t0, offset) if per_day_offset else ()
-    day = ((ds.t - t0) // 86400.0).astype(np.int64)
-    offset_series = np.asarray(by_day)[np.clip(day, 0, len(by_day) - 1)] if by_day else offset
-    running = np.nan_to_num(ds.columns["compressor_frac"]) > 0.5
-    outside_ref = ds.columns["outside"] + outside_bias_running_k * running
-    thermostat_target = flips_per_day(thermostat, days)
-    outside_target = flips_per_day(outside, days)
-    reference = room if room_reference is None else room_reference
-    sensor = (
-        calibrate_room(
-            room_states,
-            np.where(left_out, np.nan, reference),
-            times,
-            room_confirm_s,
-            room_profile,
-            room_liveness,
-            exclude,
-        )
-        if room_states is not None
-        else RoomSensorModel()
-    )
-    model = SensorModel(
-        outside_noise_k=_match(outside_ref, outside_target, days, CALIBRATION_SEED),
-        thermostat_noise_k=_match(
-            room + offset_series, thermostat_target, days, CALIBRATION_SEED + 1
-        ),
-        thermostat_offset_k=offset,
-        seed=seed,
-        offset_t0=t0,
-        offset_by_day=by_day,
-        room=sensor,
-    )
-    return Calibration(model, outside_target, thermostat_target, sensor.changes_per_day)

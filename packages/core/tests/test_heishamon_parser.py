@@ -19,22 +19,26 @@ PARSER = HeishaMonParser()
 
 
 def parse(suffix: str, payload: str | bytes, *, retained: bool = False) -> ParseResult:
+    """Parse ``payload`` on the HeishaMon topic ``suffix``."""
     return PARSER.parse(f"{DEFAULT_BASE}/{suffix}", payload, retained=retained, instant=NOW)
 
 
 def reading(suffix: str, payload: str | bytes) -> Reading:
+    """Parse and return the Reading, failing if the result is another type."""
     result = parse(suffix, payload)
     assert isinstance(result, Reading), result
     return result
 
 
 def error(suffix: str, payload: str | bytes) -> ParseError:
+    """Parse and return the ParseError, failing if the result is another type."""
     result = parse(suffix, payload)
     assert isinstance(result, ParseError), result
     return result
 
 
 def test_catalogue_and_signal_enum_agree() -> None:
+    """The catalogue and the HeishaSignal enum list the same signals, with sane ranges."""
     assert set(CATALOGUE) == {str(signal) for signal in HeishaSignal}
     for signal, spec in CATALOGUE.items():
         assert spec.signal == signal
@@ -63,6 +67,7 @@ def test_catalogue_and_signal_enum_agree() -> None:
     ],
 )
 def test_numeric_topics(suffix: str, payload: str, value: float, unit: str | None) -> None:
+    """Numeric topics parse to the expected value, type, unit and source."""
     result = reading(suffix, payload)
     assert result.value == value
     assert type(result.value) is type(value)
@@ -74,6 +79,7 @@ def test_numeric_topics(suffix: str, payload: str, value: float, unit: str | Non
 
 
 def test_float_topic_accepts_integer_payload_as_float() -> None:
+    """An integer payload on a float topic is returned as float."""
     assert isinstance(reading("main/Main_Outlet_Temp", "35").value, float)
 
 
@@ -93,6 +99,7 @@ def test_float_topic_accepts_integer_payload_as_float() -> None:
     ],
 )
 def test_enum_topics(suffix: str, payload: str, code: int, meaning: str) -> None:
+    """Enum topics parse to their code and the catalogue gives the meaning."""
     result = reading(suffix, payload)
     assert result.value == code
     assert result.unit is None
@@ -109,14 +116,17 @@ def test_enum_topics(suffix: str, payload: str, code: int, meaning: str) -> None
     ],
 )
 def test_text_topics(suffix: str, payload: str) -> None:
+    """Text topics keep their payload unchanged."""
     assert reading(suffix, payload).value == payload
 
 
 def test_payload_whitespace_is_tolerated() -> None:
+    """Surrounding whitespace in a numeric payload is ignored."""
     assert reading("main/Compressor_Freq", " 48\n").value == 48
 
 
 def test_bytes_payload_is_decoded() -> None:
+    """A bytes payload is decoded and parsed."""
     assert reading("main/Main_Outlet_Temp", b"30.5").value == 30.5
 
 
@@ -150,6 +160,7 @@ def test_bytes_payload_is_decoded() -> None:
 def test_malformed_payloads_become_typed_errors(
     suffix: str, payload: str, kind: ParseErrorKind
 ) -> None:
+    """Bad payloads become a ParseError of the expected kind with signal, time and detail."""
     result = error(suffix, payload)
     assert result.kind is kind
     assert result.signal == suffix
@@ -158,19 +169,23 @@ def test_malformed_payloads_become_typed_errors(
 
 
 def test_unknown_enum_minus_one_is_explained() -> None:
+    """An enum payload of -1 is reported as unknown."""
     assert "unknown" in error("main/Defrosting_State", "-1").detail
 
 
 def test_invalid_utf8_is_malformed() -> None:
+    """A payload that is not valid UTF-8 is a malformed error."""
     assert error("main/Main_Outlet_Temp", b"\xff\xfe").kind is ParseErrorKind.MALFORMED
 
 
 def test_long_payload_is_truncated_in_the_error() -> None:
+    """An overlong payload is truncated in the error."""
     result = error("main/Error", "X" * 10_000)
     assert len(result.payload) < 300
 
 
 def test_retained_flag_is_carried() -> None:
+    """The retained flag is carried into the Reading."""
     result = parse("main/Outside_Temp", "3", retained=True)
     assert isinstance(result, Reading)
     assert result.retained is True
@@ -189,11 +204,13 @@ def test_retained_flag_is_carried() -> None:
     ],
 )
 def test_unused_topics_are_ignored(topic: str, reason: str) -> None:
+    """Uncatalogued, command and foreign topics are Ignored with a reason."""
     result = PARSER.parse(topic, "1", retained=False, instant=NOW)
     assert result == Ignored(topic, reason)
 
 
 def test_topic_base_is_configurable() -> None:
+    """A parser with another base topic reads only that base."""
     parser = HeishaMonParser(base="aquarea")
     result = parser.parse("aquarea/main/Outside_Temp", "4", retained=False, instant=NOW)
     assert isinstance(result, Reading)
@@ -212,6 +229,7 @@ STATS = (
 
 
 def test_stats_become_a_heartbeat() -> None:
+    """A stats message becomes a Heartbeat with uptime, version and read counts."""
     result = parse("stats", STATS)
     assert result == Heartbeat(
         observed=NOW,
@@ -224,12 +242,14 @@ def test_stats_become_a_heartbeat() -> None:
 
 
 def test_stats_with_unexpected_fields_still_count() -> None:
+    """Unexpected stats field types still give a Heartbeat without the details."""
     result = parse("stats", '{"uptime":"soon","version":3,"total reads":-1}')
     assert result == Heartbeat(NOW, False)
 
 
 @pytest.mark.parametrize("payload", ["", "not json", "[1,2]", "42", "[" * 5000])
 def test_malformed_stats_are_errors(payload: str) -> None:
+    """Non-JSON or non-object stats payloads are malformed errors."""
     result = error("stats", payload)
     assert result.signal == "stats"
     assert result.kind is ParseErrorKind.MALFORMED
@@ -240,13 +260,16 @@ def test_malformed_stats_are_errors(payload: str) -> None:
     [("Online", False, True), ("Offline", True, False), ("online", False, True)],
 )
 def test_lwt_is_a_notice(payload: str, retained: bool, online: bool) -> None:
+    """An LWT payload becomes an online or offline notice."""
     assert parse("LWT", payload, retained=retained) == LwtNotice(online, NOW, retained)
 
 
 def test_unexpected_lwt_is_an_error() -> None:
+    """An unknown LWT payload is an error."""
     assert error("LWT", "maybe").signal == "LWT"
 
 
 def test_parse_message_matches_parse() -> None:
+    """parse_message gives the same result as parse for the same topic and payload."""
     message = MqttMessage(f"{DEFAULT_BASE}/main/Pump_Flow", "12.5", True, NOW)
     assert PARSER.parse_message(message) == parse("main/Pump_Flow", "12.5", retained=True)

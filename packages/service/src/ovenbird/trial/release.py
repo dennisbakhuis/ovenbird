@@ -161,10 +161,12 @@ class ReleaseRefusedError(Exception):
 
 
 def _wall(ts: float | None) -> datetime | None:
+    """Return the UTC datetime of a Unix timestamp (s), or ``None``."""
     return None if ts is None else datetime.fromtimestamp(ts, UTC)
 
 
 def _iso(moment: datetime | None) -> str | None:
+    """Return the ISO 8601 text of a datetime, or ``None``."""
     return None if moment is None else iso_z(moment)
 
 
@@ -448,6 +450,7 @@ class ReleaseRun:
 
 
 def _number(view: Any) -> float | None:
+    """Return the numeric value of a fresh reading, else ``None``."""
     if view is None or not view.fresh:
         return None
     number = as_number(view.value)
@@ -499,6 +502,7 @@ class ReleaseManager:
         self._recover()
 
     def _recover(self) -> None:
+        """After a restart, mark an unfinished release as interrupted and raise its alarm."""
         stored = self.facts.get(LAST_KEY)
         if not isinstance(stored, dict) or stored.get("done") is not False:
             return
@@ -539,10 +543,12 @@ class ReleaseManager:
         return per_item * (len(VERIFY_SIGNALS) + 1) + TIMEOUT_MARGIN_S
 
     def _reader(self, now: Instant) -> Reader:
+        """Return a signal reader over the store as of ``now``."""
         store = self.loop.runtime.store
         return lambda signal: store.view(signal, now)
 
     def _store(self, key: str, value: Any) -> bool:
+        """Store a fact; return ``False`` (after logging) when the database refuses it."""
         try:
             self.facts.set(key, value)
         except sqlite3.Error:
@@ -551,10 +557,12 @@ class ReleaseManager:
         return True
 
     def _store_snapshot(self) -> None:
+        """Store the go-live snapshot, or clear it when there is none."""
         snapshot = self.snapshot
         self._store(SNAPSHOT_KEY, None if snapshot is None else snapshot.to_store())
 
     def _outside(self, now: Instant) -> float | None:
+        """Return the fresh outside temperature in °C, or ``None``."""
         return _number(self._reader(now)(HeishaSignal.OUTSIDE_TEMP))
 
     def on_tick(self, now: Instant, mode: Mode) -> None:
@@ -574,6 +582,19 @@ class ReleaseManager:
     def _read_snapshot(
         self, now: Instant, register: str, origin: str, by: str | None
     ) -> PumpSnapshot:
+        """Return the pump settings and facts as they are reported now.
+
+        Parameters
+        ----------
+        now
+            Time of the reading.
+        register
+            Register the water setpoint is written to.
+        origin
+            What triggered the snapshot (``go_live`` or a manual capture).
+        by
+            Who captured it, ``None`` for go-live.
+        """
         read = self._reader(now)
         items = {kind.value: reported_int(read(signal)) for kind, signal in VERIFY_SIGNALS.items()}
         facts = {signal: _number(read(signal)) for signal in FACT_SIGNALS}
@@ -589,6 +610,7 @@ class ReleaseManager:
         )
 
     def _take(self, now: Instant, register: str) -> None:
+        """Record the go-live snapshot of the pump state."""
         self.snapshot = self._read_snapshot(now, register, "go_live", None)
         self._store_snapshot()
         LOGGER.warning(
@@ -598,6 +620,7 @@ class ReleaseManager:
         )
 
     def _fill(self, now: Instant) -> None:
+        """Add settings the snapshot lacked from what the pump reports now."""
         snapshot = self.snapshot
         if snapshot is None:
             return
@@ -614,6 +637,13 @@ class ReleaseManager:
 
     def capture(self, actor: Actor, now: Instant | None = None) -> PumpSnapshot:
         """Capture a snapshot from the pump's current values while ovenbird does not control.
+
+        Parameters
+        ----------
+        actor
+            Who asked.
+        now
+            Capture time; the runtime clock when omitted.
 
         Raises
         ------
@@ -658,6 +688,7 @@ class ReleaseManager:
         return self.snapshot
 
     def _managed(self, kind: IntentKind) -> bool:
+        """Return whether the controller manages the setting, so a release must restore it."""
         config = self.loop.controller.config
         match kind:
             case IntentKind.MAX_PUMP_DUTY:
@@ -668,6 +699,7 @@ class ReleaseManager:
                 return True
 
     def _band(self, now: Instant) -> tuple[tuple[int, int, str] | None, float | None]:
+        """Return the safety band and the outside temperature now (``None`` when unknown)."""
         outside = self._outside(now)
         if outside is None:
             return None, None
@@ -793,6 +825,19 @@ class ReleaseManager:
         band: tuple[int, int, str] | None,
         moment: Instant,
     ) -> None:
+        """Start the release: clear the queue and request a restoring command per setting.
+
+        Parameters
+        ----------
+        run
+            Release run being started.
+        snapshot
+            Pump state recorded at go-live or by a capture.
+        band
+            Safety band ``(low, high, description)`` for the setpoint, ``None`` if unknown.
+        moment
+            Time of the release.
+        """
         adapter = self.loop.adapter
         assert adapter is not None
         if self.config is not None:
@@ -847,6 +892,19 @@ class ReleaseManager:
         band: tuple[int, int, str] | None,
         moment: Instant,
     ) -> ReleaseRun:
+        """Plan a rehearsal: record per setting what a release would do, without sending.
+
+        Parameters
+        ----------
+        run
+            Release run to fill with one item per setting.
+        snapshot
+            Pump state recorded at go-live or by a capture.
+        band
+            Safety band ``(low, high, description)`` for the setpoint, ``None`` if unknown.
+        moment
+            Time of the release.
+        """
         read = self._reader(moment)
         adapter = self.loop.adapter
         limits = adapter.config if adapter is not None else self.limits
@@ -885,6 +943,7 @@ class ReleaseManager:
         return run
 
     def _on_event(self, event: CommandEvent) -> None:
+        """Update the matching item of the running release from a command event."""
         run = self.run
         if run is None or run.done:
             return
@@ -912,6 +971,7 @@ class ReleaseManager:
         self._finish(run, now)
 
     def _finish_if_done(self, now: Instant) -> None:
+        """Finish the release once every item is done and no command is in flight."""
         run = self.run
         if run is None or run.done or len(run.items) < len(VERIFY_SIGNALS):
             return
@@ -924,6 +984,7 @@ class ReleaseManager:
         self._finish(run, now)
 
     def _check_values(self, run: ReleaseRun, now: Instant) -> None:
+        """Downgrade items whose setting the pump no longer reports at the target at the end."""
         read = self._reader(now)
         for item in run.items:
             if item.status not in {"verified", "unchanged"} or item.target is None:
@@ -937,6 +998,15 @@ class ReleaseManager:
                 )
 
     def _finish(self, run: ReleaseRun, now: Instant) -> None:
+        """Close the run: pause control, store the outcome and clear the interrupted alarm.
+
+        Parameters
+        ----------
+        run
+            Run that has finished.
+        now
+            Current time.
+        """
         hold = self.loop.guard.hold
         hold.paused = True
         hold.releasing = False
@@ -994,6 +1064,7 @@ class ReleaseManager:
         }
 
     def _capture_refusal(self) -> str | None:
+        """Return the code that refuses a capture now, or ``None`` when it may proceed."""
         if self.loop.guard.hold.releasing or (self.run is not None and not self.run.done):
             return "in_progress"
         if self.loop.effective_mode is Mode.AUTO and self.loop.adapter is not None:
@@ -1005,4 +1076,5 @@ class ReleaseManager:
 
 
 def _public(body: dict[str, Any]) -> dict[str, Any]:
+    """Return the body with the actor reduced to its public name."""
     return {**body, "by": public_name(body.get("by"))}

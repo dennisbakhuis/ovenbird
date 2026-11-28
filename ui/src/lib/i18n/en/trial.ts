@@ -1,5 +1,4 @@
 export const trial = {
-  trialTitle: 'Trial and go-live',
   trialLead:
     'What is still needed before ovenbird takes over from the other controller, how the trial compares with before, and how to hand control back.',
   trialLoading: 'Loading the trial checklist…',

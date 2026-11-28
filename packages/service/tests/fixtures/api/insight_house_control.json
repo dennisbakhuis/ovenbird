@@ -1,1 +1,0 @@
-{"use":"off","verdict":{"ok":false,"blocks":["model_stale","forecast_stale","room_untrusted"]},"model":"house-20261101","model_rmse_k":0.35,"bounds":{"max_setback_k":0.5,"max_preheat_k":0.3,"horizon_h":6.0,"max_rmse_k":0.6},"now":null,"history":{"step_s":900,"from":"2026-10-26T03:15:00Z","to":"2026-11-02T03:20:48Z","points":[]}}

@@ -203,7 +203,7 @@ the command line still wins); the Python side reads it through
 | `ENTITY.<example id> = <entity id>` | read `<entity id>` from the Datalake wherever the code names the example entity; the open-loop run records the mapped room entity |
 | `COMFORT_C`, `MIN_SETPOINT_C`, `PUMP_DUTY_HEAT`, `PUMP_DUTY_IDLE` | the install's profile in `make evaluate-*`, the real-data golden open-loop run and the full-run command line |
 | `ROOM_SENSOR_*` | the calibrated room sensor (`STEP_K`, `GRID_OFFSET_K`, `NOISE_K`, `HYSTERESIS_K`, `CHANGES_PER_DAY`, `REVERSAL_SHARE`) for runs over recorded spans |
-| `RECORDING_FROM`, `RECORDING_TO`, `SIM_START`, `CF_FROM`, `OPENLOOP_DAY`, `VALIDATE_START`, `STOVE_DAYS` | the recorded span of the full run, the simulator's start day, the counterfactual's first day, the day of the real-data golden open-loop run, the validation start and the known stove days |
+| `RECORDING_FROM`, `RECORDING_TO`, `SIM_START`, `CF_FROM`, `OPENLOOP_DAY`, `VALIDATE_START`, `STOVE_DAYS` | the recorded span of the full run, the simulator's start day, the first day of `make convert-capture`, the day of the real-data golden open-loop run, the validation start and the known stove days |
 | `REFERENCE_PLANT` | a fitted plant (`plant_params.json`) for `make sim`; `OVENBIRD_REFERENCE_PLANT` does the same for the command lines |
 | `NAS_HOST`, `NAS_DIR` | the recorder host and directory of the `recorder-*`, `nas-*` and `capture-pull` targets |
 

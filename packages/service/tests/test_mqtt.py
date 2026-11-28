@@ -1,3 +1,5 @@
+"""The MQTT ingest: subscriptions, session routing, reconnect backoff and capture replay."""
+
 from __future__ import annotations
 
 import asyncio
@@ -19,20 +21,27 @@ BASE = "panasonic_heat_pump"
 
 
 class RecordingHistory:
+    """History stand-in that records every offered sample."""
+
     def __init__(self) -> None:
+        """Start with no recorded samples."""
         self.samples: list[Sample] = []
 
     def offer(self, sample: Sample) -> None:
+        """Record a sample."""
         self.samples.append(sample)
 
     def healthy(self) -> bool:
+        """Report the history as healthy."""
         return True
 
     def starting(self) -> bool:
+        """Report that the history is not starting."""
         return False
 
 
 def fixture_records(path: Path) -> Iterator[CaptureRecord]:
+    """Yield the parsed capture records of a gzipped capture file, skipping unparsable lines."""
     with gzip.open(path, "rt", encoding="utf-8") as fh:
         for line in fh:
             record = parse_capture_line(line)
@@ -43,6 +52,7 @@ def fixture_records(path: Path) -> Iterator[CaptureRecord]:
 def test_subscriptions_cover_base_and_outside_inputs(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """Subscriptions cover the HeishaMon base topic and the extra inputs outside it."""
     settings = make_settings(
         mqtt_inputs=[
             MqttInput(topic="home/room/temp"),
@@ -55,6 +65,7 @@ def test_subscriptions_cover_base_and_outside_inputs(
 async def test_session_routes_messages_and_keeps_retained_flag(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """A session routes pump and extra inputs, keeps retained flags and counts parse errors."""
     clock = FakeClock()
     history = RecordingHistory()
     runtime = Runtime(clock=clock, history=history)
@@ -103,6 +114,7 @@ async def test_session_routes_messages_and_keeps_retained_flag(
 
 
 async def test_connected_flag_during_session(make_settings: Callable[..., Settings]) -> None:
+    """The runtime reports MQTT connected during a session and disconnected after cancellation."""
     runtime = Runtime(clock=FakeClock())
     client = FakeMqttClient([inbound(f"{BASE}/main/Outside_Temp", "4")])
     ingest = MqttIngest(make_settings(), runtime, connect=lambda: client)
@@ -116,11 +128,13 @@ async def test_connected_flag_during_session(make_settings: Callable[..., Settin
 
 
 async def test_reconnects_with_backoff(make_settings: Callable[..., Settings]) -> None:
+    """The ingest reconnects after failed and dropped connections and keeps delivering."""
     runtime = Runtime(clock=FakeClock())
     attempts: list[FakeMqttClient] = []
     connected = asyncio.Event()
 
     def connect() -> FakeMqttClient:
+        """Return a client that fails to connect twice, drops once more and then blocks."""
         client = FakeMqttClient(
             [inbound(f"{BASE}/main/Outside_Temp", str(len(attempts)))],
             fail_connect=len(attempts) < 2,
@@ -144,6 +158,7 @@ async def test_reconnects_with_backoff(make_settings: Callable[..., Settings]) -
 
 
 def test_backoff_doubles_caps_and_resets() -> None:
+    """The backoff doubles up to its cap and resets after a stable session."""
     backoff = Backoff(initial=1, cap=8, stable_after=60)
     assert [backoff.next_delay() for _ in range(5)] == [1, 2, 4, 8, 8]
     assert backoff.next_delay(session_s=120) == 1
@@ -152,6 +167,7 @@ def test_backoff_doubles_caps_and_resets() -> None:
 def test_fixture_replay_through_ingest(
     make_settings: Callable[..., Settings], capture_slice: Path
 ) -> None:
+    """Replaying a recorded capture through the ingest yields live signals and history samples."""
     clock = FakeClock()
     history = RecordingHistory()
     runtime = Runtime(clock=clock, history=history)

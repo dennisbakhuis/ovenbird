@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { poll } from '$lib/core/poll.svelte';
   import InsightCharts from '$components/insight/InsightCharts.svelte';
-  import { createInsight } from '$components/insight/useInsight.svelte';
+  import { createInsight } from '$lib/house/useInsight.svelte';
   import Card from '$ui/Card.svelte';
   import Details from '$ui/Details.svelte';
   import Icon from '$ui/Icon.svelte';
@@ -93,9 +94,8 @@
   );
 
   $effect(() => {
-    void load();
-    const timer = window.setInterval(() => void load(), inFlight ? 1500 : 15_000);
-    return () => window.clearInterval(timer);
+    void inFlight;
+    return poll(() => load(), { intervalMs: inFlight ? 1500 : 15_000 });
   });
 
   const DAY_IDS = [
@@ -118,50 +118,42 @@
 
   $effect(() => {
     void ready;
-    const controller = new AbortController();
-    const refresh = async () => {
-      const to = new Date(live.serviceNow());
-      try {
-        day = await fetchHistory(DAY_IDS, controller.signal, {
-          from: new Date(to.getTime() - DAY_MS),
-          to,
-          step: 60,
-        });
-        dayFailed = false;
-      } catch {
-        if (!controller.signal.aborted) dayFailed = true;
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(refresh, 120_000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
+    return poll(
+      async (signal) => {
+        const to = new Date(live.serviceNow());
+        try {
+          day = await fetchHistory(DAY_IDS, signal, {
+            from: new Date(to.getTime() - DAY_MS),
+            to,
+            step: 60,
+          });
+          dayFailed = false;
+        } catch {
+          if (!signal.aborted) dayFailed = true;
+        }
+      },
+      { intervalMs: 120_000 },
+    );
   });
 
   $effect(() => {
     void ready;
-    const controller = new AbortController();
-    const refresh = async () => {
-      const to = new Date(live.serviceNow());
-      try {
-        week = await fetchHistory(WEEK_IDS, controller.signal, {
-          from: new Date(to.getTime() - WEEK_MS),
-          to,
-          step: 3600,
-        });
-        weekFailed = false;
-      } catch {
-        if (!controller.signal.aborted) weekFailed = true;
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(refresh, 600_000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
+    return poll(
+      async (signal) => {
+        const to = new Date(live.serviceNow());
+        try {
+          week = await fetchHistory(WEEK_IDS, signal, {
+            from: new Date(to.getTime() - WEEK_MS),
+            to,
+            step: 3600,
+          });
+          weekFailed = false;
+        } catch {
+          if (!signal.aborted) weekFailed = true;
+        }
+      },
+      { intervalMs: 600_000 },
+    );
   });
 
   const num = (id: string): number | null => {

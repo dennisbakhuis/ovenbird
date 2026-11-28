@@ -173,6 +173,7 @@ def connect(path: Path, *, read_only: bool = False, shared: bool = False) -> sql
 
 
 def _empty(conn: sqlite3.Connection) -> bool:
+    """Return whether the database holds no tables yet."""
     row = conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
     return int(row[0]) == 0
 

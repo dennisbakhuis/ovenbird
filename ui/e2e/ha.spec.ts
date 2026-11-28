@@ -85,9 +85,9 @@ test('a thermostat can be picked as the room sensor', async ({ page }) => {
 test('liveness lists the room sensor device first', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('ovenbird.language', 'en'));
   await page.goto('./#/settings/room');
-  await page
-    .locator('#field-control_room_signal')
-    .selectOption('ha/sensor.living_room_temperature');
+  const select = page.locator('select#field-control_room_signal');
+  await expect(select).toBeVisible();
+  await select.selectOption('ha/sensor.living_room_temperature');
   await page.getByTestId('room-sensor-behaviour-details').locator('summary').click();
   const list = page.getByTestId('signal-multi');
   await expect(list).toBeVisible();

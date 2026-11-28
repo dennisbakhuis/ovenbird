@@ -10,5 +10,7 @@ changelog and the design document.
 | 2026-11-14 | [The learner proposes, the owner approves](2026-11-14-learning-proposes-owner-approves.md) (superseded in part, 2026-11-27) |
 | 2026-11-15 | [No pump-duty command during a defrost](2026-11-15-no-pump-duty-during-defrost.md) |
 | 2026-11-18 | [Wood stove: one episode per cooling cycle](2026-11-18-stove-episode-cap.md) |
-| 2026-11-27 | [The learned house model in the controller](2026-11-27-learned-model-in-controller.md) (amended, 2026-11-28) |
-| 2026-11-28 | [The model plan after the evaluation](2026-11-28-model-plan-after-evaluation.md) |
+| 2026-11-27 | [The learned house model in the controller](2026-11-27-learned-model-in-controller.md) (superseded, 2026-11-28) |
+| 2026-11-28 | [The model plan after the evaluation](2026-11-28-model-plan-after-evaluation.md) (superseded, 2026-11-28) |
+| 2026-11-28 | [The house model is removed](2026-11-28-house-model-removed.md) |
+| 2026-11-28 | [The sun day shift after the evaluation](2026-11-28-sun-day-shift-after-evaluation.md) |

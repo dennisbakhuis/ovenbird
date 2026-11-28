@@ -2,25 +2,21 @@
 
 The integrator integrates only when nothing saturates in the direction of the error
 (feedback clamp, safety clamp, start ramp, cycling floor) and nothing freezes it
-(defrost, DHW, stale or implausible room, wood stove, override, reduced cooling
-authority). Once an ``on_change`` room sensor has been silent beyond
+(defrost, DHW, stale or implausible room, wood stove, the summer switch, override,
+reduced cooling authority). Once an ``on_change`` room sensor has been silent beyond
 ``alive_decay_start_s``, or its value went stale or implausible, the cooling
 integrated since its last proof of life is undone.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from ovenbird_core.control.config import OvenbirdConfig
 from ovenbird_core.control.notes import HARD_HIGH
 from ovenbird_core.control.safety import EPSILON, SafetyBounds
 from ovenbird_core.control.stages import round_half_up
+from ovenbird_core.control.state import OvenbirdState
 from ovenbird_core.control.terms import Feedback, clamp
 from ovenbird_core.control.types import RoomInput
-
-if TYPE_CHECKING:
-    from ovenbird_core.control.ovenbird import OvenbirdState
 
 
 def freezes(
@@ -32,8 +28,29 @@ def freezes(
     seen: RoomInput | None,
     stove: bool,
     manual: bool,
+    summer: bool = False,
 ) -> list[str]:
-    """Return what freezes the integrator this tick, in the order the record lists it."""
+    """Return what freezes the integrator this tick, in the order the record lists it.
+
+    Parameters
+    ----------
+    defrost
+        The heat pump is defrosting.
+    dhw
+        The heat pump is making domestic hot water.
+    implausible
+        The room value failed the plausibility cross-check.
+    room
+        Trusted room value, ``None`` when unusable.
+    seen
+        Room input as received, possibly stale.
+    stove
+        A wood-stove episode is active.
+    manual
+        A manual setpoint override is active.
+    summer
+        The summer switch is on.
+    """
     frozen_by: list[str] = []
     if defrost:
         frozen_by.append("defrost")
@@ -45,6 +62,8 @@ def freezes(
         frozen_by.append("room_stale" if seen is not None else "no_room_sensor")
     if stove:
         frozen_by.append("stove")
+    if summer:
+        frozen_by.append("summer")
     if manual:
         frozen_by.append("override")
     return frozen_by
@@ -66,6 +85,33 @@ def integrate(
     dt: float,
 ) -> tuple[float, list[str]]:
     """Advance the integrator unless frozen or saturated (anti-windup).
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration.
+    integral
+        Current integrator value, in K.
+    feedback
+        Room feedback of this tick.
+    frozen_by
+        Reasons the integrator is already frozen.
+    pre_clamp
+        Sum of the terms before the safety clamp, in °C.
+    pre_round
+        Safety-clamped continuous setpoint, in °C.
+    bounds
+        Safety envelope at the current outside temperature.
+    final
+        Issued integer setpoint, in °C.
+    binding
+        Constraint that bound the setpoint, if any.
+    ramp
+        Start-ramp term, in K (at most 0).
+    cycling
+        Cycling-floor term, in K (at least 0).
+    dt
+        Time since the previous tick, in s.
 
     Returns
     -------
@@ -111,6 +157,19 @@ def integral_at_life(
     takes the integrator as it stood before this tick; a ``lost`` (stale or
     implausible) value keeps the mark it had; without a usable ``on_change``
     value nothing is kept.
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration.
+    state
+        Controller state before this tick.
+    room
+        Trusted room value, ``None`` when unusable.
+    dt
+        Time since the previous tick, in s.
+    lost
+        Whether the room value went stale or implausible.
     """
     if room is None and lost:
         return state.integral_at_life_k
@@ -144,6 +203,27 @@ def rollback(
     enough (a stuck reading the cross-check flags within its sustain time) keeps
     no cooling nothing confirmed either. Defrost, DHW and a wood-stove episode
     defer the undo (the mark is kept); it never goes beyond the integrator clamp.
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration.
+    integral
+        Integrator after this tick's update, in K.
+    at_life
+        Integrator at the last proof of life, in K, or ``None``.
+    pi_room
+        Room value driving the feedback, if any.
+    frozen_by
+        Reasons the integrator is already frozen.
+    defrost
+        The heat pump is defrosting.
+    dhw
+        The heat pump is making domestic hot water.
+    stove
+        A wood-stove episode is active.
+    lost
+        Whether the room value went stale or implausible.
     """
     if defrost or dhw or stove or at_life is None or integral >= at_life:
         return integral, frozen_by

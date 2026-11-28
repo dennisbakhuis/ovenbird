@@ -5,6 +5,9 @@ Supersedes in part: [The learner proposes, the owner approves](2026-11-14-learni
 Amended by: [The model plan after the evaluation](2026-11-28-model-plan-after-evaluation.md)
 (2026-11-28). A water feed-forward, rejected below, was built and evaluated; neither planner
 is unlocked and `on` stays locked. The rest of this record stays in force.
+Superseded by: [The house model is removed](2026-11-28-house-model-removed.md)
+(2026-11-28). The model, the learner and both planners are removed in 0.6.0, and this
+record no longer holds; see [house-model-attempt.md](../notes/house-model-attempt.md).
 
 ## Decision
 

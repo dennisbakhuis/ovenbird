@@ -4,6 +4,7 @@ import base64
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -13,13 +14,16 @@ from ovenbird.api.app import create_app
 from ovenbird.config import Settings
 from ovenbird.configstore import ConfigManager, provided_sources
 from ovenbird.control import ControlLoop
-from ovenbird.history.journal import DecisionRow, write_journal
+from ovenbird.history.journal import AlarmRow, DecisionRow, write_journal
 from ovenbird.history.schema import open_history
 from ovenbird.mqtt import MqttIngest
 from ovenbird.mqttsetup import MqttSetup
+from ovenbird.replay.stepping import parse_rows
 from ovenbird.runtime import Runtime
 from ovenbird.service import build_control
 from ovenbird.testing import FakeClock, FakeMqttClient
+from ovenbird_core import Instant
+from ovenbird_core.control import DecisionRecord, LadderLevel, Mode, ReasonCode
 
 TOKEN = "operate-token-" + "x" * 24
 PASSWORD = "pw-123"
@@ -35,6 +39,7 @@ ALL_TIME = {"from": "2000-01-01T00:00:00Z", "to": "2100-01-01T00:00:00Z"}
 
 
 def basic(user: str = "admin", password: str = PASSWORD) -> dict[str, str]:
+    """Return HTTP Basic authorization headers for the given credentials."""
     token = base64.b64encode(f"{user}:{password}".encode()).decode()
     return {"Authorization": f"Basic {token}"}
 
@@ -43,11 +48,14 @@ BEARER = {"Authorization": f"Bearer {TOKEN}"}
 
 
 async def no_sleep(_: float) -> None:
-    return None
+    """Replace asyncio sleep so the control loop never waits in tests."""
+    return
 
 
 @dataclass
 class Stack:
+    """A wired config manager, runtime, control loop and clock for API tests."""
+
     manager: ConfigManager
     runtime: Runtime
     loop: ControlLoop
@@ -55,6 +63,7 @@ class Stack:
     settings: Settings
 
     def client(self, **kwargs: Any) -> TestClient:
+        """Build a test client for an app created over this stack with a fake broker."""
         ingest = MqttIngest(self.manager.settings, self.runtime, connect=FakeMqttClient)
         mqtt = MqttSetup(self.manager, ingest, self.runtime, lambda: False, check=no_check)
         app = create_app(
@@ -64,6 +73,7 @@ class Stack:
 
 
 async def no_check(settings: Settings) -> dict[str, Any]:
+    """Stand in for the broker connection test and report an unreachable broker."""
     return {
         "ok": False,
         "host": settings.mqtt_host,
@@ -79,6 +89,7 @@ async def no_check(settings: Settings) -> dict[str, Any]:
 
 
 def stack(settings: Settings, clock: FakeClock | None = None, *, from_env: bool = False) -> Stack:
+    """Build a ``Stack`` from settings, optionally honouring env-provided locks."""
     moment = clock or FakeClock()
     manager = ConfigManager.open(settings, moment, locked=provided_sources() if from_env else {})
     runtime = Runtime(clock=moment)
@@ -96,11 +107,13 @@ def stack(settings: Settings, clock: FakeClock | None = None, *, from_env: bool 
 
 @pytest.fixture
 def open_settings(make_settings: Callable[..., Settings]) -> Settings:
+    """Settings with an operate token and no admin password (open mode)."""
     return make_settings(**PUBLISH, operate_token=TOKEN)
 
 
 @pytest.fixture
 def secured(make_settings: Callable[..., Settings]) -> Settings:
+    """Settings on a non-loopback host with an operate token and admin password."""
     return make_settings(
         **PUBLISH, operate_token=TOKEN, http_host="0.0.0.0", admin_password=PASSWORD
     )
@@ -108,10 +121,12 @@ def secured(make_settings: Callable[..., Settings]) -> Settings:
 
 @pytest.fixture
 def ingress(make_settings: Callable[..., Settings]) -> Settings:
+    """Settings for Home Assistant ingress mode."""
     return make_settings(**PUBLISH, ingress=True)
 
 
 def body_for(path: str) -> dict[str, Any]:
+    """Return a minimal valid or invalid request body for the given endpoint path."""
     match path:
         case "/api/v1/config/validate":
             return {"changes": {"control_comfort_c": 21.4}}
@@ -160,6 +175,7 @@ RANK = {"read": 0, "operate": 1, "admin": 2}
 
 
 def call(client: TestClient, method: str, path: str, headers: dict[str, str]) -> int:
+    """Send a request and return only its HTTP status code."""
     if method == "GET":
         return client.get(path, headers=headers).status_code
     return client.request(
@@ -187,6 +203,7 @@ def test_role_matrix(
     path: str,
     needed: str,
 ) -> None:
+    """Each endpoint accepts roles at or above its rank and refuses lower ones with 403."""
     settings = request.getfixturevalue({"open": "open_settings"}.get(mode, mode))
     rig = stack(settings)
     kwargs = {"client": INGRESS} if mode == "ingress" else {}
@@ -202,6 +219,7 @@ def test_role_matrix(
 def test_without_credentials_everything_but_health_is_refused(
     secured: Settings, method: str, path: str, needed: str
 ) -> None:
+    """Missing or wrong credentials give 401 everywhere except on the health endpoint."""
     with stack(secured).client() as client:
         assert call(client, method, path, {}) == 401
         assert call(client, method, path, basic(password="nope")) == 401
@@ -211,6 +229,7 @@ def test_without_credentials_everything_but_health_is_refused(
 
 
 def test_wrong_bearer_is_refused_in_open_mode(open_settings: Settings) -> None:
+    """A wrong bearer token is rejected with 401 even when no password is set."""
     with stack(open_settings).client() as client:
         response = client.get("/api/v1/config", headers={"Authorization": "Bearer nope"})
     assert response.status_code == 401
@@ -232,6 +251,7 @@ def test_wrong_bearer_is_refused_in_open_mode(open_settings: Settings) -> None:
 def test_request_rules(
     request: pytest.FixtureRequest, source: str, headers: dict[str, str], status: int
 ) -> None:
+    """Mutations with a bad marker, content type, origin, fetch site or size are refused."""
     settings = request.getfixturevalue(source)
     rig = stack(settings)
     auth = basic() if source == "secured" else {}
@@ -247,6 +267,7 @@ def test_request_rules(
 
 
 def test_oversized_body_is_refused(secured: Settings) -> None:
+    """A request body above the size limit is refused with 413."""
     rig = stack(secured)
     content = json.dumps({"base_version": 0, "changes": {"x": "y" * 70_000}})
     with rig.client() as client:
@@ -259,6 +280,7 @@ def test_oversized_body_is_refused(secured: Settings) -> None:
 
 
 def test_ingress_own_origin_and_actor(ingress: Settings) -> None:
+    """Under ingress the forwarded origin is accepted and the actor is the HA user."""
     rig = stack(ingress)
     headers = {
         **MARK,
@@ -281,6 +303,7 @@ def test_ingress_own_origin_and_actor(ingress: Settings) -> None:
 
 
 def test_forwarded_host_is_ignored_outside_ingress(secured: Settings) -> None:
+    """Forwarded host headers do not make a foreign origin acceptable outside ingress."""
     rig = stack(secured)
     headers = {
         **basic(),
@@ -297,6 +320,7 @@ def test_forwarded_host_is_ignored_outside_ingress(secured: Settings) -> None:
 def test_apply_conflicts_locks_rate_and_audit(
     monkeypatch: pytest.MonkeyPatch, secured: Settings
 ) -> None:
+    """Applying config handles conflicts, locks, rate limits, history, audit and export."""
     monkeypatch.setenv("OVENBIRD_CONTROL_DWELL_S", "1200")
     full = stack(secured, from_env=True)
     admin = {**basic(), **MARK}
@@ -354,6 +378,7 @@ def test_apply_conflicts_locks_rate_and_audit(
 
 
 def test_validate_reports_errors_warnings_and_effective(open_settings: Settings) -> None:
+    """Validation reports errors, warnings and effective values without applying."""
     with stack(open_settings).client() as client:
         response = client.post(
             "/api/v1/config/validate",
@@ -379,6 +404,7 @@ def test_validate_reports_errors_warnings_and_effective(open_settings: Settings)
 
 
 def test_get_config_shape(open_settings: Settings) -> None:
+    """The config and schema responses expose the documented keys, locks and field metadata."""
     with stack(open_settings).client() as client:
         body = client.get("/api/v1/config").json()
         schema = client.get("/api/v1/config/schema")
@@ -419,6 +445,7 @@ def test_get_config_shape(open_settings: Settings) -> None:
 
 
 def test_pause_resume_through_the_api(open_settings: Settings, secured: Settings) -> None:
+    """Operate role can pause control, only admin can resume, and each step is audited."""
     rig = stack(secured)
     with rig.client() as client:
         paused = client.post(
@@ -446,6 +473,7 @@ def test_pause_resume_through_the_api(open_settings: Settings, secured: Settings
 def test_pause_conflicts_without_an_auto_installation(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """Pausing an installation not configured for auto control is refused with 409."""
     rig = stack(make_settings(operate_token=TOKEN))
     with rig.client() as client:
         response = client.post("/api/v1/control/pause", json={}, headers={**BEARER, **MARK})
@@ -454,6 +482,7 @@ def test_pause_conflicts_without_an_auto_installation(
 
 
 def test_security_headers(secured: Settings, ingress: Settings) -> None:
+    """Responses carry hardening headers, with framing allowed only under ingress."""
     with stack(secured).client() as client:
         headers = client.get("/api/v1/health").headers
         refused = client.get("/api/v1/config").headers
@@ -468,6 +497,7 @@ def test_security_headers(secured: Settings, ingress: Settings) -> None:
 
 
 def test_decision_series(open_settings: Settings) -> None:
+    """The decision series endpoint returns raw and downsampled series and rejects bad steps."""
     rig = stack(open_settings)
     conn = open_history(open_settings.history_path)
     rows = []
@@ -531,6 +561,7 @@ def test_decision_series(open_settings: Settings) -> None:
 def test_pause_audit_omits_a_missing_reason(
     secured: Settings, body: dict[str, Any], detail: dict[str, Any]
 ) -> None:
+    """The pause audit detail contains the reason only when one was given."""
     rig = stack(secured)
     with rig.client() as client:
         client.post("/api/v1/control/pause", json=body, headers={**BEARER, **MARK})
@@ -539,6 +570,7 @@ def test_pause_audit_omits_a_missing_reason(
 
 
 def test_the_broker_endpoints_answer_status_and_refusals(secured: Settings) -> None:
+    """Broker endpoints report status, reject bad input and require a passing test."""
     admin = {**basic(), **MARK}
     with stack(secured).client() as client:
         status = client.get("/api/v1/config/mqtt", headers=admin).json()
@@ -553,3 +585,59 @@ def test_the_broker_endpoints_answer_status_and_refusals(secured: Settings) -> N
     assert failed.json()["error_code"] == "unreachable"
     assert untested.status_code == 409
     assert untested.json()["errors"][0]["code"] == "test_required"
+
+
+def test_stored_rows_of_the_removed_house_model_read_back(secured: Settings) -> None:
+    """Rows from the removed house model still read back and are skipped in replay."""
+    rig = stack(secured)
+    conn = open_history(secured.history_path)
+    ts = 1_800_000_000.0
+    record = DecisionRecord(
+        at=Instant(ts, datetime.fromtimestamp(ts, UTC)),
+        controller="ovenbird",
+        mode=Mode.SHADOW,
+        ladder=LadderLevel.CURVE_ONLY,
+        terms=(),
+        pre_round=34.0,
+        setpoint=34,
+        binding=None,
+        flip_distance=None,
+        inputs_used=(),
+        controller_state={},
+        reason=ReasonCode.CURVE,
+        note="",
+    ).to_json_dict()
+    stale = DecisionRow(
+        ts,
+        "ovenbird",
+        "auto",
+        "model_plan",
+        "curve",
+        34,
+        json.dumps({**record, "ladder": "model_plan"}),
+        "[]",
+        "[]",
+        1,
+    )
+    alarm = AlarmRow(ts, "model_plan", "info", "started", "guard verdict", "{}")
+    write_journal(conn, [stale], [], [alarm])
+    conn.close()
+    rig.manager.store.audit(ts, "admin", "house_learn_run", {"fit": "old"})
+    window = {"from": "2027-01-15T08:00:00Z", "to": "2027-01-15T09:00:00Z"}
+    with rig.client() as client:
+        alarms = client.get("/api/v1/alarms", params=window, headers=basic()).json()
+        audit = client.get("/api/v1/audit", params=ALL_TIME, headers=basic()).json()
+        decisions = client.get("/api/v1/decisions", params=window, headers=basic())
+        latest = client.get("/api/v1/decisions/latest", headers=basic())
+        series = client.get("/api/v1/decisions/series", params=window, headers=basic())
+    assert [e["code"] for e in alarms["events"]] == ["model_plan"]
+    assert [e["action"] for e in audit["events"]] == ["house_learn_run"]
+    assert decisions.status_code == 200
+    assert decisions.json()["decisions"][0]["ladder"] == "model_plan"
+    assert latest.status_code == 200
+    assert series.status_code == 200
+    good = DecisionRow(
+        ts, "ovenbird", "auto", "curve_only", "curve", 34, json.dumps(record), "[]", "[]", 1
+    )
+    ticks, skipped = parse_rows([good, stale])
+    assert (len(ticks), skipped) == (1, 1)

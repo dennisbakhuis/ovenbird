@@ -372,6 +372,7 @@ class HistoryWriter:
                 LOGGER.error("history writer did not stop within %.0f s", timeout)
 
     def _main(self) -> None:
+        """Run the writer thread until the queue is closed and empty, then close the database."""
         try:
             while True:
                 closing = self._queue.closed
@@ -423,6 +424,7 @@ class HistoryWriter:
             self._next_snapshot = now + self.snapshot_interval
 
     def _archive(self, now: float) -> bool:
+        """Advance the archiver when it is due; return whether it holds back retention."""
         archiver = self.archiver
         if archiver is None:
             return False
@@ -432,6 +434,15 @@ class HistoryWriter:
         return archiver.holds_retention()
 
     def _open(self, now: float) -> None:
+        """Open the database, restoring a snapshot first, or schedule a retry.
+
+        A first compaction is requested when the file is worth compacting.
+
+        Parameters
+        ----------
+        now
+            Monotonic time, to schedule a retry.
+        """
         try:
             if self.snapshot_path is not None:
                 discard_temp(self.snapshot_path)
@@ -453,6 +464,7 @@ class HistoryWriter:
             self.request_compaction()
 
     def _worth_compacting(self) -> bool:
+        """Return whether the file is not yet incrementally vacuumed and has many free pages."""
         if self._db is None:
             return False
         conn = self._db.conn
@@ -465,6 +477,7 @@ class HistoryWriter:
         return free >= COMPACT_MIN_FREE_BYTES and free >= COMPACT_FREE_SHARE * total
 
     def _file_bytes(self) -> int:
+        """Return the size of the database file and its write-ahead log in bytes."""
         size = 0
         for suffix in ("", "-wal"):
             try:
@@ -474,6 +487,10 @@ class HistoryWriter:
         return size
 
     def _compact(self) -> None:
+        """Vacuum the database into incremental mode when the disk has room.
+
+        The outcome is recorded in the compaction state.
+        """
         state = self.compaction
         state.pending = False
         if self._db is None:
@@ -511,6 +528,7 @@ class HistoryWriter:
             self._write_snapshot()
 
     def _snapshot_delay(self) -> float:
+        """Return the seconds until the next snapshot is due, given the age of the last one."""
         if self.snapshot_path is None:
             return 0.0
         try:
@@ -521,6 +539,7 @@ class HistoryWriter:
         return min(self.snapshot_interval, max(0.0, self.snapshot_interval - age))
 
     def _write_snapshot(self) -> None:
+        """Write the snapshot file unless it does not fit, counting what happened."""
         if self._db is None or self.snapshot_path is None:
             return
         discard_temp(self.snapshot_path)
@@ -536,6 +555,7 @@ class HistoryWriter:
         LOGGER.info("history snapshot written to %s", self.snapshot_path)
 
     def _snapshot_fits(self) -> bool:
+        """Return whether the free disk space covers a snapshot beside the minimum reserve."""
         try:
             free = self._disk_free(self.path.parent)
             size = self.path.stat().st_size
@@ -553,6 +573,7 @@ class HistoryWriter:
         return True
 
     def _check_disk(self) -> None:
+        """Pause writes when free space is below the minimum; resume once it has recovered."""
         try:
             free = self._disk_free(self.path.parent)
         except OSError:
@@ -573,6 +594,15 @@ class HistoryWriter:
             LOGGER.warning("history writes resumed: %d MB free", free // 2**20)
 
     def _write(self, batch: Sequence[Item]) -> None:
+        """Write a batch: samples, then journal rows and forecasts.
+
+        A failure drops the whole batch.
+
+        Parameters
+        ----------
+        batch
+            Queued items, of every row kind.
+        """
         if self._db is None:
             return
         samples = [item for item in batch if isinstance(item, Sample)]
@@ -597,6 +627,10 @@ class HistoryWriter:
         self.stats.error = None
 
     def _apply_retention(self) -> None:
+        """Delete samples, journal rows and forecasts past their retention.
+
+        The freed pages are released.
+        """
         if self._db is None:
             return
         try:
@@ -619,6 +653,7 @@ class HistoryWriter:
             LOGGER.info("history retention deleted %d rows", deleted)
 
     def _close(self) -> None:
+        """Close the database and mark the writer as not open."""
         db, self._db = self._db, None
         self.stats.open = False
         if db is not None:

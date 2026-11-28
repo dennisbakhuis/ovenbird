@@ -23,6 +23,7 @@ TMP_SUFFIX: Final = ".tmp"
 
 
 def _fsync(path: Path) -> None:
+    """Flush a file's contents to disk."""
     fd = os.open(path, os.O_RDONLY)
     try:
         os.fsync(fd)
@@ -31,6 +32,7 @@ def _fsync(path: Path) -> None:
 
 
 def _replace_atomically(source: Path, target: Path) -> None:
+    """Sync ``source``, rename it over ``target`` and sync the folder."""
     _fsync(source)
     os.replace(source, target)
     with contextlib.suppress(OSError):

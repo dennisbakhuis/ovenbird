@@ -16,6 +16,7 @@ from ovenbird_core import MqttMessage, StateStore
 
 
 def _runtime_with(payload: str | None) -> Runtime:
+    """Build a runtime that has seen the given DHW_Installed payload, or none."""
     runtime = Runtime(StateStore(), clock=FakeClock(1000.0))
     if payload is not None:
         router = build_router(Settings())
@@ -29,6 +30,7 @@ def _runtime_with(payload: str | None) -> Runtime:
 def test_the_pump_reports_whether_a_tank_is_installed(
     payload: str | None, expected: bool | None
 ) -> None:
+    """The DHW_Installed report maps to True, False or None when unreported."""
     runtime = _runtime_with(payload)
     assert dhw_installed(runtime.store, runtime.clock()) is expected
 
@@ -47,6 +49,7 @@ def test_the_pump_reports_whether_a_tank_is_installed(
 def test_auto_follows_the_pump_and_unknown_shows_it(
     setting: str, installed: bool | None, shown: bool
 ) -> None:
+    """Auto follows the pump's report and shows hot water when unknown; on and off override it."""
     assert hot_water_payload(setting, installed) == {
         "setting": setting,
         "installed": installed,
@@ -57,6 +60,7 @@ def test_auto_follows_the_pump_and_unknown_shows_it(
 def test_the_configuration_says_whether_hot_water_is_shown(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """The config payload reflects the setting and the installed report."""
     manager = ConfigManager.open(make_settings(), FakeClock(), locked={})
     try:
         assert manager.payload()["hot_water"]["shown"] is True
@@ -73,6 +77,7 @@ def test_the_configuration_says_whether_hot_water_is_shown(
 
 
 def test_the_setting_defaults_to_auto_and_rejects_other_values() -> None:
+    """The hot-water setting defaults to auto and rejects unknown values."""
     assert Settings().hot_water == "auto"
     with pytest.raises(ValueError, match="hot_water"):
         Settings(hot_water="sometimes")  # type: ignore[arg-type]

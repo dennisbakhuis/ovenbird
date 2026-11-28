@@ -29,16 +29,22 @@ START = datetime(2026, 1, 7, tzinfo=UTC)
 
 
 class Delivered:
+    """Message delivered by the fake client."""
+
     def __init__(self, topic: str, payload: bytes) -> None:
+        """Keep the topic and payload of the message."""
         self.topic = topic
         self.payload = payload
         self.retain = False
 
 
 class FakeClient:
+    """Fake MQTT client that records subscriptions and publications and delivers one command."""
+
     instances: ClassVar[list[FakeClient]] = []
 
     def __init__(self, **kwargs: Any) -> None:
+        """Keep the client options and register the instance."""
         self.kwargs = kwargs
         self.subscribed: list[str] = []
         self.published: list[tuple[str, str, bool]] = []
@@ -46,6 +52,7 @@ class FakeClient:
         FakeClient.instances.append(self)
 
     async def __aenter__(self) -> Self:
+        """Enter the client context."""
         return self
 
     async def __aexit__(
@@ -54,19 +61,25 @@ class FakeClient:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        return None
+        """Leave the client context."""
+        return
 
     async def subscribe(self, topic: str, qos: int = 0) -> None:
+        """Record the subscribed topic."""
         self.subscribed.append(topic)
 
     async def publish(self, topic: str, payload: str, qos: int = 0, retain: bool = False) -> None:
+        """Record the publication and deliver a pump duty command after the second stats message."""
         self.published.append((topic, payload, retain))
         if topic.endswith("/stats") and json.loads(payload)["total reads"] == 2:
             await self.inbox.put(Delivered("panasonic_heat_pump/commands/SetMaxPumpDuty", b"102"))
 
     @property
     def messages(self) -> Any:
+        """Return the message stream fed from the inbox."""
+
         async def stream() -> Any:
+            """Yield the delivered messages as they arrive."""
             while True:
                 yield await self.inbox.get()
 
@@ -75,17 +88,20 @@ class FakeClient:
 
 @pytest.mark.parametrize("host", ["localhost", "127.0.0.1", "::1", "mosquitto", "LocalHost"])
 def test_local_brokers_are_allowed(host: str) -> None:
+    """Local broker hosts are accepted."""
     check_broker(host)
 
 
 @pytest.mark.parametrize("host", ["192.0.2.10", "homeassistant.local", "nas", "core-mosquitto"])
 def test_remote_brokers_are_refused(host: str) -> None:
+    """Remote broker hosts are refused unless explicitly allowed."""
     with pytest.raises(RemoteBrokerError):
         check_broker(host)
     check_broker(host, allow_remote=True)
 
 
 async def test_runner_registers_will_subscribes_and_applies_commands() -> None:
+    """The runner sets a will, subscribes to commands, publishes without echo and applies one."""
     FakeClient.instances.clear()
     board = SimulatedHeishaMon(REFERENCE_PARAMS, ColdWeek(START), START)
     config = RunnerConfig(speed=1000.0, duration_s=60.0)
@@ -108,6 +124,7 @@ async def test_runner_registers_will_subscribes_and_applies_commands() -> None:
 
 
 async def test_runner_refuses_a_remote_broker_before_connecting() -> None:
+    """The runner refuses a remote broker before connecting."""
     FakeClient.instances.clear()
     board = SimulatedHeishaMon(REFERENCE_PARAMS, ColdWeek(START), START)
     with pytest.raises(RemoteBrokerError):
@@ -116,11 +133,13 @@ async def test_runner_refuses_a_remote_broker_before_connecting() -> None:
 
 
 def test_parse_start() -> None:
+    """The start time is parsed as a date or a UTC date and time."""
     assert parse_start("2026-01-07") == START
     assert parse_start("2026-01-07T06:00:00Z") == datetime(2026, 1, 7, 6, tzinfo=UTC)
 
 
 def test_cold_week_needs_no_local_data(tmp_path: Path) -> None:
+    """The cold-week scenario starts from a settled house without local weather data."""
     args = build_parser().parse_args(
         ["--scenario", "cold-week", "--weather-dir", str(tmp_path), "--preroll-hours", "2"]
     )
@@ -132,15 +151,18 @@ def test_cold_week_needs_no_local_data(tmp_path: Path) -> None:
 
 
 def test_recorded_scenario_without_cache_fails_cleanly(tmp_path: Path) -> None:
+    """A recorded scenario without a weather cache fails with status 2."""
     assert main(["--weather-dir", str(tmp_path), "--preroll-hours", "0"]) == 2
 
 
 def test_cli_refuses_remote_broker(tmp_path: Path) -> None:
+    """The command line refuses a remote broker with status 2."""
     argv = ["--scenario", "cold-week", "--host", "10.0.0.2", "--preroll-hours", "0"]
     assert main(argv) == 2
 
 
 def test_recorded_weather_interpolates(tmp_path: Path) -> None:
+    """Recorded weather is interpolated linearly between its hourly values."""
     t0 = START.timestamp()
     cache = {
         "meta": {},
@@ -160,6 +182,7 @@ def test_recorded_weather_interpolates(tmp_path: Path) -> None:
 
 
 def test_cold_week_is_cold_and_deterministic() -> None:
+    """The cold week is cold and identical for equal starts."""
     week = ColdWeek(START)
     temps = [week.at(START.timestamp() + h * 3600.0, (h + 1) % 24).outside_c for h in range(168)]
     assert min(temps) < -8.0
@@ -173,10 +196,14 @@ def test_cold_week_is_cold_and_deterministic() -> None:
 
 
 def test_mqtt_errors_are_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MQTT connection errors are retried."""
     attempts: list[int] = []
 
     class Flaky(FakeClient):
+        """Client whose first connection attempt fails."""
+
         async def __aenter__(self) -> Self:
+            """Fail the first connection attempt and succeed afterwards."""
             attempts.append(1)
             if len(attempts) == 1:
                 raise aiomqtt.MqttError("refused")
@@ -189,6 +216,7 @@ def test_mqtt_errors_are_retried(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def two_hour_cache(directory: Path) -> RecordedWeather:
+    """Write a three-point recorded weather cache of two hours to ``directory`` and load it."""
     t0 = START.timestamp()
     cache = {
         "meta": {},
@@ -205,6 +233,7 @@ def two_hour_cache(directory: Path) -> RecordedWeather:
 async def test_runner_stops_at_the_end_of_the_recorded_weather(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """At the end of the recorded weather the runner logs it, publishes offline and stops."""
     FakeClient.instances.clear()
     weather = two_hour_cache(tmp_path)
     board = SimulatedHeishaMon(REFERENCE_PARAMS, weather, START)
@@ -220,6 +249,7 @@ async def test_runner_stops_at_the_end_of_the_recorded_weather(
 
 
 async def test_runner_finishes_a_duration() -> None:
+    """The runner finishes after its configured duration."""
     FakeClient.instances.clear()
     board = SimulatedHeishaMon(REFERENCE_PARAMS, ColdWeek(START), START)
     outcome = await run(board, RunnerConfig(speed=1e6, duration_s=60.0), client_factory=FakeClient)
@@ -227,6 +257,7 @@ async def test_runner_finishes_a_duration() -> None:
 
 
 def test_looped_weather_wraps(tmp_path: Path) -> None:
+    """Looped weather wraps around at the end of the recording."""
     weather = two_hour_cache(tmp_path)
     looped = LoopedWeather(weather)
     t0 = START.timestamp()
@@ -239,6 +270,7 @@ def test_looped_weather_wraps(tmp_path: Path) -> None:
 
 
 def test_at_end_option(tmp_path: Path) -> None:
+    """The ``--at-end`` option selects stopping or looping of the recorded weather."""
     two_hour_cache(tmp_path)
     base = ["--weather-dir", str(tmp_path), "--preroll-hours", "0", "--start", "2026-01-07"]
     assert build_parser().parse_args(base).at_end == "stop"
@@ -249,9 +281,11 @@ def test_at_end_option(tmp_path: Path) -> None:
 
 
 def test_idle_never_returns() -> None:
+    """Idling sleeps repeatedly and only ends by an interrupt."""
     calls: list[float] = []
 
     def sleep(seconds: float) -> None:
+        """Record the sleep and interrupt on the third call."""
         calls.append(seconds)
         if len(calls) == 3:
             raise KeyboardInterrupt
@@ -262,6 +296,7 @@ def test_idle_never_returns() -> None:
 
 
 def test_extra_heat_injection_warms_the_house() -> None:
+    """Injected extra heat warms the house and moves the zone, thermostat and room sensor."""
     plain = SimulatedHeishaMon(REFERENCE_PARAMS, ColdWeek(START), START)
     stove = SimulatedHeishaMon(
         REFERENCE_PARAMS, ColdWeek(START), START, config=BoardConfig(inject_prefix="sim")

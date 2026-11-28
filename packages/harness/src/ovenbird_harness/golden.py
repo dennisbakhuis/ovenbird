@@ -224,10 +224,12 @@ def drill_config(work: Path, name: str) -> RunConfig:
 
 
 def _drill_stream(name: str, work: Path) -> list[str]:
+    """Return the stream of the single-drill run ``name``."""
     return stream_of(drill_config(work, name), name)
 
 
 def _quiet() -> None:
+    """Silence logging below critical level (worker process initialiser)."""
     logging.basicConfig(level="CRITICAL")
 
 
@@ -371,6 +373,22 @@ def generate(out: Path, real: Path, captures: Path, jobs: int) -> list[str]:
 
     Returns the notes on what was skipped or included.
 
+    Parameters
+    ----------
+    out
+        Directory receiving the synthetic (committed) streams.
+    real
+        Directory receiving the real-data streams, kept locally.
+    captures
+        Directory of the local recorded captures.
+    jobs
+        Number of worker processes for the drill sweep.
+
+    Returns
+    -------
+    list[str]
+        Notes on which streams were skipped or included.
+
     Raises
     ------
     GoldenError
@@ -403,7 +421,22 @@ def excerpt(line: str, other: str) -> str:
 
 
 def differences(golden: Path, fresh: Path, skipped: Sequence[str] = ()) -> list[str]:
-    """Return a short summary of how ``fresh`` differs from ``golden``."""
+    """Return a short summary of how ``fresh`` differs from ``golden``.
+
+    Parameters
+    ----------
+    golden
+        Directory of the committed streams.
+    fresh
+        Directory of the freshly produced streams.
+    skipped
+        Names that may be missing from ``fresh`` without counting as a difference.
+
+    Returns
+    -------
+    list[str]
+        Summary lines, empty when the trees are identical.
+    """
     found: list[str] = []
     have = golden_files(golden) if golden.is_dir() else []
     want = golden_files(fresh) if fresh.is_dir() else []
@@ -462,7 +495,22 @@ def write(golden: Path, captures: Path, jobs: int) -> int:
 
 
 def check(golden: Path, captures: Path, jobs: int) -> int:
-    """Regenerate into a temporary directory and diff against ``golden`` (and ``golden-real``)."""
+    """Regenerate into a temporary directory and diff against ``golden`` (and ``golden-real``).
+
+    Parameters
+    ----------
+    golden
+        Directory of the committed streams.
+    captures
+        Directory of the local recorded captures.
+    jobs
+        Number of worker processes for the drill sweep.
+
+    Returns
+    -------
+    int
+        Exit code: 0 when identical, 1 when they differ.
+    """
     real = captures / REAL_DIR
     with tempfile.TemporaryDirectory(prefix="golden-check-") as scratch:
         fresh = Path(scratch) / "synthetic"

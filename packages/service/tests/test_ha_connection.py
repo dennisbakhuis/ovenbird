@@ -46,10 +46,12 @@ ROOM = "ha/sensor.living_room_temperature"
 def open_manager(
     settings: Settings, clock: FakeClock | None = None, locked: dict[str, Source] | None = None
 ) -> ConfigManager:
+    """Open a ConfigManager on the settings with an optional clock and locked fields."""
     return ConfigManager.open(settings, clock or FakeClock(), locked=locked or {})
 
 
 def everything(manager: ConfigManager) -> str:
+    """Return every manager payload, version, export and audit event as one JSON string."""
     latest = manager.store.latest()
     audit = manager.store.audit_events(0.0, 1e12, 100)
     return json.dumps(
@@ -66,6 +68,7 @@ def everything(manager: ConfigManager) -> str:
 def test_connection_is_stored_outside_the_versions(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """A stored connection leaves config versions alone, notifies listeners, hides the token."""
     manager = open_manager(make_settings())
     calls: list[Settings] = []
     manager.connection_listeners.append(calls.append)
@@ -95,6 +98,7 @@ def test_connection_is_stored_outside_the_versions(
 
 
 def test_token_is_redacted_from_diagnostics(make_settings: Callable[..., Settings]) -> None:
+    """The token is redacted from the effective config and from leaked log text."""
     manager = open_manager(make_settings())
     manager.set_connection({"ha_url": URL, "ha_token": TOKEN}, ADMIN)
     config = effective_config(manager.settings)
@@ -105,6 +109,7 @@ def test_token_is_redacted_from_diagnostics(make_settings: Callable[..., Setting
 
 
 def test_signals_need_the_connection_and_keep_it(make_settings: Callable[..., Settings]) -> None:
+    """Signals need the stored connection, and removing it is refused while one depends on it."""
     clock = FakeClock()
     manager = open_manager(make_settings(), clock)
     refused = manager.validate({"control_room_signal": ROOM})
@@ -137,6 +142,7 @@ def test_signals_need_the_connection_and_keep_it(make_settings: Callable[..., Se
 def test_invalid_connections_are_refused(
     make_settings: Callable[..., Settings], changes: dict[str, Any], field: str, code: str
 ) -> None:
+    """Malformed or unknown connection input is refused with a field and code, storing nothing."""
     manager = open_manager(make_settings())
     with pytest.raises(ConfigRefusedError) as refused:
         manager.set_connection(changes, ADMIN)
@@ -146,6 +152,7 @@ def test_invalid_connections_are_refused(
 
 
 def test_unchanged_connection_is_no_change(make_settings: Callable[..., Settings]) -> None:
+    """An identical connection is refused as no change, while a new token alone is accepted."""
     manager = open_manager(make_settings())
     manager.set_connection({"ha_url": URL, "ha_token": TOKEN}, ADMIN)
     with pytest.raises(ConfigRefusedError) as refused:
@@ -157,6 +164,7 @@ def test_unchanged_connection_is_no_change(make_settings: Callable[..., Settings
 
 
 def test_a_new_url_needs_its_token(make_settings: Callable[..., Settings]) -> None:
+    """Changing the URL requires a new token, and nothing changes or notifies until it is given."""
     manager = open_manager(make_settings())
     seen: list[Settings] = []
     manager.set_connection({"ha_url": URL, "ha_token": TOKEN}, ADMIN)
@@ -179,6 +187,7 @@ def test_a_new_url_needs_its_token(make_settings: Callable[..., Settings]) -> No
 def test_a_new_url_cannot_take_an_environment_token(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """A URL change cannot reuse a token that comes from the environment."""
     locked = {"ha_token": Source.ENV}
     settings = make_settings(ha_url="http://ha.base:8123", ha_token="env-token")
     manager = open_manager(settings, locked=locked)
@@ -189,6 +198,7 @@ def test_a_new_url_cannot_take_an_environment_token(
 
 
 def test_environment_locks_the_connection(make_settings: Callable[..., Settings]) -> None:
+    """Connection fields set from the environment are locked and cannot be changed."""
     locked = {"ha_url": Source.ENV, "ha_token": Source.ENV}
     manager = open_manager(
         make_settings(ha_url="http://ha.env:8123", ha_token="env-token"), locked=locked
@@ -203,6 +213,7 @@ def test_environment_locks_the_connection(make_settings: Callable[..., Settings]
 
 
 def test_environment_wins_over_a_stored_connection(make_settings: Callable[..., Settings]) -> None:
+    """An environment connection wins over a stored one, which is kept as the stored value."""
     manager = open_manager(make_settings())
     manager.set_connection({"ha_url": URL, "ha_token": TOKEN}, ADMIN)
     manager.close()
@@ -213,6 +224,7 @@ def test_environment_wins_over_a_stored_connection(make_settings: Callable[..., 
 
 
 def test_put_config_refuses_connection_fields(make_settings: Callable[..., Settings]) -> None:
+    """Validating a config change that contains connection fields is refused."""
     result = open_manager(make_settings()).validate({"ha_url": URL})
     assert [(e.field, e.code) for e in result.errors] == [("ha_url", "connection_field")]
 
@@ -220,6 +232,7 @@ def test_put_config_refuses_connection_fields(make_settings: Callable[..., Setti
 def test_a_store_of_the_previous_schema_opens_and_migrates(
     make_settings: Callable[..., Settings], tmp_path: Path
 ) -> None:
+    """A store of the previous schema version opens, migrates and keeps its values."""
     settings = make_settings()
     settings.data_dir.mkdir(parents=True)
     first = resources.files("ovenbird.configstore.migrations") / "0001_initial.sql"
@@ -240,6 +253,7 @@ def test_a_store_of_the_previous_schema_opens_and_migrates(
 
 
 def test_follower_reconnects_the_input(make_settings: Callable[..., Settings]) -> None:
+    """The HA follower reconfigures the input and the runtime when the connection is set."""
     manager = open_manager(make_settings())
     runtime = Runtime()
     ha = HaInput(None, None, (), runtime)
@@ -254,12 +268,14 @@ def test_follower_reconnects_the_input(make_settings: Callable[..., Settings]) -
 def test_connection_change_reaches_the_control_loop(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """A connection change is passed to the control loop's reconfigure hooks at the next tick."""
     clock = FakeClock()
     manager = open_manager(make_settings(), clock)
     runtime = Runtime(clock=clock)
 
     async def no_sleep(_: float) -> None:
-        return None
+        """Replace the asyncio sleep so the control loop does not wait."""
+        return
 
     loop, _ = build_control(
         manager.settings, runtime, None, sleep=no_sleep, hold=manager.hold, config_version=None
@@ -274,26 +290,33 @@ def test_connection_change_reaches_the_control_loop(
 
 
 class FakeChecker:
+    """Fake connection checker that records its calls and reports a healthy Home Assistant."""
+
     def __init__(self) -> None:
+        """Start with no recorded calls."""
         self.calls: list[tuple[Any, ...]] = []
 
     async def __call__(
         self, url: str | None, token: SecretStr | None, signals: Any, **kwargs: Any
     ) -> dict[str, Any]:
+        """Record the URL, token and signals of a check and return a successful result."""
         self.calls.append((url, None if token is None else token.get_secret_value(), signals))
         return CheckResult(url, reachable=True, auth_ok=True).to_json()
 
 
 def client_for(manager: ConfigManager, checker: FakeChecker) -> TestClient:
+    """Create a test client for an app that uses the fake connection checker."""
     app = create_app(Runtime(), manager.settings, config=manager, ha_check=checker)
     return TestClient(app)
 
 
 def basic(password: str = PASSWORD) -> dict[str, str]:
+    """Return Basic-auth headers for the admin user with the given password."""
     return {"Authorization": "Basic " + base64.b64encode(f"admin:{password}".encode()).decode()}
 
 
 def test_put_and_test_endpoints(make_settings: Callable[..., Settings]) -> None:
+    """The PUT and test endpoints validate input, need admin, hide the token and pass values on."""
     settings = make_settings(http_host="0.0.0.0", admin_password=PASSWORD)
     manager = open_manager(settings)
     checker = FakeChecker()
@@ -334,7 +357,10 @@ def test_put_and_test_endpoints(make_settings: Callable[..., Settings]) -> None:
 
 
 class FakeServer:
+    """Fake Home Assistant websocket server with a fixed set of entity states."""
+
     def __init__(self, unit: str = "°C") -> None:
+        """Create the fake with the given temperature unit and canned entity states."""
         self.unit = unit
         self.received: list[dict[str, Any]] = []
         self.states = [
@@ -353,6 +379,7 @@ class FakeServer:
         ]
 
     async def handler(self, ws: ServerConnection) -> None:
+        """Serve one websocket session: authenticate with TOKEN, then answer config and states."""
         await ws.send(json.dumps({"type": "auth_required", "ha_version": "2026.11.1"}))
         auth = json.loads(await ws.recv())
         self.received.append(auth)
@@ -373,6 +400,7 @@ class FakeServer:
 
 @pytest.fixture
 async def server() -> AsyncIterator[tuple[FakeServer, str]]:
+    """Run a fake Home Assistant websocket server on a free port and yield it with its URL."""
     fake = FakeServer()
     running: Server
     async with serve(fake.handler, "127.0.0.1", 0) as running:
@@ -381,7 +409,10 @@ async def server() -> AsyncIterator[tuple[FakeServer, str]]:
 
 
 def http(status: int) -> Callable[..., Any]:
+    """Return a REST getter that always answers with the given HTTP status."""
+
     async def get(url: str, token: str, limit_s: float) -> tuple[int, bytes]:
+        """Check that the URL is the REST API root and return the status with a fixed body."""
         assert url.endswith("/api/")
         return status, b'{"message": "API running."}'
 
@@ -389,6 +420,7 @@ def http(status: int) -> Callable[..., Any]:
 
 
 async def test_check_reports_entities_and_units(server: tuple[FakeServer, str]) -> None:
+    """The check reports entity units, values and problems, without leaking the token."""
     fake, url = server
     signals = (
         "ha/sensor.living_room_temperature",
@@ -420,9 +452,11 @@ async def test_check_reports_entities_and_units(server: tuple[FakeServer, str]) 
 
 
 async def test_check_follows_no_websocket_redirect(server: tuple[FakeServer, str]) -> None:
+    """The check reports a websocket error when the server redirects and does not follow it."""
     fake, target = server
 
     def redirect(connection: ServerConnection, request: Request) -> Response:
+        """Answer every websocket handshake with a redirect to the real server."""
         response = connection.respond(HTTPStatus.FOUND, "moved\n")
         response.headers["Location"] = target.replace("http", "ws") + "/api/websocket"
         return response
@@ -438,7 +472,10 @@ async def test_check_follows_no_websocket_redirect(server: tuple[FakeServer, str
 
 
 async def test_check_ends_within_its_deadline() -> None:
+    """The check gives up within its deadline when the server never answers."""
+
     async def hang(url: str, token: str, limit_s: float) -> tuple[int, bytes]:
+        """Wait forever instead of answering."""
         await asyncio.sleep(3600.0)
         return 200, b""
 
@@ -451,6 +488,7 @@ async def test_check_ends_within_its_deadline() -> None:
 
 
 async def test_check_refuses_a_bare_unit_outside_metric(server: tuple[FakeServer, str]) -> None:
+    """A bare temperature entity is a problem when Home Assistant does not use metric units."""
     fake, url = server
     fake.unit = "°F"
     body = await check_connection(
@@ -466,6 +504,7 @@ async def test_check_refuses_a_bare_unit_outside_metric(server: tuple[FakeServer
 
 
 async def test_check_passes_for_a_good_setup(server: tuple[FakeServer, str]) -> None:
+    """A check with a reachable server, valid token and found entities is ok."""
     _, url = server
     body = await check_connection(
         url, SecretStr(TOKEN), ("ha/sensor.living_room_temperature",), get=http(200)
@@ -475,6 +514,7 @@ async def test_check_passes_for_a_good_setup(server: tuple[FakeServer, str]) -> 
 
 
 async def test_check_reports_a_rejected_token(server: tuple[FakeServer, str]) -> None:
+    """A rejected token is reported as auth_failed, over REST and over the websocket."""
     _, url = server
     body = await check_connection(url, SecretStr("wrong-token"), (), get=http(401))
     assert (body["reachable"], body["auth_ok"], body["error_code"]) == (True, False, "auth_failed")
@@ -485,7 +525,10 @@ async def test_check_reports_a_rejected_token(server: tuple[FakeServer, str]) ->
 
 
 async def test_check_reports_an_unreachable_host() -> None:
+    """An unreachable host is reported without leaking the token."""
+
     async def refused(url: str, token: str, limit_s: float) -> tuple[int, bytes]:
+        """Raise a connection error that includes the token."""
         raise ConnectionRefusedError(f"refused {token}")
 
     body = await check_connection(URL, SecretStr(TOKEN), (), get=refused)
@@ -494,7 +537,10 @@ async def test_check_reports_an_unreachable_host() -> None:
 
 
 async def test_check_times_out_quickly() -> None:
+    """A server that never answers makes the check fail quickly as unreachable."""
+
     async def hangs(url: str, token: str, limit_s: float) -> tuple[int, bytes]:
+        """Wait far longer than the check limit."""
         await asyncio.sleep(10)
         return 200, b""
 
@@ -513,12 +559,14 @@ async def test_check_times_out_quickly() -> None:
     ],
 )
 async def test_check_needs_a_url_and_a_token(url: str | None, token: str | None, code: str) -> None:
+    """A missing or invalid URL or token is reported with a specific error code."""
     body = await check_connection(url, None if token is None else SecretStr(token), ())
     assert body["error_code"] == code
     assert body["ok"] is False
 
 
 async def test_check_reports_a_redirect_or_foreign_server() -> None:
+    """A redirect on the REST probe is reported as an HTTP error."""
     body = await check_connection(URL, SecretStr(TOKEN), (), get=http(302))
     assert body["error_code"] == "http_error"
 
@@ -533,12 +581,14 @@ async def test_check_reports_a_redirect_or_foreign_server() -> None:
     ],
 )
 def test_rest_url(base: str, expected: str) -> None:
+    """The REST API URL is derived from the base URL, keeping path prefixes and mapping wss."""
     assert rest_url(base) == expected
 
 
 def test_empty_environment_values_do_not_lock(
     monkeypatch: pytest.MonkeyPatch, make_settings: Callable[..., Settings]
 ) -> None:
+    """Empty environment values do not lock the connection fields, while set ones do."""
     monkeypatch.setenv("OVENBIRD_HA_URL", "")
     monkeypatch.setenv("OVENBIRD_HA_TOKEN", "")
     assert "ha_url" not in provided_sources()

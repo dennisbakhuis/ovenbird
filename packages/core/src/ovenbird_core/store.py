@@ -6,8 +6,7 @@ millions in a replay) and the controller reads an immutable :class:`Snapshot`
 once per tick. Mutation is explicit and confined to :meth:`StateStore.apply`;
 everything read from the store is immutable.
 
-Freshness rules
----------------
+**Freshness rules**
 * Ages are measured on the monotonic axis from the last *confirmation* of a value.
 * A live delivery confirms its value. For sources that report their own timestamp
   (Home Assistant ``last_reported``) the confirmation is moved back by the lag the
@@ -343,6 +342,8 @@ class LinkStatus:
 
 @dataclass(frozen=True, slots=True)
 class _Entry:
+    """Latest reading of a signal with its confirmation, last invalid payload and change time."""
+
     reading: Reading
     confirmed: float | None
     invalid: ParseError | None = None
@@ -350,12 +351,14 @@ class _Entry:
 
     @property
     def last_observed(self) -> Instant:
+        """Return the receipt time of the newest payload, valid or not."""
         if self.invalid is not None and self.reading.observed < self.invalid.observed:
             return self.invalid.observed
         return self.reading.observed
 
     @property
     def usable_confirmation(self) -> float | None:
+        """Return the confirmation time, ``None`` while the latest payload was invalid."""
         return None if self.invalid is not None else self.confirmed
 
 
@@ -372,6 +375,15 @@ def confirmation_time(reading: Reading) -> float:
 
 
 def _source_time(reading: Reading, stamp: datetime) -> float:
+    """Return the monotonic time of the source's own ``stamp``, never later than the receipt.
+
+    Parameters
+    ----------
+    reading
+        Reading whose receipt time anchors the conversion.
+    stamp
+        Timestamp reported by the source.
+    """
     lag = (reading.observed.wall - stamp).total_seconds()
     return reading.observed.monotonic - max(0.0, lag)
 
@@ -471,6 +483,7 @@ class StateStore:
                 return False
 
     def _apply_heartbeat(self, heartbeat: Heartbeat) -> bool:
+        """Record a live heartbeat and its interval, returning whether it was taken."""
         if heartbeat.retained:
             return False
         previous = self._heartbeat
@@ -484,6 +497,7 @@ class StateStore:
         return True
 
     def _invalidate(self, error: ParseError) -> bool:
+        """Mark the signal's reading invalid, returning whether it was usable before."""
         existing = self._entries.get(error.signal)
         if error.retained or existing is None or error.observed < existing.last_observed:
             return False
@@ -492,6 +506,18 @@ class StateStore:
         return was_usable
 
     def _apply_reading(self, reading: Reading) -> bool:
+        """Store a reading with its confirmation and change times; return whether it was taken.
+
+        Parameters
+        ----------
+        reading
+            The new reading; one observed before the stored one is discarded.
+
+        Returns
+        -------
+        bool
+            Whether the reading was stored.
+        """
         existing = self._entries.get(reading.signal)
         if existing is not None and reading.observed < existing.last_observed:
             return False
@@ -608,6 +634,7 @@ class StateStore:
         )
 
     def _alive(self, signal: SignalId, entry: _Entry) -> tuple[float | None, SignalId | None]:
+        """Return the newest confirmation of ``signal`` and the sibling that supplied it, if any."""
         newest, by = entry.confirmed, None
         for sibling in self.policy.confirmed_by.get(signal, ()):
             other = self._entries.get(sibling)

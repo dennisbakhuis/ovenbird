@@ -38,7 +38,7 @@ export const topic: HelpTopic = {
       id: 'display-only',
       kind: 'know',
       title: 'Does the forecast steer?',
-      body: 'The forecast is for you to look at, with one exception: the [[model-plan|model plan]] (House → Control). In Shadow the plan computes with the forecast but changes nothing. On, which moves the room target a little ahead of sun or colder weather, is locked for now. Otherwise ovenbird controls on the measured outside temperature alone.\n\n**Curve water** is the heating curve alone, before [[room-feedback|room feedback]], limits and rounding, so the real setpoint can differ by a few degrees. ovenbird stores every forecast as it was issued, so its quality can be judged honestly.',
+      body: 'The forecast is for you to look at. ovenbird controls on the measured outside temperature alone.\n\n**Curve water** is the heating curve alone, before [[room-feedback|room feedback]], limits and rounding, so the real setpoint can differ by a few degrees. ovenbird stores every forecast as it was issued, so its quality can be judged honestly.',
     },
     {
       id: 'privacy',

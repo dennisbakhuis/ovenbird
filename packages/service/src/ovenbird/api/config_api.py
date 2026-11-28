@@ -102,6 +102,13 @@ def ha_test_target(
     An omitted URL or token takes the effective one, but the effective token is only
     sent to the effective URL: testing another URL needs its token in the body.
 
+    Parameters
+    ----------
+    body
+        Parsed JSON body with the optional ``url``, ``token`` and ``signals``.
+    settings
+        Effective settings that supply the omitted values.
+
     Raises
     ------
     HTTPException
@@ -178,20 +185,30 @@ def build_config_router(
 
     @router.get("/config/schema", **returns(ConfigSchema))
     async def schema() -> JSONResponse:
+        """Return the configuration schema with the effective limits."""
         return JSONResponse(schema_payload(config.settings), headers=NO_CACHE)
 
     @router.get("/config", **returns(ConfigDoc))
     async def current() -> Json:
+        """Return the effective configuration document."""
         return config.payload()
 
     @router.post("/config/validate", **returns(ValidateResult))
     async def validate(request: Request) -> Json:
+        """Validate proposed changes without applying them."""
         require_role(request, settings, Role.OPERATE, audit)
         body = await read_json(request)
         return config.validate(changes_of(body)).to_json()
 
     @router.post("/config/preview", **returns(PreviewResult))
     async def preview(request: Request) -> Json:
+        """Validate proposed changes and replay recent decisions with them.
+
+        Parameters
+        ----------
+        request
+            Incoming request with the changes and optional ``hours`` (1 to 72) to replay.
+        """
         require_role(request, settings, Role.OPERATE, audit)
         body = await read_json(request)
         changes = changes_of(body)
@@ -229,6 +246,7 @@ def build_config_router(
 
     @router.get("/config/signals", **returns(ConfigSignals))
     async def signal_candidates(request: Request) -> Json:
+        """Return the signals the configuration can pick from."""
         require_role(request, settings, Role.ADMIN)
         if signals is None:
             return {
@@ -241,6 +259,7 @@ def build_config_router(
 
     @router.put("/config", **returns(ApplyResult, encoder=True))
     async def apply(request: Request) -> Json | JSONResponse:
+        """Apply changes as a new configuration version."""
         who = require_role(request, settings, Role.ADMIN, audit)
         body = await read_json(request)
         try:
@@ -256,6 +275,7 @@ def build_config_router(
 
     @router.put("/config/ha", **returns(HaConnectionResult, encoder=True))
     async def ha_connection(request: Request) -> Json | JSONResponse:
+        """Store the Home Assistant URL and token."""
         who = require_role(request, settings, Role.ADMIN, audit)
         body = await read_json(request)
         changes = {name: body[name] for name in body if name in ("url", "token")}
@@ -276,6 +296,7 @@ def build_config_router(
 
     @router.post("/config/ha/test", **returns(HaTestResult))
     async def ha_test(request: Request) -> Json:
+        """Test a Home Assistant connection and its signals."""
         require_role(request, settings, Role.ADMIN, audit)
         body = await read_json(request)
         current = config.settings
@@ -285,12 +306,14 @@ def build_config_router(
 
     @router.get("/config/mqtt", **returns(MqttStatus))
     async def mqtt_status() -> Json:
+        """Return the state of the MQTT ingest connection."""
         if mqtt is None:
             raise HTTPException(404, "no MQTT ingest in this service")
         return mqtt.status()
 
     @router.post("/config/mqtt/test", **returns(MqttTestResult))
     async def mqtt_test(request: Request) -> Json | JSONResponse:
+        """Test an MQTT broker connection without storing it."""
         require_role(request, settings, Role.ADMIN, audit)
         if mqtt is None:
             raise HTTPException(404, "no MQTT ingest in this service")
@@ -303,6 +326,7 @@ def build_config_router(
 
     @router.put("/config/mqtt", **returns(MqttConnectionResult, encoder=True))
     async def mqtt_connection(request: Request) -> Json | JSONResponse:
+        """Store and apply the MQTT broker connection."""
         who = require_role(request, settings, Role.ADMIN, audit)
         if mqtt is None:
             raise HTTPException(404, "no MQTT ingest in this service")
@@ -316,10 +340,12 @@ def build_config_router(
     async def versions(
         limit: Annotated[int, Query(ge=1, le=MAX_VERSIONS)] = DEFAULT_VERSIONS,
     ) -> Json:
+        """Return the newest configuration versions."""
         return config.versions_payload(limit)
 
     @router.get("/config/versions/{number}", **returns(ConfigVersion))
     async def version(number: int) -> Json:
+        """Return one configuration version with its values."""
         item = config.store.get(number)
         if item is None:
             raise HTTPException(404, f"no configuration version {number}")
@@ -327,6 +353,7 @@ def build_config_router(
 
     @router.post("/config/rollback", **returns(ApplyResult, encoder=True))
     async def rollback(request: Request) -> Json | JSONResponse:
+        """Apply an older version's document as a new version."""
         who = require_role(request, settings, Role.ADMIN, audit)
         body = await read_json(request)
         try:
@@ -342,6 +369,7 @@ def build_config_router(
 
     @router.get("/config/export", **returns(ConfigExport))
     async def export(request: Request) -> JSONResponse:
+        """Return the configuration document as a download, secrets left out."""
         require_role(request, settings, Role.ADMIN)
         body = config.export()
         name = f"ovenbird-config-v{body['version']}.json"
@@ -352,6 +380,7 @@ def build_config_router(
 
     @router.post("/config/reset-ack", **returns(ResetAckResult, encoder=True))
     async def reset_ack(request: Request) -> Json | JSONResponse:
+        """Acknowledge a lost or reset stored configuration."""
         who = require_role(request, settings, Role.ADMIN, audit)
         await read_json(request)
         try:

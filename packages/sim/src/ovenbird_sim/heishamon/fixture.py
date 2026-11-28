@@ -46,7 +46,7 @@ from ovenbird_core.control import (
     default_curve,
 )
 from ovenbird_core.control.observe import pump_actual, room_input
-from ovenbird_core.control.ovenbird import OvenbirdState
+from ovenbird_core.control.state import OvenbirdState
 from ovenbird_core.control.types import ControlInputs, IntentKind, Mode
 from ovenbird_core.heishamon import MqttMessage
 from ovenbird_core.inputs import InputRouter, MqttSignal
@@ -166,7 +166,15 @@ class _Side:
     next_s0: float = -math.inf
 
     def publications(self, t: float, observation: Observation) -> list[Publication]:
-        """Return the side topics HeishaMon publishes at ``t``."""
+        """Return the side topics HeishaMon publishes at ``t``.
+
+        Parameters
+        ----------
+        t
+            Unix time (s).
+        observation
+            Current pump observation, from which the 1-wire and S0 values are taken.
+        """
         out: list[Publication] = []
         if t >= self.next_one_wire:
             self.next_one_wire = t + ONE_WIRE_EVERY_S
@@ -280,6 +288,18 @@ class Driver:
         return out
 
     def _tick(self, t: float) -> list[tuple[float, str, str]]:
+        """Run one controller step at ``t`` (Unix s) and return the commands it sends.
+
+        Parameters
+        ----------
+        t
+            Time of the step (Unix s).
+
+        Returns
+        -------
+        list[tuple[float, str, str]]
+            The commands as ``(time, topic, payload)``.
+        """
         now = Instant.from_unix(t)
         snapshot = self.store.snapshot(now)
         actual = pump_actual(snapshot)
@@ -337,6 +357,13 @@ def generate(start: datetime = START, hours: float = HOURS) -> list[Record]:
     The board and the controller run :data:`WARMUP_S` before ``start``, so the slice
     begins mid-stream as a cut from a long recording does: between two full dumps,
     with only the changed ``main/*`` values until the next dump.
+
+    Parameters
+    ----------
+    start
+        Time of the first record.
+    hours
+        Length of the slice in hours.
     """
     driver = Driver()
     pump = board(start - timedelta(seconds=WARMUP_S))
@@ -347,10 +374,12 @@ def generate(start: datetime = START, hours: float = HOURS) -> list[Record]:
     end = start.timestamp() + hours * 3600.0
 
     def feed(record: Record) -> None:
+        """Keep ``record`` and show it to the driver."""
         records.append(record)
         driver.feed(record)
 
     def send(commands: Sequence[tuple[float, str, str]]) -> None:
+        """Queue the controller commands as delayed records and deliver them to the board."""
         for t, topic, payload in commands:
             pending.append(Record(round(t + COMMAND_DELAY_S, 3), topic, payload))
             pump.receive(topic, payload)

@@ -102,7 +102,24 @@ def with_terms(payload: dict[str, Any]) -> bool:
 
 
 def page(history: Path, end: datetime, limit: int, window: timedelta = WINDOW) -> dict[str, Any]:
-    """Return the ``GET api/v1/decisions`` body for ``window`` before ``end``."""
+    """Return the ``GET api/v1/decisions`` body for ``window`` before ``end``.
+
+    Parameters
+    ----------
+    history
+        Path of the run's ``history.db``.
+    end
+        End of the page.
+    limit
+        Maximum number of decisions.
+    window
+        Length of the period before ``end``.
+
+    Returns
+    -------
+    dict[str, Any]
+        The body: ``from``, ``to``, ``limit`` and the decisions, at most ``limit``.
+    """
     since = end - window
     rows: list[DecisionRow] = query_decisions(history, since.timestamp(), end.timestamp(), limit)
     return {
@@ -144,7 +161,24 @@ def real_decisions(history: Path) -> dict[str, Any]:
 
 
 def cold_week_hours(issued: float, first: float, hours: int, error_k: float) -> Forecast:
-    """Return a forecast issue of the cold week, off by ``error_k`` (0 for the past)."""
+    """Return a forecast issue of the cold week, off by ``error_k`` (0 for the past).
+
+    Parameters
+    ----------
+    issued
+        Issue time (unix s).
+    first
+        Target time of the first hour (unix s).
+    hours
+        Number of hourly targets.
+    error_k
+        Forecast error in K after 24 h of lead, growing linearly to twice that.
+
+    Returns
+    -------
+    Forecast
+        The issue with outside temperature and solar radiation per target hour.
+    """
     weather = ColdWeek(REFERENCE_START)
     values: list[ForecastHour] = []
     for k in range(hours):
@@ -191,7 +225,20 @@ def open_meteo_body(forecast: Forecast) -> bytes:
 
 
 def weather_on(history: Path, work: Path) -> dict[str, Any]:
-    """Return ``GET api/v1/weather`` at the end of the run after a day of hourly issues."""
+    """Return ``GET api/v1/weather`` at the end of the run after a day of hourly issues.
+
+    Parameters
+    ----------
+    history
+        Path of the run's ``history.db``; the forecast issues are written into it.
+    work
+        Scratch directory for the weather service's data and UI directories.
+
+    Returns
+    -------
+    dict[str, Any]
+        The weather payload, with a day back and two days ahead.
+    """
     now_ts = (REFERENCE_START + timedelta(hours=RUN_HOURS)).timestamp()
     issued_now = math.floor(now_ts / HOUR) * HOUR
     conn = open_history(history)

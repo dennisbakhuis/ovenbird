@@ -20,6 +20,7 @@ from ovenbird.clock import iso_from_unix
 from ovenbird.history.database import ROLLUP_STEPS, SECONDS_PER_DAY, Retention
 from ovenbird.history.schema import connect
 from ovenbird.history.settings import RETENTION_PRESETS, preset_retention
+from ovenbird.sql import sql
 
 MIN_SPAN_S: Final = 3600.0
 DAYS_PER_YEAR: Final = 365.0
@@ -74,11 +75,13 @@ def table_bytes(conn: sqlite3.Connection) -> dict[str, int] | None:
 
 
 def _tables(conn: sqlite3.Connection) -> set[str]:
+    """Return the names of the database's tables."""
     return {str(row[0]) for row in conn.execute("SELECT name FROM sqlite_master")}
 
 
-def _span(conn: sqlite3.Connection, sql: str, params: tuple[Any, ...] = ()) -> Span:
-    rows, oldest, newest = conn.execute(sql, params).fetchone()
+def _span(conn: sqlite3.Connection, statement: str, params: tuple[Any, ...] = ()) -> Span:
+    """Return the row count and the oldest and newest time of a query."""
+    rows, oldest, newest = conn.execute(statement, params).fetchone()
     return Span(
         int(rows or 0),
         None if oldest is None else float(oldest),
@@ -107,7 +110,7 @@ def spans(conn: sqlite3.Connection) -> dict[str, Span]:
             else empty
         )
     journal = [
-        _span(conn, f"SELECT count(*), min(ts), max(ts) FROM {name}")  # noqa: S608
+        _span(conn, sql("SELECT count(*), min(ts), max(ts) FROM {table}", table=name))
         for name in ("decision", "command", "alarm")
         if name in tables
     ]
@@ -154,6 +157,7 @@ def retention_days(retention: Retention, journal_days: float | None) -> dict[str
 
 
 def _per_day(size: int | None, span: Span) -> float | None:
+    """Return the bytes a day of data takes, or ``None`` when the span is too short."""
     if size is None or span.oldest is None or span.newest is None:
         return None
     covered = span.newest - span.oldest
@@ -222,7 +226,7 @@ def storage_report(
         found = spans(conn)
         tables = _tables(conn)
         counts = {
-            name: int(conn.execute(f"SELECT count(*) FROM {name}").fetchone()[0])  # noqa: S608
+            name: int(conn.execute(sql("SELECT count(*) FROM {table}", table=name)).fetchone()[0])
             for name in COUNTED
             if name in tables
         }
@@ -287,6 +291,7 @@ def current_preset(retention: Retention, journal_days: float | None) -> str | No
 
 
 def _preset(name: str, other: int | None, resolutions: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return a retention preset with its projected size and growth."""
     retention, journal_days = preset_retention(name)
     projected: int | None = None
     growth: int | None = None
@@ -301,6 +306,19 @@ def _preset(name: str, other: int | None, resolutions: list[dict[str, Any]]) -> 
 
 
 def _resolution(key: str, span: Span, size: int | None, days: float | None) -> dict[str, Any]:
+    """Return the storage entry of one resolution: rows, span, size and growth.
+
+    Parameters
+    ----------
+    key
+        Resolution id.
+    span
+        Rows and time span stored.
+    size
+        Bytes used; ``None`` when unknown.
+    days
+        Retention in days; ``None`` for unlimited.
+    """
     rate = _per_day(size, span)
     return {
         "id": key,

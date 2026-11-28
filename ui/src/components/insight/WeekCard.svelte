@@ -16,7 +16,7 @@
   import { SERIES } from '$components/charts/palette';
   import Card from '$ui/Card.svelte';
   import Icon from '$ui/Icon.svelte';
-  import { createInsight } from './useInsight.svelte';
+  import { createInsight } from '$lib/house/useInsight.svelte';
 
   const insight = createInsight(7);
   $effect(() => insight.start());

@@ -19,13 +19,12 @@ export interface DiffEntry {
 }
 
 /**
- * Where a draft came from when it was not typed by hand, such as a suggestion of the house model:
+ * Where a draft came from when it was not typed by hand, such as a suggestion:
  * a label for the draft bar and the default apply comment.
  */
 export interface DraftOrigin {
   label: string;
   comment: string;
-  kind?: 'house';
 }
 
 export interface ImportOutcome {
@@ -278,11 +277,7 @@ export class DraftStore {
         const origin = stored.origin as Partial<DraftOrigin> | null | undefined;
         this.origin =
           origin && typeof origin.label === 'string' && typeof origin.comment === 'string'
-            ? {
-                label: origin.label,
-                comment: origin.comment,
-                ...(origin.kind === 'house' ? { kind: 'house' as const } : {}),
-              }
+            ? { label: origin.label, comment: origin.comment }
             : null;
       }
     } catch {

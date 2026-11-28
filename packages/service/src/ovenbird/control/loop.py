@@ -29,6 +29,14 @@ expires (a one-shot stop until the controller has acted on it). The request is s
 with the controller state so a restart keeps it, and every entry into and exit from
 wood-stove mode is journalled as an informational ``stove_mode`` event.
 
+The loop's :class:`~ovenbird.control.roomtarget.RoomTargets` keeps the manual boost and
+away period (``api/v1/control/boost`` and ``control/away``) the same way and hands the
+one in force to the controller as ``ControlInputs.room_override``; a boost wins over
+away only in theory, as one ends or refuses the other. Starting wood-stove mode by hand
+ends a boost. A switch of the controller's summer state is journalled as an
+informational ``summer_mode`` event (``started`` when space heating stops, ``expired``
+when it resumes).
+
 The loop raises five alarms from what each tick saw: ``room_implausible`` (the
 controller's cross-check, which keeps running with a wider threshold during a
 wood-stove episode), ``stove_reference_missing`` (wood-stove mode is active with a
@@ -44,10 +52,14 @@ active) and ``room_sensor_quiet``, the early warning for an
 on the curve plus the held offset, long before ``room_sensor_silent`` at the
 silence limit. It clears with the next proof of life.
 
-Model plan: an optional :class:`~ovenbird.control.modelplan.ModelPlanRunner`
-(``model_plan``) is asked for a plan slice before the controller step and told the
-decision afterwards. It returns a slice only with ``control_model_use`` ``on``, and
-never raises into the tick.
+Plan rule: the loop has one plan slot, ``plan_rule`` (a :class:`PlanRule`, the sun day
+shift runner :class:`~ovenbird.control.dayshiftrun.DayShiftRunner` in the service). It is
+asked for a slice before the controller step with :meth:`ControlLoop.plan_context` and
+told the decision afterwards; a slice it returns is passed to the controller with the
+tick's inputs, ``None`` leaves the inputs exactly as without a rule. A failing rule is
+logged and means no plan for that tick. :meth:`ControlLoop.room_shift` reports the
+room-target shift the controller applied (the safety monitor's comfort floor follows a
+set-back).
 
 Tick hooks (``tick_hooks``) run after the controller step and the room alarms, before
 the arbiter: the release manager (:mod:`ovenbird.trial.release`) records the go-live
@@ -69,12 +81,13 @@ from typing import TYPE_CHECKING, Any, Final, Protocol
 
 from ovenbird.clock import Sleep
 from ovenbird.control.adapter import CommandAdapter, CommandEvent
-from ovenbird.control.alarms import AlarmBoard, AlarmCode, AlarmEvent
+from ovenbird.control.alarms import AlarmBoard, AlarmCode, AlarmEvent, AlarmEventKind, Severity
 from ovenbird.control.arbiter import Action, arbitrate
+from ovenbird.control.forecastread import PlanContext
 from ovenbird.control.guard import PublishGuard
-from ovenbird.control.modelplan import ModelPlanRunner, PlanContext
 from ovenbird.control.monitors import SafetyMonitor, monitor_config
 from ovenbird.control.persist import STATE_KEY, encode_state
+from ovenbird.control.roomtarget import AwayRequest, BoostRequest, RoomTargets, TargetLimits
 from ovenbird.history.journal import AlarmRow, CommandRow, DecisionRow, StateRow
 from ovenbird.runtime import Runtime
 from ovenbird.stove.request import StoveRequest
@@ -101,12 +114,26 @@ from ovenbird_core.control.record import InputValue
 
 if TYPE_CHECKING:
     from ovenbird.config import Settings
+    from ovenbird.control.dayshiftrun import DayShiftRunner
     from ovenbird.control.envelope import EnvelopeWatch
     from ovenbird.trial.release import ReleaseManager
 
 LOGGER = logging.getLogger("ovenbird.control")
 RECENT_COMMANDS: Final = 50
 COMPACT: Final = (",", ":")
+SUMMER_JOURNAL_CODE: Final = "summer_mode"
+
+
+class PlanRule(Protocol):
+    """What the loop's plan slot holds: a rule that may hand the controller a plan slice."""
+
+    def step(self, ctx: PlanContext) -> PlanSlice | None:
+        """Return the slice for this tick (``None``: no plan)."""
+        ...
+
+    def after(self, decision: DecisionRecord) -> None:
+        """Take note of the tick's decision."""
+        ...
 
 
 class JournalSink(Protocol):
@@ -131,6 +158,7 @@ def controller_config(settings: Settings) -> OvenbirdConfig:
 
 
 def _shown(value: InputValue) -> str:
+    """Return an input value as ``<n> °C`` text, or a note that it is no finite number."""
     number = as_number(value)
     return "a value that is no finite number" if number is None else f"{number:g} °C"
 
@@ -264,6 +292,10 @@ class ControlLoop:
         effect (after :meth:`reconfigure`, at the next tick).
     stove_request
         Manual wood-stove request to start with (restored after a restart).
+    target_limits
+        Boost and away settings; the defaults with the controller's comfort when omitted.
+    boost_request, away_request
+        Boost and away period to start with (restored after a restart).
     """
 
     def __init__(
@@ -286,6 +318,9 @@ class ControlLoop:
         config_version: int | None = None,
         on_config: Callable[[int | None, Instant], None] | None = None,
         stove_request: StoveRequest | None = None,
+        target_limits: TargetLimits | None = None,
+        boost_request: BoostRequest | None = None,
+        away_request: AwayRequest | None = None,
     ) -> None:
         if adapter is not None and not guard.installed:
             raise ValueError("an adapter requires a publish guard that permits publishing")
@@ -306,6 +341,7 @@ class ControlLoop:
         self.state: OvenbirdState = initial_state or controller.initial_state()
         self.latest: dict[str, Any] | None = None
         self.latest_state: dict[str, Any] | None = None
+        self.latest_binding: str | None = None
         self.ticks = 0
         self.desired_setpoint: int | None = None
         self.safety: SafetyMonitor | None = None
@@ -314,11 +350,14 @@ class ControlLoop:
         self.reconfigure_hooks: list[Callable[[Settings], None]] = []
         self._pending: tuple[Settings, int | None] | None = None
         self.stove = StoveSession(lambda: self.runtime.clock(), self, stove_request)
+        limits = target_limits or TargetLimits(comfort_c=controller.config.comfort_room_c)
+        self.targets = RoomTargets(self, limits, boost_request, away_request)
         self.last_tick: Instant | None = None
         self.tick_hooks: list[Callable[[Instant, Mode], None]] = []
         self.release: ReleaseManager | None = None
         self.envelope: EnvelopeWatch | None = None
-        self.model_plan: ModelPlanRunner | None = None
+        self.plan_rule: PlanRule | None = None
+        self.dayshift: DayShiftRunner | None = None
 
     @property
     def effective_mode(self) -> Mode:
@@ -352,6 +391,13 @@ class ControlLoop:
         return self._pending is not None
 
     def _apply_pending(self, moment: Instant) -> None:
+        """Switch to the configuration an apply queued, keeping the controller state.
+
+        Parameters
+        ----------
+        moment
+            Time of the tick that applies the change.
+        """
         pending = self._pending
         if pending is None:
             return
@@ -363,6 +409,7 @@ class ControlLoop:
         self.controller = OvenbirdController(new, self.controller.name)
         if new.stove is None and self.stove.request is not None:
             self.stove.set(None, moment)
+        self.targets.configure(TargetLimits.from_settings(settings), moment)
         self.room_signal = settings.control_room_signal
         self.room_profile = new.room
         self.runtime.store.policy = settings.staleness_policy()
@@ -405,15 +452,21 @@ class ControlLoop:
             mode=mode,
             override=None if request is None else request.override(moment),
             room_profile=self.room_profile,
+            room_override=self.targets.live(moment),
         )
-        plan = self._model_plan(moment, inputs)
+        plan = self._plan(moment, inputs)
         if plan is not None:
             inputs = replace(inputs, plan=plan)
+        summer_before = self.state.summer_active
         result = self.controller.step(self.state, inputs)
         self.state = result.state
         self.stove.after(result.decision, moment)
-        if self.model_plan is not None:
-            self.model_plan.after(result.decision)
+        self._summer_event(summer_before, result.decision, moment)
+        if self.plan_rule is not None:
+            try:
+                self.plan_rule.after(result.decision)
+            except Exception:
+                LOGGER.exception("the plan rule could not take note of the decision")
         self._room_alarm(result.decision, moment)
         self.stove.reference_alarm(self.controller.config.stove, result.decision, moment)
         self._outside_alarm(result.decision, moment)
@@ -447,6 +500,7 @@ class ControlLoop:
                 events += adapter.submit(sends, moment)
         record = result.decision
         self.latest_state = dict(record.controller_state)
+        self.latest_binding = record.binding
         row = DecisionRow(
             ts=moment.wall.timestamp(),
             controller=record.controller,
@@ -484,40 +538,43 @@ class ControlLoop:
         return row
 
     def plan_context(self, moment: Instant, inputs: ControlInputs) -> PlanContext:
-        """Return what the model plan runner needs at ``moment``.
+        """Return what a plan rule needs at ``moment``.
 
         The room counts as trusted when the controller has a fresh room value that its
         cross-check did not reject at the previous tick.
         """
         room = inputs.room
         plausible = (self.latest_state or {}).get("room_plausible") is not False
+        trusted = room is not None and room.fresh and plausible
         return PlanContext(
             now=moment,
-            room_trusted=room is not None and room.fresh and plausible,
+            room_trusted=trusted,
             stove_active=self.state.stove_active,
             outside_filtered_c=self.state.outside_filtered,
             config=self.controller.config,
+            room_c=room.value if trusted and room is not None else None,
+            away=self.targets.away_active(moment.wall),
         )
 
-    def live_plan_context(self) -> PlanContext:
-        """Return :meth:`plan_context` for the current state of the store (the API)."""
-        moment = self.runtime.clock()
-        inputs = control_inputs(
-            self.runtime.store.snapshot(moment),
-            room_signal=self.room_signal,
-            mode=self.effective_mode,
-            room_profile=self.room_profile,
-        )
-        return self.plan_context(moment, inputs)
+    def room_shift(self) -> float | None:
+        """Return the room-target shift of the latest decision (effective target minus comfort).
 
-    def _model_plan(self, moment: Instant, inputs: ControlInputs) -> PlanSlice | None:
-        runner = self.model_plan
-        if runner is None:
+        ``None`` before the first tick or without a room value (no target then).
+        """
+        target = as_number((self.latest_state or {}).get("room_target_c"))
+        if target is None:
+            return None
+        return target - self.controller.config.comfort_room_c
+
+    def _plan(self, moment: Instant, inputs: ControlInputs) -> PlanSlice | None:
+        """Return the slice of the plan rule for this tick (``None``: none, or it failed)."""
+        rule = self.plan_rule
+        if rule is None:
             return None
         try:
-            return runner.step(self.plan_context(moment, inputs))
+            return rule.step(self.plan_context(moment, inputs))
         except Exception:
-            LOGGER.exception("the model plan failed; no plan this tick")
+            LOGGER.exception("the plan rule failed; no plan this tick")
             return None
 
     def request_stove(
@@ -547,7 +604,149 @@ class ControlLoop:
         StoveRequestError
             When wood-stove mode is not enabled or ``until`` is not acceptable.
         """
-        return self.stove.accept(self.controller.config.stove, on, until, actor, now)
+        moment = now or self.runtime.clock()
+        accepted = self.stove.accept(self.controller.config.stove, on, until, actor, moment)
+        if on:
+            self.targets.end_boost(moment, "wood-stove mode started by hand")
+        return accepted
+
+    def request_boost(
+        self,
+        *,
+        offset_k: float | None,
+        target_c: float | None,
+        duration_s: float | None,
+        until: datetime | None,
+        actor: str,
+        now: Instant | None = None,
+    ) -> BoostRequest:
+        """Accept a boost (see :meth:`RoomTargets.accept_boost`); it acts at the next tick.
+
+        Parameters
+        ----------
+        offset_k
+            Boost as a raise of the room target, in kelvin.
+        target_c
+            Boost as an absolute room target, in degrees Celsius.
+        duration_s
+            Length of the boost, in seconds.
+        until
+            End of the boost as a wall-clock time.
+        actor
+            Who asks, for the journal.
+        now
+            Time of the request; the service clock when omitted.
+
+        Raises
+        ------
+        RoomTargetError
+            When boost is off or away is set (409), or a value is refused (400).
+        """
+        return self.targets.accept_boost(
+            offset_k=offset_k,
+            target_c=target_c,
+            duration_s=duration_s,
+            until=until,
+            actor=actor,
+            moment=now or self.runtime.clock(),
+        )
+
+    def request_away(
+        self,
+        *,
+        target_c: float | None,
+        until: datetime,
+        lead_s: float | None,
+        actor: str,
+        now: Instant | None = None,
+    ) -> AwayRequest:
+        """Accept an away period (see :meth:`RoomTargets.accept_away`); it ends a boost.
+
+        Parameters
+        ----------
+        target_c
+            Room target while away, in degrees Celsius.
+        until
+            End of the away period.
+        lead_s
+            How long before the end heating restarts, in seconds.
+        actor
+            Who asks, for the journal.
+        now
+            Time of the request; the service clock when omitted.
+
+        Raises
+        ------
+        RoomTargetError
+            When away is off (409) or a value is refused (400).
+        """
+        return self.targets.accept_away(
+            target_c=target_c,
+            until=until,
+            lead_s=lead_s,
+            actor=actor,
+            moment=now or self.runtime.clock(),
+        )
+
+    def end_boost(self, actor: str, now: Instant | None = None) -> BoostRequest | None:
+        """End the boost (``None`` when there was none)."""
+        return self.targets.end_boost(now or self.runtime.clock(), f"ended by {actor}")
+
+    def end_away(self, actor: str, now: Instant | None = None) -> AwayRequest | None:
+        """End the away period (``None`` when there was none)."""
+        return self.targets.end_away(now or self.runtime.clock(), f"ended by {actor}")
+
+    def boost_status(self) -> dict[str, Any]:
+        """Return the API form of the boost."""
+        return self.targets.boost_status(self.runtime.clock(), self.latest_state)
+
+    def away_status(self) -> dict[str, Any]:
+        """Return the API form of away."""
+        return self.targets.away_status(self.runtime.clock(), self.latest_state)
+
+    def lowered_target(self) -> float | None:
+        """Return the manual room target below comfort in force (away, a cooler boost)."""
+        return self.targets.lowered_target_c(self.runtime.clock().wall)
+
+    def summer_status(self) -> dict[str, Any]:
+        """Return the API form of the summer switch: settings, slow mean and state."""
+        summer = self.controller.config.summer
+        state = self.state
+        return {
+            "enabled": summer is not None,
+            "active": summer is not None and state.summer_active,
+            "mean_c": None if summer is None else state.summer_mean_c,
+            "off_c": None if summer is None else summer.off_c,
+            "on_c": None if summer is None else summer.on_c,
+            "mean_tau_s": None if summer is None else summer.mean_tau_s,
+            "warming_up": summer is not None and self._summer_warming(summer.mean_tau_s),
+        }
+
+    def _summer_warming(self, tau_s: float) -> bool:
+        """Whether the slow outside mean is younger than one time constant."""
+        since = self.state.summer_mean_from
+        if since is None or self.last_tick is None:
+            return True
+        return self.last_tick.monotonic - since < tau_s
+
+    def _summer_event(self, before: bool, decision: DecisionRecord, moment: Instant) -> None:
+        """Journal a switch of the summer state as an informational ``summer_mode`` event."""
+        after = self.state.summer_active
+        if after == before:
+            return
+        mean = self.state.summer_mean_c
+        shown = "unknown" if mean is None else f"{mean:.1f} °C"
+        if after:
+            kind = AlarmEventKind.STARTED
+            message = f"summer switch: no space heating (slow outside mean {shown})"
+        else:
+            kind = AlarmEventKind.EXPIRED
+            message = f"summer switch: space heating resumes (slow outside mean {shown})"
+        LOGGER.warning("%s", message)
+        detail = {"mean_c": mean, "setpoint": decision.setpoint}
+        self.alarms.record(
+            AlarmEvent(moment, SUMMER_JOURNAL_CODE, Severity.INFO, kind, message, detail)
+        )
 
     @property
     def stove_request(self) -> StoveRequest | None:
@@ -564,6 +763,7 @@ class ControlLoop:
         return self.stove.status(self.controller.config.stove, self.state, self.latest_state)
 
     def _room_alarm(self, decision: DecisionRecord, moment: Instant) -> None:
+        """Raise or clear the room-implausible alarm from the decision."""
         code = AlarmCode.ROOM_IMPLAUSIBLE
         plausible = decision.controller_state.get("room_plausible")
         if plausible is False:
@@ -574,6 +774,15 @@ class ControlLoop:
             self.alarms.clear(code, moment, "room value and cross-check agree")
 
     def _outside_alarm(self, decision: DecisionRecord, moment: Instant) -> None:
+        """Raise or clear the outside-sensor alarms from the decision.
+
+        Parameters
+        ----------
+        decision
+            Decision of the tick.
+        moment
+            Time of the tick.
+        """
         stale, implausible = AlarmCode.OUTSIDE_SENSOR_STALE, AlarmCode.OUTSIDE_SENSOR_IMPLAUSIBLE
         source = self.controller.config.outside
         if source is None:
@@ -596,6 +805,7 @@ class ControlLoop:
         self.alarms.raise_alarm(code, outside_message(source, decision), moment, detail)
 
     def _quiet_alarm(self, snapshot: Snapshot, moment: Instant) -> None:
+        """Raise or clear the quiet room sensor alarm from the sensor's age."""
         code = AlarmCode.ROOM_SENSOR_QUIET
         profile = self.room_profile
         signal = self.room_signal
@@ -669,6 +879,9 @@ class ControlLoop:
             "adapter": self.adapter.status(now) if self.adapter is not None else None,
             "room": self.room_status(now),
             "stove": self.stove_status(),
+            "boost": self.boost_status(),
+            "away": self.away_status(),
+            "summer": self.summer_status(),
         }
 
     async def run(self) -> None:

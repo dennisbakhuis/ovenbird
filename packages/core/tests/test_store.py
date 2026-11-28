@@ -1,3 +1,5 @@
+"""Tests for the state store: freshness, liveness, invalidation and snapshots."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -22,18 +24,22 @@ ROOM = "sensor.living_room_temperature"
 
 
 def at(seconds: float) -> Instant:
+    """Return the instant ``seconds`` after the test epoch."""
     return Instant.from_unix(T0 + seconds)
 
 
 def hp(signal: str, value: Value, seconds: float, *, retained: bool = False) -> Reading:
+    """Build a HeishaMon reading of ``signal`` at ``seconds`` after the test epoch."""
     return Reading(signal, value, "°C", at(seconds), SourceKind.HEISHAMON, retained)
 
 
 def heartbeat(seconds: float, *, retained: bool = False) -> Heartbeat:
+    """Build a HeishaMon stats heartbeat at ``seconds`` after the test epoch."""
     return Heartbeat(at(seconds), retained, uptime_s=seconds, version="v4.2.3")
 
 
 def test_unknown_signal_has_no_age_and_is_stale() -> None:
+    """A signal never seen has no age, is not fresh and has no latest value."""
     store = StateStore()
     assert store.age(OUTLET, at(0)) is None
     assert store.is_fresh(OUTLET, at(0)) is False
@@ -42,6 +48,7 @@ def test_unknown_signal_has_no_age_and_is_stale() -> None:
 
 
 def test_heishamon_value_goes_stale_after_330_seconds() -> None:
+    """A HeishaMon value is fresh for 330 s after its reading."""
     store = StateStore()
     assert store.apply(hp(OUTLET, 30.0, 0))
     assert store.age(OUTLET, at(100)) == 100
@@ -50,6 +57,7 @@ def test_heishamon_value_goes_stale_after_330_seconds() -> None:
 
 
 def test_periodic_dump_keeps_unchanged_values_fresh() -> None:
+    """Repeated unchanged values from periodic dumps keep a signal fresh."""
     store = StateStore()
     for dump in range(0, 3600, 300):
         store.apply(hp(OUTLET, 30.0, dump))
@@ -58,6 +66,7 @@ def test_periodic_dump_keeps_unchanged_values_fresh() -> None:
 
 
 def test_retained_delivery_never_refreshes_freshness() -> None:
+    """A retained redelivery of the same value does not refresh the signal."""
     store = StateStore()
     store.apply(hp(OUTLET, 30.0, 0))
     assert store.apply(hp(OUTLET, 30.0, 200, retained=True)) is False
@@ -66,6 +75,7 @@ def test_retained_delivery_never_refreshes_freshness() -> None:
 
 
 def test_retained_delivery_with_a_new_value_has_unknown_age() -> None:
+    """A retained value that differs is stored but is stale with unknown age."""
     store = StateStore()
     store.apply(hp(OUTLET, 30.0, 0))
     assert store.apply(hp(OUTLET, 32.0, 10, retained=True))
@@ -78,6 +88,7 @@ def test_retained_delivery_with_a_new_value_has_unknown_age() -> None:
 
 
 def test_startup_from_retained_store_is_stale_until_a_live_update() -> None:
+    """A value known only from retained messages stays stale until a live update arrives."""
     store = StateStore()
     store.apply(hp(OUTLET, 30.0, 0, retained=True))
     assert store.latest(OUTLET) is not None
@@ -88,6 +99,7 @@ def test_startup_from_retained_store_is_stale_until_a_live_update() -> None:
 
 
 def test_out_of_order_reading_is_dropped() -> None:
+    """A reading older than the stored one is dropped."""
     store = StateStore()
     store.apply(hp(OUTLET, 31.0, 10))
     assert store.apply(hp(OUTLET, 30.0, 5)) is False
@@ -97,12 +109,14 @@ def test_out_of_order_reading_is_dropped() -> None:
 
 
 def test_age_is_never_negative() -> None:
+    """Asking for the age before the reading time gives zero."""
     store = StateStore()
     store.apply(hp(OUTLET, 30.0, 10))
     assert store.age(OUTLET, at(5)) == 0
 
 
 def test_room_temperature_defaults_to_thirty_minutes() -> None:
+    """A Home Assistant value stays fresh for 30 minutes by default."""
     store = StateStore()
     store.apply(ha_reading(ROOM, "20.5", instant=at(0)))
     assert store.is_fresh(ha_signal(ROOM), at(1800))
@@ -110,6 +124,7 @@ def test_room_temperature_defaults_to_thirty_minutes() -> None:
 
 
 def test_room_temperature_max_age_is_configurable() -> None:
+    """A per-signal override changes the maximum age."""
     policy = StalenessPolicy().with_override(ha_signal(ROOM), 600.0)
     store = StateStore(policy)
     store.apply(ha_reading(ROOM, "20.5", instant=at(0)))
@@ -118,6 +133,7 @@ def test_room_temperature_max_age_is_configurable() -> None:
 
 
 def test_ha_age_counts_from_last_reported_not_receipt() -> None:
+    """The age of a Home Assistant value counts from its last-reported time, not from receipt."""
     store = StateStore()
     received = at(0)
     reported = received.wall - timedelta(minutes=20)
@@ -127,6 +143,7 @@ def test_ha_age_counts_from_last_reported_not_receipt() -> None:
 
 
 def test_ha_source_clock_ahead_counts_as_no_lag() -> None:
+    """A last-reported time in the future counts as zero lag."""
     store = StateStore()
     received = at(0)
     store.apply(
@@ -136,6 +153,7 @@ def test_ha_source_clock_ahead_counts_as_no_lag() -> None:
 
 
 def test_ha_reconnect_replay_of_same_state_keeps_older_confirmation() -> None:
+    """A replayed unchanged state after reconnect does not make the value look older."""
     store = StateStore()
     store.apply(ha_reading(ROOM, "20.5", instant=at(0)))
     reported = at(0).wall - timedelta(minutes=5)
@@ -144,6 +162,7 @@ def test_ha_reconnect_replay_of_same_state_keeps_older_confirmation() -> None:
 
 
 def test_liveness_follows_live_stats_within_fifteen_seconds() -> None:
+    """HeishaMon counts as alive for the liveness window after each live heartbeat."""
     store = StateStore()
     assert not store.heishamon_alive(at(0))
     for t in range(0, 60, 5):
@@ -154,12 +173,14 @@ def test_liveness_follows_live_stats_within_fifteen_seconds() -> None:
 
 
 def test_retained_stats_do_not_prove_liveness() -> None:
+    """A retained stats message does not make HeishaMon alive."""
     store = StateStore()
     assert store.apply(heartbeat(0, retained=True)) is False
     assert not store.heishamon_alive(at(1))
 
 
 def test_lwt_is_informational_only() -> None:
+    """The last-will message is reported but does not determine liveness."""
     store = StateStore()
     store.apply(LwtNotice(True, at(0), False))
     status = store.heishamon_status(at(1))
@@ -174,6 +195,7 @@ def test_lwt_is_informational_only() -> None:
 
 
 def test_heishamon_dies_values_age_out_and_liveness_drops_first() -> None:
+    """When HeishaMon stops, liveness drops first and values stay fresh until their max age."""
     store = StateStore()
     store.apply(heartbeat(0))
     store.apply(hp(OUTLET, 30.0, 0))
@@ -184,6 +206,7 @@ def test_heishamon_dies_values_age_out_and_liveness_drops_first() -> None:
 
 
 def test_parse_errors_are_counted_and_invalidate_the_value() -> None:
+    """A parse error counts, invalidates the value and ignored messages are tallied."""
     store = StateStore()
     store.apply(hp(OUTLET, 30.0, 0))
     bad = ParseError(OUTLET, ParseErrorKind.MALFORMED, "x", "not a decimal number", at(1))
@@ -199,6 +222,7 @@ def test_parse_errors_are_counted_and_invalidate_the_value() -> None:
 
 
 def test_ha_unavailable_invalidates_the_value_immediately() -> None:
+    """An unavailable Home Assistant state makes the value not fresh until a new value arrives."""
     store = StateStore()
     store.apply(ha_reading(ROOM, "20.5", instant=at(0)))
     assert store.is_fresh(ha_signal(ROOM), at(10))
@@ -215,6 +239,7 @@ def test_ha_unavailable_invalidates_the_value_immediately() -> None:
 
 
 def test_heishamon_unknown_enum_invalidates_the_value() -> None:
+    """An unknown enum value from HeishaMon invalidates the signal."""
     store = StateStore()
     store.apply(hp(HeishaSignal.DEFROSTING_STATE, 0, 0))
     unknown = ParseError(
@@ -233,6 +258,7 @@ def test_heishamon_unknown_enum_invalidates_the_value() -> None:
 
 
 def test_retained_or_older_errors_do_not_invalidate() -> None:
+    """Retained or older parse errors do not invalidate a newer value."""
     store = StateStore()
     store.apply(hp(OUTLET, 30.0, 10))
     replayed = ParseError(OUTLET, ParseErrorKind.MALFORMED, "x", "bad", at(11), retained=True)
@@ -243,6 +269,7 @@ def test_retained_or_older_errors_do_not_invalidate() -> None:
 
 
 def test_reading_older_than_the_invalidation_is_dropped() -> None:
+    """A reading older than a recorded invalidation is dropped."""
     store = StateStore()
     store.apply(hp(OUTLET, 30.0, 0))
     store.apply(ParseError(OUTLET, ParseErrorKind.MALFORMED, "x", "bad", at(10)))
@@ -251,6 +278,7 @@ def test_reading_older_than_the_invalidation_is_dropped() -> None:
 
 
 def test_liveness_window_follows_a_slow_stats_cadence() -> None:
+    """The liveness window adapts to a slower stats cadence."""
     store = StateStore()
     for t in range(0, 300, 30):
         store.apply(heartbeat(t))
@@ -261,6 +289,7 @@ def test_liveness_window_follows_a_slow_stats_cadence() -> None:
 
 
 def test_liveness_window_is_clamped_and_ignores_outages() -> None:
+    """The liveness window is clamped to its floor and ceiling and ignores outage gaps."""
     fast = StateStore()
     for t in range(20):
         fast.apply(heartbeat(t))
@@ -276,6 +305,7 @@ def test_liveness_window_is_clamped_and_ignores_outages() -> None:
 
 
 def test_snapshot_exposes_value_age_freshness_and_source() -> None:
+    """A snapshot exposes each signal's value, age, freshness and source."""
     store = StateStore()
     store.apply(hp(OUTLET, 30.0, 0))
     store.apply(ha_reading(ROOM, "20.5", instant=at(0), unit="°C"))
@@ -297,6 +327,7 @@ def test_snapshot_exposes_value_age_freshness_and_source() -> None:
 
 
 def test_snapshot_is_isolated_from_later_updates() -> None:
+    """A snapshot is immutable and unaffected by later store updates."""
     store = StateStore()
     store.apply(hp(OUTLET, 30.0, 0))
     snapshot = store.snapshot(at(1))
@@ -306,6 +337,7 @@ def test_snapshot_is_isolated_from_later_updates() -> None:
 
 
 def test_copy_is_independent() -> None:
+    """A copied store can be updated without changing the original."""
     store = StateStore()
     store.apply(hp(OUTLET, 30.0, 0))
     fork = store.copy()
@@ -316,6 +348,7 @@ def test_copy_is_independent() -> None:
 
 
 def test_wall_clock_does_not_affect_age() -> None:
+    """A jump of the wall clock does not change a signal's age."""
     store = StateStore()
     store.apply(hp(OUTLET, 30.0, 0))
     jumped = Instant(T0 + 10, datetime(2030, 1, 1, tzinfo=UTC))

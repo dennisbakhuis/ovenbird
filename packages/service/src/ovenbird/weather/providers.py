@@ -132,6 +132,7 @@ def forecast_url(latitude: float, longitude: float) -> str:
 
 
 def _number(value: Any) -> float | None:
+    """Return ``value`` as a finite float, or ``None``."""
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     number = float(value)
@@ -139,6 +140,10 @@ def _number(value: Any) -> float | None:
 
 
 def _column(hourly: Mapping[str, Any], name: str, length: int) -> list[Any]:
+    """Return the hourly column ``name``, ``None`` per hour when absent.
+
+    Raises ``WeatherError`` when its length differs from the time axis.
+    """
     values = hourly.get(name)
     if values is None:
         return [None] * length
@@ -201,6 +206,7 @@ type Opener = Callable[[str], bytes]
 
 
 def _urlopen(url: str) -> bytes:
+    """Return the body of an https URL (size capped), refusing other schemes."""
     if not url.startswith("https://"):
         raise WeatherError("only https URLs are fetched")
     request = urllib.request.Request(  # noqa: S310
@@ -277,6 +283,11 @@ class HourlySeries:
     def load(cls, path: Path) -> HourlySeries:
         """Load the simulator's Open-Meteo cache (``open_meteo_hourly.json``).
 
+        Parameters
+        ----------
+        path
+            Cache file to read.
+
         Raises
         ------
         ValueError
@@ -311,6 +322,17 @@ class HourlySeries:
         )
 
     def _at(self, values: Sequence[float | None], ts: float) -> float | None:
+        """Return the value at ``ts`` by linear interpolation, holding the end values.
+
+        Gaps are skipped.
+
+        Parameters
+        ----------
+        values
+            One value per hour of the series, ``None`` where unknown.
+        ts
+            Time to read, Unix seconds.
+        """
         times = self.times
         if ts <= times[0]:
             return values[0]
@@ -341,7 +363,15 @@ class HourlySeries:
 
 
 def synthetic_series(start_ts: float, days: int = 400) -> HourlySeries:
-    """Return a synthetic winter series: a slow weekly swing plus a daily cycle and sun."""
+    """Return a synthetic winter series: a slow weekly swing plus a daily cycle and sun.
+
+    Parameters
+    ----------
+    start_ts
+        Time the series is built around, Unix seconds.
+    days
+        Number of days to generate.
+    """
     times: list[float] = []
     temps: list[float | None] = []
     radiation: list[float | None] = []
@@ -380,6 +410,7 @@ class SimulatedProvider:
     name: str = "simulated"
 
     def _noise(self, issued_hour: int, target_hour: int, lead_h: float) -> float:
+        """Return the reproducible forecast error (K) for a forecast issued ``lead_h`` ahead."""
         if lead_h <= 0:
             return 0.0
         rng = random.Random(f"{self.seed}:{issued_hour}:{target_hour}")

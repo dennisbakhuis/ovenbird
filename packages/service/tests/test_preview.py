@@ -24,13 +24,17 @@ CURVE = [[-10.0, 39.0], [0.0, 34.0], [15.0, 25.0]]
 
 
 def span(ticks: int) -> tuple[float, float]:
+    """Return the start and end timestamps covering the given number of ticks."""
     start = START.timestamp()
     return start, start + ticks * TICK_S
 
 
 @pytest.fixture
 def curve_only(make_settings: Callable[..., Settings]) -> Callable[..., Settings]:
+    """Fixture returning a settings factory with feedback, ramp, cycling and pump duty disabled."""
+
     def factory(**overrides: Any) -> Settings:
+        """Build settings with only the heating curve active, plus overrides."""
         values: dict[str, Any] = {
             "control_feedback_enabled": False,
             "control_ramp_enabled": False,
@@ -46,6 +50,7 @@ def curve_only(make_settings: Callable[..., Settings]) -> Callable[..., Settings
 def test_identity_reproduces_every_recorded_setpoint(
     tmp_path: Path, make_settings: Callable[..., Settings]
 ) -> None:
+    """Replaying with the active settings reproduces every recorded setpoint."""
     settings = make_settings(mqtt_inputs=INPUTS, control_room_signal=ROOM, control_comfort_c=21.5)
     path = tmp_path / "history.db"
     records = record_decisions(path, settings, 1440)
@@ -65,6 +70,7 @@ def test_identity_reproduces_every_recorded_setpoint(
 def test_identity_follows_restarts_and_reseeds_at_a_version_change(
     tmp_path: Path, make_settings: Callable[..., Settings]
 ) -> None:
+    """The identity check follows controller restarts and reseeds at config version changes."""
     settings = make_settings(mqtt_inputs=INPUTS, control_room_signal=ROOM)
     path = tmp_path / "history.db"
     record_decisions(path, settings, 900, version_at=300, restart_at=600)
@@ -77,6 +83,7 @@ def test_identity_follows_restarts_and_reseeds_at_a_version_change(
 def test_a_wrong_active_configuration_fails_the_identity_check(
     tmp_path: Path, make_settings: Callable[..., Settings]
 ) -> None:
+    """A different active config fails the identity check and names the first mismatch."""
     settings = make_settings(mqtt_inputs=INPUTS, control_room_signal=ROOM)
     other = make_settings(mqtt_inputs=INPUTS, control_room_signal=ROOM, control_comfort_c=23.0)
     path = tmp_path / "history.db"
@@ -90,6 +97,7 @@ def test_a_wrong_active_configuration_fails_the_identity_check(
 def test_a_shifted_curve_shifts_the_candidate_by_hand(
     tmp_path: Path, curve_only: Callable[..., Settings]
 ) -> None:
+    """Raising the curve by 1 K raises the candidate pre-rounding values by 1 K."""
     active = curve_only()
     shifted = curve_only(control_curve=[[x, w + 1.0] for x, w in CURVE])
     path = tmp_path / "history.db"
@@ -114,6 +122,7 @@ def test_a_shifted_curve_shifts_the_candidate_by_hand(
 def test_a_changed_room_signal_is_named_as_a_limitation(
     tmp_path: Path, make_settings: Callable[..., Settings]
 ) -> None:
+    """A changed room signal is reported as a preview limitation and falls back to curve-only."""
     settings = make_settings(mqtt_inputs=INPUTS, control_room_signal=ROOM)
     other = make_settings(mqtt_inputs=INPUTS)
     path = tmp_path / "history.db"
@@ -127,6 +136,7 @@ def test_a_changed_room_signal_is_named_as_a_limitation(
 def test_unreadable_rows_are_skipped(
     tmp_path: Path, make_settings: Callable[..., Settings]
 ) -> None:
+    """Rows that cannot be decoded are counted as skipped and left out of the series."""
     settings = make_settings(mqtt_inputs=INPUTS, control_room_signal=ROOM)
     path = tmp_path / "history.db"
     record_decisions(path, settings, 60)
@@ -145,6 +155,7 @@ def test_unreadable_rows_are_skipped(
 def test_seventy_two_hours_preview_within_five_seconds(
     tmp_path: Path, make_settings: Callable[..., Settings]
 ) -> None:
+    """A 72-hour preview finishes within five seconds."""
     settings = make_settings(mqtt_inputs=INPUTS, control_room_signal=ROOM)
     candidate = make_settings(mqtt_inputs=INPUTS, control_room_signal=ROOM, control_comfort_c=22)
     path = tmp_path / "history.db"
@@ -161,6 +172,7 @@ def test_seventy_two_hours_preview_within_five_seconds(
 def test_an_empty_history_gives_an_empty_open_loop_run(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """An empty history yields zero ticks and a passing identity check."""
     settings = make_settings()
     config = settings.controller_config()
     result = run_open_loop(
@@ -175,4 +187,5 @@ def test_an_empty_history_gives_an_empty_open_loop_run(
     ("raw", "hours"), [(24, 24.0), (1, 1.0), (72, 72.0), (0.5, None), (73, None), ("24", None)]
 )
 def test_hours_bounds(raw: Any, hours: float | None) -> None:
+    """Preview hours are accepted between 1 and 72 and anything else gives None."""
     assert valid_hours(raw) == hours

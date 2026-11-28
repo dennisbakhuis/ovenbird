@@ -30,7 +30,7 @@ from ovenbird_sim.evaluate.closedloop import (
     plant_readings,
     simulate,
 )
-from ovenbird_sim.evaluate.sensors import SensorModel, flips_per_day
+from ovenbird_sim.evaluate.sensors import SensorModel
 from ovenbird_sim.model.building import BuildingParams
 from ovenbird_sim.model.heatpump import HeatPumpParams
 from ovenbird_sim.model.plant import PlantParams, PlantState, initial_state
@@ -43,24 +43,30 @@ T0 = 1_793_232_000.0
 
 
 def _weather(days: float, outside: float = 0.0) -> Weather:
+    """Return ``days`` of sunless weather at a constant outside temperature (degC), per minute."""
     n = int(days * 1440)
     hours = (np.arange(n) / 60.0) % 24.0
     return Weather(T0, 60.0, np.full(n, outside), np.zeros(n), hours.astype(np.float64))
 
 
 def _start() -> PlantState:
+    """Return the plant state the closed-loop tests start from."""
     return initial_state(PARAMS, 21.0, t_mass=23.0, t_water=26.0)
 
 
 @dataclass(frozen=True)
 class Constant:
+    """Controller that always requests the same water setpoint."""
+
     setpoint: int
     name: str = "constant"
 
     def initial_state(self) -> None:
-        return None
+        """Return no state; the controller is stateless."""
+        return
 
     def step(self, state: None, inputs: ControlInputs) -> StepResult[None]:
+        """Return the constant setpoint as the only intent, with a minimal decision record."""
         intent = CommandIntent(IntentKind.WATER_SETPOINT, self.setpoint, ReasonCode.CURVE)
         record = DecisionRecord(
             at=inputs.now,
@@ -82,6 +88,7 @@ class Constant:
 
 
 def _kpis(setpoint: int) -> kpi.KpiTable:
+    """Return the KPIs of two days under a constant setpoint."""
     weather = _weather(2.0)
     trace = simulate(
         Constant(setpoint), PARAMS, weather, _start(), LoopOptions(initial_setpoint=28)
@@ -90,6 +97,7 @@ def _kpis(setpoint: int) -> kpi.KpiTable:
 
 
 def test_more_aggressive_heating_delivers_more_heat_and_comfort() -> None:
+    """A higher constant setpoint gives more heat, more electricity and a warmer room."""
     low, high = _kpis(28), _kpis(36)
     assert high.totals["heat_kwh_per_day"] > low.totals["heat_kwh_per_day"] > 0.0
     assert high.totals["elec_kwh_per_day"] > low.totals["elec_kwh_per_day"]
@@ -101,6 +109,7 @@ def test_more_aggressive_heating_delivers_more_heat_and_comfort() -> None:
 
 
 def test_runs_are_deterministic_with_seeded_sensor_noise() -> None:
+    """Two runs with the same seeded sensor noise are identical."""
     weather = _weather(0.5)
     options = LoopOptions(
         initial_setpoint=30,
@@ -115,6 +124,7 @@ def test_runs_are_deterministic_with_seeded_sensor_noise() -> None:
 
 
 def test_recorded_setpoints_drive_the_plant_as_recorded() -> None:
+    """Recorded setpoints are replayed unchanged, as overrides, and are unknown before the start."""
     weather = _weather(0.5)
     recorded = tuple(30 + (k // 120) % 3 for k in range(weather.n))
     baseline = RecordedSetpoints(weather.t0, weather.dt, recorded)
@@ -126,6 +136,7 @@ def test_recorded_setpoints_drive_the_plant_as_recorded() -> None:
 
 
 def test_both_controllers_close_the_loop() -> None:
+    """The recorded replay and the ovenbird controller both keep the house plausibly warm."""
     weather = _weather(1.0, outside=2.0)
     options = LoopOptions(initial_setpoint=30)
     controllers: tuple[Controller[Any], ...] = (
@@ -142,6 +153,7 @@ def test_both_controllers_close_the_loop() -> None:
 
 
 def test_noise_makes_integer_sensors_flip() -> None:
+    """Sensor noise makes the integer outside reading flip; without noise it does not."""
     state = _start()
     model = SensorModel(outside_noise_k=0.5, thermostat_noise_k=0.5)
     draws = np.random.default_rng(0).standard_normal((500, 2))
@@ -151,11 +163,12 @@ def test_noise_makes_integer_sensors_flip() -> None:
     ]
     outside = np.array([float(r["main/Outside_Temp"]) for r in readings])
     clean = plant_readings(PARAMS, state, 0.5, 30, 102)
-    assert flips_per_day(outside, 1.0) > 100
+    assert int(np.sum(outside[1:] != outside[:-1])) > 100
     assert clean["main/Outside_Temp"] in (0, 1)
 
 
 def test_heishamon_reobserves_on_change_and_on_dump() -> None:
+    """HeishaMon values are re-observed on change and on each periodic dump, not in between."""
     heishamon = SyntheticHeishaMon("ha/sensor.room", dump_s=300.0)
     values = {"main/Outside_Temp": 3}
     first = heishamon.snapshot(T0, values)
@@ -167,12 +180,14 @@ def test_heishamon_reobserves_on_change_and_on_dump() -> None:
 
 
 def _age(snapshot: Snapshot) -> float | None:
+    """Return the age (s) of the outside temperature in the snapshot."""
     view = snapshot.get("main/Outside_Temp")
     assert view is not None
     return view.age
 
 
 def test_kpis_per_day_and_period() -> None:
+    """Daily and period KPIs follow from heat, electricity, room temperature, starts and writes."""
     t = np.arange(2880, dtype=np.float64) * 60.0 + T0
     series = kpi.Series(
         t=t,
@@ -205,6 +220,7 @@ def test_kpis_per_day_and_period() -> None:
 
 
 def test_recorded_runs_bridge_defrost_pauses() -> None:
+    """A short defrost pause does not split a compressor run into two."""
     t = 60.0 * np.arange(100, dtype=np.float64)
     running = np.zeros(100)
     running[10:40] = 1.0
@@ -217,6 +233,7 @@ def test_recorded_runs_bridge_defrost_pauses() -> None:
 
 
 def test_room_sensor_reports_changes_confirms_and_drops_out() -> None:
+    """The room sensor reports on grid steps, confirms at its interval and drops out as modelled."""
     from ovenbird_sim.evaluate.closedloop import UNAVAILABLE_REASON, HaRoomSensor
     from ovenbird_sim.evaluate.sensors import RoomSensorModel
 
@@ -226,6 +243,7 @@ def test_room_sensor_reports_changes_confirms_and_drops_out() -> None:
     sensor = HaRoomSensor(model)
 
     def read(t: float, t_air: float) -> tuple[float, float | None, str | None]:
+        """Return the value, the observation time and the reason the sensor shows at ``t``."""
         view = sensor.view(t, t_air, 0.0)
         assert view is not None
         return float(view.value), None if view.age is None else t - view.age, view.reason
@@ -246,11 +264,12 @@ def test_room_sensor_reports_changes_confirms_and_drops_out() -> None:
 
 
 def replace_room(model: Any, **changes: Any) -> Any:
-
+    """Return ``model`` with the given fields replaced."""
     return replace(model, **changes)
 
 
 def test_ovenbird_room_input_goes_stale_like_live() -> None:
+    """The controller sees a stale room value when the sensor only confirms rarely."""
     from ovenbird_sim.evaluate.sensors import RoomSensorModel
 
     weather = _weather(0.5)
@@ -290,6 +309,7 @@ def test_ovenbird_room_input_goes_stale_like_live() -> None:
 
 
 def test_thermostat_offset_follows_the_day() -> None:
+    """The thermostat offset follows the per-day profile and uses its median without a time."""
     model = SensorModel(thermostat_offset_k=0.8, offset_t0=T0, offset_by_day=(1.0, 0.0))
     state = _start()
     first = plant_readings(PARAMS, state, 0.5, 30, 102, sensors=model, t=T0 + 3600.0)
@@ -303,8 +323,9 @@ def test_thermostat_offset_follows_the_day() -> None:
 
 
 def test_room_sensor_calibration_finds_grid_noise_and_dropouts() -> None:
+    """Calibration recovers the sensor's grid step, noise and dropouts from recorded states."""
     from ovenbird_sim.data.series import Series
-    from ovenbird_sim.evaluate.sensors import calibrate_room, offsets_by_day
+    from ovenbird_sim.evaluate.sensors import calibrate_room
 
     times = (T0 + 60.0 * np.arange(4 * 1440)).astype(np.float64)
     reference = (21.5 + 0.3 * np.sin(2 * np.pi * (times - T0) / 86400.0)).astype(np.float64)
@@ -325,9 +346,3 @@ def test_room_sensor_calibration_finds_grid_noise_and_dropouts() -> None:
         np.tile([21.5, 21.7, 21.9], t_states.size),
     )
     assert calibrate_room(faster, reference, times).noise_k > 0.0
-    thermostat = np.where(times < T0 + 2 * 86400.0, reference + 1.0, reference + 0.2).astype(
-        np.float64
-    )
-    assert offsets_by_day(thermostat, reference, times, T0, 0.5) == pytest.approx(
-        (1.0, 1.0, 0.2, 0.2)
-    )

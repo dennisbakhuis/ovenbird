@@ -37,6 +37,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 
 
 def _clean(value: Any) -> Any:
+    """Return ``value`` with every non-finite float replaced by None, recursively."""
     if isinstance(value, float) and not math.isfinite(value):
         return None
     if isinstance(value, Mapping):
@@ -47,6 +48,7 @@ def _clean(value: Any) -> Any:
 
 
 def _fmt(value: Any, digits: int = 2) -> str:
+    """Format ``value`` for a table cell: HTML-escaped text, floats to ``digits`` decimals."""
     if value is None:
         return "-"
     if isinstance(value, float):
@@ -57,10 +59,12 @@ def _fmt(value: Any, digits: int = 2) -> str:
 
 
 def _tile(label: str, value: Any, digits: int = 2) -> str:
+    """Return a summary tile showing ``value`` under ``label``."""
     return f'<div class="tile"><b>{_fmt(value, digits)}</b><span>{html.escape(label)}</span></div>'
 
 
 def _bars(rows: Mapping[str, float], *, percent: bool = False, digits: int = 0) -> str:
+    """Return a table of horizontal bars scaled to the largest value (shares when ``percent``)."""
     peak = max((v for v in rows.values() if isinstance(v, int | float)), default=0) or 1
     body = []
     for key, value in rows.items():
@@ -74,6 +78,7 @@ def _bars(rows: Mapping[str, float], *, percent: bool = False, digits: int = 0) 
 
 
 def _pairs(rows: Mapping[str, Any], digits: int = 2) -> str:
+    """Return a two-column table of the rows' names and values."""
     body = "".join(
         f"<tr><td>{html.escape(str(k))}</td><td class='n'>{_fmt(v, digits)}</td></tr>"
         for k, v in rows.items()
@@ -82,6 +87,7 @@ def _pairs(rows: Mapping[str, Any], digits: int = 2) -> str:
 
 
 def _faults(outcomes: list[dict[str, Any]]) -> str:
+    """Return the table of every fault scenario check with its status and observation."""
     if not outcomes:
         return "<p class='sub'>No fault scenarios in this run.</p>"
     rows = []
@@ -99,6 +105,7 @@ def _faults(outcomes: list[dict[str, Any]]) -> str:
 
 
 def _violations(invariants: Mapping[str, Any]) -> str:
+    """Return the invariant verdict: a pass line, or the violations by rule and the first ones."""
     if not invariants["violations"]:
         return (
             f"<p class='pass'>No violations in {invariants['decisions_checked']} decisions, "

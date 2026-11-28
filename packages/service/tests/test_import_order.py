@@ -25,6 +25,7 @@ print("\\n".join(failed))
 
 
 def test_every_module_imports_first() -> None:
+    """Each service module imports on its own, whatever was imported before."""
     names = sorted(
         info.name for info in pkgutil.walk_packages(ovenbird.__path__, prefix="ovenbird.")
     )

@@ -4,6 +4,7 @@ from ovenbird.discovery import ENTITIES, STOVE_MODE, stove_state
 
 
 def test_stove_mode_is_a_read_only_binary_sensor() -> None:
+    """The stove mode entity is a read-only binary sensor with fixed topics and no command topic."""
     config = STOVE_MODE.config()
     assert STOVE_MODE.config_topic == "homeassistant/binary_sensor/ovenbird/stove_mode/config"
     assert config["name"] == "Stove mode"
@@ -14,6 +15,7 @@ def test_stove_mode_is_a_read_only_binary_sensor() -> None:
 
 
 def test_stove_state() -> None:
+    """The stove state maps to ON or OFF and carries the mode attributes."""
     assert stove_state(None) == ("OFF", {})
     state, attributes = stove_state(
         {"enabled": True, "active": True, "source": "auto", "trigger": "level", "backoff_k": 3.0}

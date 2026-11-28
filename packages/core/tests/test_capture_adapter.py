@@ -21,6 +21,7 @@ T = 1794528003.813
 
 
 def test_parse_capture_line_reads_retained_flag() -> None:
+    """A capture line parses to a record, with the retained flag defaulting to false."""
     line = '{"t":1794528003.813,"k":"panasonic_heat_pump/main/Outside_Temp","p":"3","r":true}'
     assert parse_capture_line(line) == CaptureRecord(
         T, "panasonic_heat_pump/main/Outside_Temp", "3", True
@@ -47,10 +48,12 @@ def test_parse_capture_line_reads_retained_flag() -> None:
     ],
 )
 def test_parse_capture_line_skips_headers_and_garbage(line: str) -> None:
+    """Blank, header, malformed or ill-typed lines give no record."""
     assert parse_capture_line(line) is None
 
 
 def test_mqtt_record_becomes_message_at_capture_instant() -> None:
+    """An MQTT capture record becomes a message stamped with the capture instant."""
     record = CaptureRecord(T, "panasonic_heat_pump/stats", "{}", True)
     assert capture_input(record) == MqttMessage(
         "panasonic_heat_pump/stats", "{}", True, Instant.from_capture(T)
@@ -58,6 +61,7 @@ def test_mqtt_record_becomes_message_at_capture_instant() -> None:
 
 
 def test_ha_record_becomes_reading_with_reported_timestamp() -> None:
+    """A Home Assistant record becomes a reading stamped with its last-reported time."""
     payload = json.dumps(
         {
             "state": "20.5",
@@ -79,16 +83,19 @@ def test_ha_record_becomes_reading_with_reported_timestamp() -> None:
 
 
 def test_bad_ha_record_becomes_error() -> None:
+    """A Home Assistant record with an invalid payload becomes a parse error."""
     assert isinstance(capture_input(CaptureRecord(T, "ha/sensor.x", "{")), ParseError)
 
 
 def test_snapshot_records_are_ignored() -> None:
+    """Snapshot records produce an Ignored result."""
     assert capture_input(CaptureRecord(T, "snapshot/open-meteo", "{}")) == Ignored(
         "snapshot/open-meteo", "snapshot"
     )
 
 
 def test_replay_routes_mqtt_and_passes_ha_through() -> None:
+    """Replay routes MQTT records through the router and passes HA records as readings."""
     records = [
         CaptureRecord(T, "panasonic_heat_pump/stats", '{"uptime":1000}'),
         CaptureRecord(T + 1, "climate_manager_capture/room_temp", "22.3", True),

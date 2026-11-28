@@ -2,10 +2,10 @@
   import Pill from '$ui/Pill.svelte';
   import Card from '$ui/Card.svelte';
   import Icon from '$ui/Icon.svelte';
+  import VersionLink from '$components/shell/VersionLink.svelte';
   import type { ControlStore } from '$lib/core/control.svelte';
   import { draft } from '$lib/core/draft.svelte';
-  import { formatDateTime, formatNumber } from '$lib/core/format';
-  import { fetchHouse, type HouseResult } from '$lib/house/house';
+  import { formatDateTime } from '$lib/core/format';
   import type { MessageKey } from '$lib/i18n';
   import type { IconName } from '$lib/core/icons';
   import type { LiveStore } from '$lib/core/live.svelte';
@@ -75,24 +75,6 @@
 
   const signalCount = $derived(Object.keys(live.snapshot?.signals ?? {}).length);
 
-  let house = $state<HouseResult | null>(null);
-  $effect(() => {
-    const controller = new AbortController();
-    fetchHouse(controller.signal)
-      .then((result) => (house = result))
-      .catch(() => (house = null));
-    return () => controller.abort();
-  });
-  const houseLine = $derived.by(() => {
-    if (house?.kind === 'learning') return t('moreHouseLearning');
-    if (house?.kind !== 'ready') return t('moreHouseAbout');
-    const ua = formatNumber(house.data.ua.w_per_k, 0, settings.language);
-    const score = house.data.score;
-    if (score.state === 'ready' && score.band) return t('moreHouseBand', { band: score.band, ua });
-    if (score.state === 'learning') return t('moreHouseLearning');
-    return t('moreHouseUa', { ua });
-  });
-
   const entries = $derived<Entry[]>([
     {
       href: '#/settings',
@@ -125,7 +107,7 @@
       href: '#/house',
       icon: 'home',
       title: t('navHouse'),
-      line: houseLine,
+      line: t('moreHouseAbout'),
       testid: 'more-house',
     },
     {
@@ -138,7 +120,10 @@
   ]);
 </script>
 
-<h1>{t('moreTitle')}</h1>
+<header class="head">
+  <h1>{t('moreTitle')}</h1>
+  <VersionLink version={live.health?.version ?? null} testid="more-version" prefix />
+</header>
 <ul class="links" data-testid="more-links" data-help="more.links">
   {#each entries as entry (entry.href)}
     <li>
@@ -158,6 +143,13 @@
 </ul>
 
 <style>
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0 var(--space-3);
+  }
   .links {
     list-style: none;
     margin: 0;

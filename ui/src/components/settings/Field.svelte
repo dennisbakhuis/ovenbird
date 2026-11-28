@@ -19,7 +19,12 @@
   import type { Snippet } from 'svelte';
   import type { Availability } from '$lib/core/cfg.svelte';
   import { type DraftStore, sameValue } from '$lib/core/draft.svelte';
-  import { formatInputNumber, formatValue, parseInputNumber } from '$lib/core/fieldFormat';
+  import {
+    formatInputNumber,
+    formatValue,
+    isClockTime,
+    parseInputNumber,
+  } from '$lib/core/fieldFormat';
   import { issueText } from '$lib/settings/issues';
   import { checkField, displayUnit, fromDisplay, toDisplay } from '$lib/core/schema';
   import { settings, t, tOpt } from '$lib/core/settings.svelte';
@@ -30,6 +35,7 @@
   import Select from '$ui/Select.svelte';
   import Switch from '$ui/Switch.svelte';
   import TextInput from '$ui/TextInput.svelte';
+  import TimeInput from '$ui/TimeInput.svelte';
   import SignalPicker from './SignalPicker.svelte';
   import { sameDeviceFirst } from '$lib/settings/ha';
   import Why from '$ui/Why.svelte';
@@ -87,9 +93,10 @@
   const activeText = $derived(def ? formatValue(def, known?.value, locale, words) : '');
   const atDefault = $derived(known === undefined || sameValue(value, known.default));
   const retention = $derived(def?.type === 'retention');
+  const clock = $derived(def?.type === 'string' && isClockTime(known?.default));
   const numeric = $derived(def?.type === 'number' || def?.type === 'integer' || retention);
   const forever = $derived(retention && (value === null || value === undefined || value === 0));
-  const inline = $derived(!wide && (numeric || def?.type === 'boolean'));
+  const inline = $derived(!wide && (numeric || clock || def?.type === 'boolean'));
   const roomSignal = $derived.by(() => {
     const room = draft.value('control_room_signal', config);
     return typeof room === 'string' ? room : null;
@@ -330,6 +337,14 @@
           values={Array.isArray(value) ? (value as string[]) : []}
           disabled={locked}
           onchangeMany={(v) => set(v)}
+        />
+      {:else if clock}
+        <TimeInput
+          id={inputId}
+          value={String(value ?? '')}
+          disabled={locked}
+          invalid={allErrors.length > 0}
+          onchange={set}
         />
       {:else}
         <TextInput

@@ -37,10 +37,12 @@ FILTERED_KEY: Final = "outside_filtered_c"
 
 
 def _round(value: float | None, digits: int = 1) -> float | None:
+    """Round a value, passing ``None`` through."""
     return None if value is None else round(value, digits)
 
 
 def _interpolate(rows: Sequence[ForecastRow], ts: float) -> float | None:
+    """Return the forecast temperature at ``ts`` by linear interpolation, or ``None``."""
     points = [(row.target_ts, row.temp_c) for row in rows if row.temp_c is not None]
     if not points:
         return None
@@ -55,6 +57,19 @@ def _interpolate(rows: Sequence[ForecastRow], ts: float) -> float | None:
 def _measured(
     path: Path, start: float, end: float, staleness: StalenessPolicy | None
 ) -> list[tuple[float, float]]:
+    """Return the measured outside temperature as ``(ts, value)`` points in the window.
+
+    Parameters
+    ----------
+    path
+        History database file.
+    start
+        Start of the window, Unix time.
+    end
+        End of the window, Unix time.
+    staleness
+        Policy that hides stale values; ``None`` for none.
+    """
     series = query_series(path, [HeishaSignal.OUTSIDE_TEMP], start, end, STEP_S, staleness)
     found = series.get(HeishaSignal.OUTSIDE_TEMP)
     if found is None:

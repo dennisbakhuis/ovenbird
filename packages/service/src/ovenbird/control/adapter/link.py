@@ -32,6 +32,17 @@ class LinkMixin(HoldsMixin):
     """Mode gating, simulator gating and restart detection of the adapter."""
 
     def _check_mode(self, now: Instant, read: Reader) -> None:
+        """Track the pump mode and drop the queue while it is not Direct heating.
+
+        The pump must report Direct heating mode and a heat operating state.
+
+        Parameters
+        ----------
+        now
+            Current time.
+        read
+            Signal reader.
+        """
         heating = reported_int(read(HeishaSignal.HEATING_MODE))
         operating = reported_int(read(HeishaSignal.OPERATING_MODE_STATE))
         problem: str | None = None
@@ -55,6 +66,7 @@ class LinkMixin(HoldsMixin):
         self._drop_queue(now, problem)
 
     def _check_board(self, now: Instant, board: HeishaMonStatus | None) -> None:
+        """In simulation, refuse to publish unless the board reports simulator firmware."""
         if not self.config.require_simulated_board:
             return
         version = board.version if board is not None else None
@@ -74,6 +86,15 @@ class LinkMixin(HoldsMixin):
         self._drop_queue(now, problem)
 
     def _watch_board(self, now: Instant, board: HeishaMonStatus | None) -> None:
+        """Note a HeishaMon restart from the heartbeat, uptime reset or last-will cycle.
+
+        Parameters
+        ----------
+        now
+            Current time.
+        board
+            HeishaMon board status, ``None`` when unknown.
+        """
         if board is None:
             return
         state = self._board

@@ -1,7 +1,6 @@
 <!--
-  House section: the facts about the house (the heated floor area turns the learned heat loss
-  into the indicative insulation score), the bounds on what is learned and the learning settings,
-  the same fields the House page shows, and a link to that page.
+  House section: the facts about the house, the same fields the House page shows, and a link to
+  that page.
 -->
 <script lang="ts">
   import Card from '$ui/Card.svelte';
@@ -9,23 +8,17 @@
   import Icon from '$ui/Icon.svelte';
   import { buildHash } from '$lib/core/router.svelte';
   import { t, tOpt } from '$lib/core/settings.svelte';
-  import { SUBSET_GROUP, type Subset } from '$lib/house/settings';
+  import { FACTS_GROUP } from '$lib/house/settings';
   import type { ConfigDoc, ConfigSchema } from '$lib/core/types';
 
   let { schema, config }: { schema: ConfigSchema; config: ConfigDoc } = $props();
-
-  const SUBSETS: Subset[] = ['facts', 'bounds', 'learning', 'plan'];
-  const present = (subset: Subset) =>
-    Object.values(schema.fields).some((def) => def.group === SUBSET_GROUP[subset]);
 </script>
 
 <Card bare as="div" class="stack" data-help="settings/house.area" data-testid="house-section">
-  {#each SUBSETS.filter(present) as subset (subset)}
-    <section class="subset" data-testid="house-subset-{subset}" data-help="settings/house.{subset}">
-      <h3>{tOpt(`group_${SUBSET_GROUP[subset]}`)}</h3>
-      <HouseFields {schema} {config} {subset} />
-    </section>
-  {/each}
+  <section class="subset" data-testid="house-subset-facts" data-help="settings/house.facts">
+    <h3>{tOpt(`group_${FACTS_GROUP}`)}</h3>
+    <HouseFields {schema} {config} />
+  </section>
   <p class="muted link">
     {t('houseSectionText')}
     <a href={buildHash('house')} data-testid="house-section-link"

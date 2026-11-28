@@ -1,9 +1,9 @@
-"""SQLite result database shared by the open-loop run and the counterfactual replay.
+"""SQLite result database of the open-loop run.
 
-Every table carries a ``run`` column, so one file can hold several runs (the two
-controllers, bootstrap replicates, ablation variants). ``decisions.record`` holds
-exactly :meth:`~ovenbird_core.control.DecisionRecord.to_json_dict` serialised with
-sorted keys — the format of the live decision log. ``meta`` holds JSON values.
+Every table carries a ``run`` column, so one file can hold several runs (for example
+several controllers). ``decisions.record`` holds exactly
+:meth:`~ovenbird_core.control.DecisionRecord.to_json_dict` serialised with sorted
+keys — the format of the live decision log. ``meta`` holds JSON values.
 """
 
 from __future__ import annotations
@@ -189,6 +189,7 @@ class ResultDB:
                 )
 
     def _flush(self, table: str) -> None:
+        """Insert the buffered rows of ``table`` into the database and clear the buffer."""
         rows = self._pending.pop(table, [])
         if not rows:
             return

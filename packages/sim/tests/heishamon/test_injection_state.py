@@ -28,6 +28,7 @@ PREFIX = "heishamon_sim/inject"
 
 
 def make_board(prefix: str | None = PREFIX) -> SimulatedHeishaMon:
+    """Return a simulated board with injection under ``prefix`` (or disabled with ``None``)."""
     weather = ColdWeek(START)
     state = preroll(REFERENCE_PARAMS, weather, START, 33, hours=2.0)
     return SimulatedHeishaMon(
@@ -41,11 +42,13 @@ def make_board(prefix: str | None = PREFIX) -> SimulatedHeishaMon:
 
 
 def main_topics(pubs: list[Publication]) -> dict[str, str]:
+    """Return the ``main/*`` publications as a mapping from topic name to payload."""
     prefix = f"{BASE}/main/"
     return {p.topic.removeprefix(prefix): p.payload for p in pubs if p.topic.startswith(prefix)}
 
 
 def test_main_overrides_replace_reported_values_until_cleared() -> None:
+    """Injected main values replace the reported ones until they are emptied or cleared."""
     board = make_board()
     first = main_topics(board.cycle())
     assert first["Error"] == "No error"
@@ -63,6 +66,7 @@ def test_main_overrides_replace_reported_values_until_cleared() -> None:
 
 
 def test_register_injection_switches_to_compensation_mode() -> None:
+    """Injecting the heating mode register switches the board to compensation mode."""
     board = make_board()
     board.cycle()
     assert board.receive(f"{PREFIX}/register/heating_mode", b"0")
@@ -76,6 +80,7 @@ def test_register_injection_switches_to_compensation_mode() -> None:
     [("register/heating_mode", "x"), ("register/nonsense", "1"), ("main/a/b", "1"), ("other", "")],
 )
 def test_bad_injections_are_rejected(name: str, payload: str) -> None:
+    """Malformed or unknown injections are rejected and leave the registers unchanged."""
     board = make_board()
     assert not board.receive(f"{PREFIX}/{name}", payload)
     assert board.stats.injections_rejected == 1
@@ -83,6 +88,7 @@ def test_bad_injections_are_rejected(name: str, payload: str) -> None:
 
 
 def test_injection_is_off_without_a_prefix() -> None:
+    """Without an injection prefix nothing is injected."""
     board = make_board(prefix=None)
     assert board.inject_filter is None
     assert not board.receive(f"{PREFIX}/main/Error", "H62")
@@ -90,6 +96,7 @@ def test_injection_is_off_without_a_prefix() -> None:
 
 
 def test_wrapped_setpoint_reaches_the_reported_target() -> None:
+    """A wrapped (out-of-range) setpoint reaches the reported water target as the signed byte."""
     board = make_board()
     board.cycle()
     board.receive(f"{BASE}/commands/SetCurves", '{"zone1":{"heat":{"target":{"high":300}}}}')
@@ -100,6 +107,7 @@ def test_wrapped_setpoint_reaches_the_reported_target() -> None:
 
 
 def test_registers_json_round_trip_and_validation() -> None:
+    """Registers survive a JSON round trip, and invalid state files are rejected."""
     registers = Registers(heating_mode=0, direct_setpoint=27, max_pump_duty=102)
     assert registers_from_json(registers_to_json(registers)) == registers
     with pytest.raises(ValueError, match="state file"):
@@ -109,6 +117,7 @@ def test_registers_json_round_trip_and_validation() -> None:
 
 
 def test_saver_writes_only_on_change(tmp_path: Path) -> None:
+    """The register saver writes the file atomically and only when the registers changed."""
     path = tmp_path / "registers.json"
     save = RegisterSaver(path)
     save(Registers(direct_setpoint=31))
@@ -122,6 +131,7 @@ def test_saver_writes_only_on_change(tmp_path: Path) -> None:
 
 
 def test_cli_restores_registers_from_the_state_file(tmp_path: Path) -> None:
+    """The command-line board restores its registers from the state file, or falls back."""
     path = tmp_path / "registers.json"
     save_registers(path, Registers(direct_setpoint=29, curve_target_high=29, max_pump_duty=102))
     argv = ["--scenario", "cold-week", "--preroll-hours", "1", "--state-file", str(path)]
@@ -142,14 +152,18 @@ def test_cli_restores_registers_from_the_state_file(tmp_path: Path) -> None:
 
 
 class Client:
+    """Fake MQTT client that records its subscriptions."""
+
     instances: list[Client] = []  # noqa: RUF012
 
     def __init__(self, **kwargs: Any) -> None:
+        """Keep the client options and register the instance."""
         self.kwargs = kwargs
         self.subscribed: list[str] = []
         Client.instances.append(self)
 
     async def __aenter__(self) -> Self:
+        """Enter the client context."""
         return self
 
     async def __aexit__(
@@ -158,17 +172,23 @@ class Client:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        return None
+        """Leave the client context."""
+        return
 
     async def subscribe(self, topic: str, qos: int = 0) -> None:
+        """Record the subscribed topic."""
         self.subscribed.append(topic)
 
     async def publish(self, topic: str, payload: str, qos: int = 0, retain: bool = False) -> None:
-        return None
+        """Accept a publication without doing anything."""
+        return
 
     @property
     def messages(self) -> Any:
+        """Return a message stream that never delivers."""
+
         async def stream() -> Any:
+            """Wait forever without yielding a message."""
             await asyncio.Event().wait()
             yield None
 
@@ -176,6 +196,7 @@ class Client:
 
 
 async def test_runner_subscribes_to_injections_and_saves_registers(tmp_path: Path) -> None:
+    """The runner subscribes to the injection topics and saves the registers."""
     Client.instances.clear()
     board = make_board()
     path = tmp_path / "registers.json"

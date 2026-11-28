@@ -47,10 +47,29 @@ class NotifyError(Exception):
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Redirect handler that never follows a redirect."""
+
     def redirect_request(
         self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str
     ) -> None:
-        return None
+        """Refuse every redirect.
+
+        Parameters
+        ----------
+        req
+            Original request.
+        fp
+            Response file.
+        code
+            Redirect status code.
+        msg
+            Status message.
+        headers
+            Response headers.
+        newurl
+            Redirect target.
+        """
+        return None  # noqa: RET501
 
 
 OPENER: Final = urllib.request.build_opener(_NoRedirect)

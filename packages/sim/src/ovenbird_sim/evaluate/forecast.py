@@ -4,11 +4,10 @@ A :class:`TableForecast` holds the *intended* forecast on an hourly grid (the tr
 perfect forecast, anything else for a deliberate mismatch such as sun forecast but not
 delivered) and turns it into the rows the service stores: for every hour the shortest
 lead forecast available, with the format of
-:class:`~ovenbird_core.control.planner.ForecastHour` (temperature at the hour mark,
+:class:`~ovenbird_core.control.forecast.ForecastHour` (temperature at the hour mark,
 irradiance as the mean over the hour before it).
 
-Error model (:class:`ForecastError`)
-------------------------------------
+**Error model (:class:`ForecastError`)**
 Everything is seeded: a draw depends only on the seed and on the day or hour it belongs
 to, never on the order of the calls, so two runs with the same seed see the same
 forecast.
@@ -41,7 +40,7 @@ from typing import Final
 
 import numpy as np
 
-from ovenbird_core.control.planner import HISTORY_S, HOUR_S, ForecastHour
+from ovenbird_core.control.forecast import HISTORY_S, HOUR_S, ForecastHour
 from ovenbird_core.instant import Instant
 from ovenbird_sim.data.series import FloatArray
 from ovenbird_sim.evaluate.closedloop import Weather
@@ -85,6 +84,7 @@ class ForecastError:
         return min(1.0, max(0.0, lead_s / (self.ramp_h * HOUR_S)))
 
     def _draw(self, salt: int, index: int) -> float:
+        """Return a standard-normal draw for ``salt`` and ``index``, fixed by the seed."""
         rng = np.random.default_rng([self.seed, salt, index + 1_000_000])
         return float(rng.standard_normal())
 
@@ -128,6 +128,7 @@ class TableForecast:
     error: ForecastError | None = None
 
     def _index(self, hour_ts: float) -> int:
+        """Return the series index of the hour at ``hour_ts``, wrapping by whole days."""
         count = int(self.outside_c.size)
         k = round((hour_ts - self.first_ts) / HOUR_S)
         if 0 <= k < count:

@@ -42,38 +42,50 @@ ACTOR = Actor("admin from 10.0.0.2", "10.0.0.2")
 
 
 class FakeTransport:
+    """Notification transport stub that records requests and returns a status or raises."""
+
     def __init__(self, status: int = 200, error: Exception | None = None) -> None:
+        """Set the status to return and an optional error to raise."""
         self.status = status
         self.error = error
         self.requests: list[HttpRequest] = []
 
     def __call__(self, request: HttpRequest) -> int:
+        """Record the request, then raise the error or return the status."""
         self.requests.append(request)
         if self.error is not None:
             raise self.error
         return self.status
 
     def bodies(self) -> list[dict[str, Any]]:
+        """Return the decoded JSON bodies of the recorded POST requests."""
         return [json.loads(r.body or b"{}") for r in self.requests if r.method == "POST"]
 
     def titles(self) -> list[str]:
+        """Return the titles of the recorded POST notifications."""
         return [body["title"] for body in self.bodies()]
 
 
 class Ticker:
+    """Manually advanced monotonic clock."""
+
     def __init__(self) -> None:
+        """Start at zero."""
         self.t = 0.0
 
     def __call__(self) -> float:
+        """Return the current monotonic time in seconds."""
         return self.t
 
 
 def basic(user: str, password: str) -> dict[str, str]:
+    """Build a Basic authorization header for the credentials."""
     token = base64.b64encode(f"{user}:{password}".encode()).decode()
     return {"Authorization": f"Basic {token}"}
 
 
 def flush(notifier: Notifier) -> float | None:
+    """Run a notifier flush to completion and return the delay before it should run again."""
     return asyncio.run(notifier.flush())
 
 
@@ -82,6 +94,7 @@ Rig = tuple[Notifier, FakeTransport, Ticker, AlarmBoard, FakeClock]
 
 @pytest.fixture
 def rig(make_settings: Callable[..., Settings]) -> Rig:
+    """Provide a notifier on fake transport, ticker and clock attached to a fresh alarm board."""
     transport = FakeTransport()
     ticker = Ticker()
     clock = FakeClock()
@@ -94,6 +107,7 @@ def rig(make_settings: Callable[..., Settings]) -> Rig:
 
 
 def test_settings_keep_ntfy_consistent(make_settings: Callable[..., Settings]) -> None:
+    """Settings normalise the ntfy URL and reject incomplete or invalid ntfy settings."""
     settings = make_settings(**NTFY)
     assert settings.notify_ntfy_url == "https://ntfy.example.test"
     assert settings.notify_language == "en"
@@ -117,6 +131,7 @@ def test_settings_keep_ntfy_consistent(make_settings: Callable[..., Settings]) -
 def test_the_ntfy_url_cannot_carry_credentials(
     make_settings: Callable[..., Settings], url: str
 ) -> None:
+    """An ntfy URL carrying credentials, a query or a fragment is rejected."""
     with pytest.raises(ConfigError):
         make_settings(**{**NTFY, "notify_ntfy_url": url})
 
@@ -124,6 +139,7 @@ def test_the_ntfy_url_cannot_carry_credentials(
 def test_the_deadman_url_must_be_https_unless_allowed(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """A plain-http dead-man URL is rejected unless explicitly allowed."""
     with pytest.raises(ConfigError):
         make_settings(notify_deadman_url="http://hc.example.test/ping/x")
     allowed = make_settings(
@@ -133,6 +149,7 @@ def test_the_deadman_url_must_be_https_unless_allowed(
 
 
 def test_an_alarm_is_sent_at_once_and_its_clearing_once_it_stays_clear(rig: Rig) -> None:
+    """An alarm is sent at once and its clearing only after it has stayed clear."""
     notifier, transport, ticker, board, clock = rig
     board.raise_alarm(AlarmCode.LOW_FLOW, "flow 4.1 l/min below 7.0", clock())
     board.raise_alarm(AlarmCode.HEATING_OFF_OUTDOOR, "info only", clock())
@@ -157,6 +174,7 @@ def test_an_alarm_is_sent_at_once_and_its_clearing_once_it_stays_clear(rig: Rig)
 
 
 def test_a_flapping_alarm_never_ends_as_cleared_while_active(rig: Rig) -> None:
+    """A flapping alarm that ends active never produces a resolved message."""
     notifier, transport, ticker, board, clock = rig
     for minute in range(10):
         ticker.t = minute * 60.0
@@ -174,6 +192,7 @@ def test_a_flapping_alarm_never_ends_as_cleared_while_active(rig: Rig) -> None:
 
 
 def test_a_raise_after_a_sent_clearing_is_never_dropped(rig: Rig) -> None:
+    """A raise after a clearing was sent is sent again."""
     notifier, transport, ticker, board, clock = rig
     board.raise_alarm(AlarmCode.LOW_FLOW, "flow is low", clock())
     flush(notifier)
@@ -193,6 +212,7 @@ def test_a_raise_after_a_sent_clearing_is_never_dropped(rig: Rig) -> None:
 def test_a_failed_send_is_retried_with_backoff_and_health_says_failing(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """A failed send is retried with growing delay, then raises a failing alarm until it works."""
     transport = FakeTransport(error=OSError("network unreachable"))
     ticker = Ticker()
     clock = FakeClock()
@@ -226,6 +246,7 @@ def test_a_failed_send_is_retried_with_backoff_and_health_says_failing(
 def test_an_alarm_that_came_and_went_while_sending_failed_is_reported_once(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """An alarm that came and went during a failing send is reported once as came and went."""
     transport = FakeTransport(error=OSError("down"))
     ticker = Ticker()
     clock = FakeClock()
@@ -249,6 +270,7 @@ def test_an_alarm_that_came_and_went_while_sending_failed_is_reported_once(
 
 
 def test_critical_alarms_are_never_starved_by_warnings(rig: Rig) -> None:
+    """Warnings are rate limited without blocking a critical alarm."""
     notifier, transport, ticker, board, clock = rig
     warnings = [code for code in AlarmCode if code.value.startswith("room_")]
     for index in range(RATE_LIMITS[next(iter(RATE_LIMITS))] * 3):
@@ -270,6 +292,7 @@ def test_critical_alarms_are_never_starved_by_warnings(rig: Rig) -> None:
 
 
 def test_messages_are_in_the_configured_language(make_settings: Callable[..., Settings]) -> None:
+    """Messages are in the configured language and leave out the client address."""
     transport = FakeTransport()
     clock = FakeClock()
     notifier = Notifier(
@@ -293,6 +316,7 @@ def test_messages_are_in_the_configured_language(make_settings: Callable[..., Se
 
 
 def test_events_are_sent_only_when_enabled(make_settings: Callable[..., Settings]) -> None:
+    """Audit events are only queued for notification when events are enabled and relevant."""
     transport = FakeTransport()
     quiet = Notifier(make_settings(**NTFY), FakeClock(), Facts(), transport=transport)
     quiet.on_audit(ACTOR, "mode_pause", {"reason": "away"})
@@ -310,6 +334,7 @@ def test_events_are_sent_only_when_enabled(make_settings: Callable[..., Settings
 def test_the_state_survives_a_restart_and_is_replayed(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """Notified state survives a restart so only new alarms and resolved ones are sent."""
     facts = Facts()
     transport = FakeTransport()
     clock = FakeClock()
@@ -336,6 +361,7 @@ def test_the_state_survives_a_restart_and_is_replayed(
 def test_config_reset_at_start_reaches_the_notifier(
     make_settings: Callable[..., Settings], tmp_path: Path
 ) -> None:
+    """A config reset found at start is notified through the service's notifier."""
     data = tmp_path / "data"
     data.mkdir()
     (data / MARKER_NAME).write_text("x\n")
@@ -356,6 +382,7 @@ def test_config_reset_at_start_reaches_the_notifier(
 
 
 def test_a_failed_send_never_leaks_the_secret(make_settings: Callable[..., Settings]) -> None:
+    """A failed send reports a truncated error without the topic or token."""
     long = "x" * (MAX_ERROR - 20)
     transport = FakeTransport(error=OSError(f"{long} ovenbird-secret-topic tk_secret_token"))
     facts = Facts()
@@ -372,12 +399,14 @@ def test_a_failed_send_never_leaks_the_secret(make_settings: Callable[..., Setti
 
 
 def test_redirects_are_not_followed() -> None:
+    """The notification transport does not follow redirects."""
     handler: Any = _NoRedirect()
     assert handler.redirect_request(None, None, 302, "Found", {}, "https://elsewhere") is None
     assert any(isinstance(h, _NoRedirect) for h in getattr(OPENER, "handlers", []))
 
 
 def test_tests_have_their_own_rate_limit(make_settings: Callable[..., Settings]) -> None:
+    """Test notifications are limited to one per spacing interval."""
     ticker = Ticker()
     notifier = Notifier(
         make_settings(**NTFY), FakeClock(), Facts(), transport=FakeTransport(), monotonic=ticker
@@ -391,6 +420,7 @@ def test_tests_have_their_own_rate_limit(make_settings: Callable[..., Settings])
 
 
 def test_the_deadman_pings_only_while_healthy(make_settings: Callable[..., Settings]) -> None:
+    """The dead-man ping is sent only while healthy and the status hides its URL."""
     transport = FakeTransport()
     reason: list[str | None] = [None]
     notifier = Notifier(
@@ -415,6 +445,7 @@ def test_the_deadman_pings_only_while_healthy(make_settings: Callable[..., Setti
 
 
 def test_notification_endpoints(make_settings: Callable[..., Settings]) -> None:
+    """The notification endpoints report status, require the request marker and rate limit tests."""
     settings = make_settings(**NTFY, http_host="0.0.0.0", admin_password=ADMIN)
     clock = FakeClock()
     runtime = Runtime(clock=clock)
@@ -448,6 +479,7 @@ def test_notification_endpoints(make_settings: Callable[..., Settings]) -> None:
 
 
 def test_test_endpoint_refuses_without_ntfy(make_settings: Callable[..., Settings]) -> None:
+    """Testing notifications without ntfy answers 409 and status shows it as not configured."""
     settings = make_settings(http_host="0.0.0.0", admin_password=ADMIN)
     with TestClient(create_app(Runtime(clock=FakeClock()), settings)) as client:
         mark = {**basic("admin", ADMIN), "X-Ovenbird-Request": "1"}

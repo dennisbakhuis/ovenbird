@@ -25,7 +25,10 @@ SERVICE_UID = 10001
 
 
 class FakeOs:
+    """Fake operating system that records privilege changes, chowns and the final exec."""
+
     def __init__(self, euid: int = 0, *, regain: bool = False, ignore_setuid: bool = False) -> None:
+        """Start as the given effective user, optionally letting root return or setuid fail."""
         self.uid = self.euid = euid
         self.gid = self.egid = euid
         self.groups: list[int] | None = None
@@ -36,26 +39,32 @@ class FakeOs:
         self.exec: tuple[str, list[str]] | None = None
 
     def setgroups(self, groups: list[int]) -> None:
+        """Record and apply the supplementary groups."""
         self.calls.append(("setgroups", groups))
         self.groups = groups
 
     def setgid(self, gid: int) -> None:
+        """Record and apply the group id."""
         self.calls.append(("setgid", gid))
         self.gid = self.egid = gid
 
     def setuid(self, uid: int) -> None:
+        """Record and apply the user id unless setuid is set to be ignored."""
         self.calls.append(("setuid", uid))
         if not self.ignore_setuid:
             self.uid = self.euid = uid
 
     def chown(self, path: str, uid: int, gid: int, *, dir_fd: int | None) -> None:
+        """Record the chown instead of changing ownership."""
         self.chowned.append((path, uid, gid, dir_fd))
 
     def execv(self, path: str, args: list[str]) -> None:
+        """Record the exec instead of replacing the process."""
         self.calls.append(("execv",))
         self.exec = (path, args)
 
     def system(self) -> System:
+        """Return a launcher System wired to this fake."""
         return replace(
             System(),
             geteuid=lambda: self.euid,
@@ -71,6 +80,7 @@ class FakeOs:
 
 
 def root_owned_tree(tmp_path: Path) -> Path:
+    """Create a data directory with files, a subdirectory and symlinks pointing outside it."""
     data = tmp_path / "data"
     (data / "sub").mkdir(parents=True)
     (data / "options.json").write_text("{}", encoding="utf-8")
@@ -94,10 +104,12 @@ def root_owned_tree(tmp_path: Path) -> Path:
     ],
 )
 def test_plan(euid: int, args: list[str], expected: Plan) -> None:
+    """Root repairs and drops privileges, except with --check or --version where it only drops."""
     assert plan(euid, args) == expected
 
 
 def test_target_ids_default_and_refuse_root() -> None:
+    """Target user and group default to the service ids and root is refused."""
     assert target_ids({}) == (SERVICE_UID, SERVICE_UID)
     assert target_ids({"OVENBIRD_UID": "1000", "OVENBIRD_GID": "100"}) == (1000, 100)
     for bad in ("0", "-1", "root", ""):
@@ -106,11 +118,13 @@ def test_target_ids_default_and_refuse_root() -> None:
 
 
 def test_data_dir_from_environment(tmp_path: Path) -> None:
+    """The data directory comes from the environment and defaults to /data."""
     assert data_dir({}) == Path("/data")
     assert data_dir({"OVENBIRD_DATA_DIR": str(tmp_path)}) == tmp_path
 
 
 def test_repair_gives_a_root_owned_tree_to_the_service_user(tmp_path: Path) -> None:
+    """Repair chowns the tree itself and symlinks, never what they point to."""
     data = root_owned_tree(tmp_path)
     fake = FakeOs()
     changed = repair_ownership(data, SERVICE_UID, SERVICE_UID, fake.system())
@@ -122,6 +136,7 @@ def test_repair_gives_a_root_owned_tree_to_the_service_user(tmp_path: Path) -> N
 
 
 def test_repair_leaves_a_correctly_owned_tree_alone(tmp_path: Path) -> None:
+    """Repair changes nothing when the tree already belongs to the target user."""
     data = root_owned_tree(tmp_path)
     fake = FakeOs()
     assert repair_ownership(data, os.getuid(), os.getgid(), fake.system()) == 0
@@ -129,12 +144,14 @@ def test_repair_leaves_a_correctly_owned_tree_alone(tmp_path: Path) -> None:
 
 
 def test_repair_creates_a_missing_data_dir(tmp_path: Path) -> None:
+    """Repair creates a missing data directory."""
     fake = FakeOs()
     repair_ownership(tmp_path / "new" / "data", SERVICE_UID, SERVICE_UID, fake.system())
     assert (tmp_path / "new" / "data").is_dir()
 
 
 def test_repair_refuses_a_file_as_data_dir(tmp_path: Path) -> None:
+    """Repair raises FileExistsError when the data directory is a file."""
     path = tmp_path / "file"
     path.write_text("x", encoding="utf-8")
     with pytest.raises(FileExistsError):
@@ -142,6 +159,7 @@ def test_repair_refuses_a_file_as_data_dir(tmp_path: Path) -> None:
 
 
 def test_drop_privileges_order_and_verification() -> None:
+    """Privileges drop in order groups, group, user; a regained root or ignored setuid fails."""
     fake = FakeOs()
     drop_privileges(SERVICE_UID, SERVICE_UID, fake.system())
     assert fake.calls == [("setgroups", []), ("setgid", SERVICE_UID), ("setuid", SERVICE_UID)]
@@ -152,6 +170,7 @@ def test_drop_privileges_order_and_verification() -> None:
 
 
 def test_launch_as_root_repairs_drops_and_execs(tmp_path: Path) -> None:
+    """Started as root, the launcher repairs ownership, drops privileges and execs the service."""
     data = root_owned_tree(tmp_path)
     fake = FakeOs()
     launch([], {"OVENBIRD_DATA_DIR": str(data)}, fake.system())
@@ -162,6 +181,7 @@ def test_launch_as_root_repairs_drops_and_execs(tmp_path: Path) -> None:
 
 
 def test_launch_check_as_root_drops_without_repair(tmp_path: Path) -> None:
+    """Started as root with --check, the launcher drops privileges without repairing."""
     data = root_owned_tree(tmp_path)
     fake = FakeOs()
     launch(["--check"], {"OVENBIRD_DATA_DIR": str(data)}, fake.system())
@@ -171,6 +191,7 @@ def test_launch_check_as_root_drops_without_repair(tmp_path: Path) -> None:
 
 
 def test_launch_as_non_root_execs_unchanged(tmp_path: Path) -> None:
+    """Started as a non-root user, the launcher only execs the service."""
     fake = FakeOs(euid=SERVICE_UID)
     launch(["--check"], {"OVENBIRD_DATA_DIR": str(tmp_path)}, fake.system())
     assert fake.calls == [("execv",)]
@@ -178,9 +199,11 @@ def test_launch_as_non_root_execs_unchanged(tmp_path: Path) -> None:
 
 
 def test_launch_continues_when_repair_fails(tmp_path: Path) -> None:
+    """A failed ownership repair does not stop the launcher from dropping and exec'ing."""
     fake = FakeOs()
 
     def refuse(path: str, uid: int, gid: int, *, dir_fd: int | None) -> None:
+        """Fail the chown with a permission error."""
         raise PermissionError(1, "Operation not permitted")
 
     system = replace(fake.system(), chown=refuse)
@@ -190,7 +213,10 @@ def test_launch_continues_when_repair_fails(tmp_path: Path) -> None:
 
 
 def test_main_reports_unsafe_drop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The launcher main returns 1 when privileges cannot be dropped safely."""
+
     def failing(*args: Any) -> None:
+        """Raise the unsafe-drop error."""
         raise LauncherError("root could be regained after dropping privileges")
 
     monkeypatch.setattr("ovenbird.launcher.launch", failing)
@@ -200,6 +226,7 @@ def test_main_reports_unsafe_drop(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_root_owned_data_dir_fails_cleanly_without_the_launcher(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """Without the launcher, a read-only data directory ends the service with exit 1 and a log."""
     from ovenbird.__main__ import main as service_main
 
     data = tmp_path / "data"

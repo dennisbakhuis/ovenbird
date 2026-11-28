@@ -110,7 +110,7 @@ describe.each(['en', 'nl'] as const)('help search over the %s content', (languag
     expect(first('fallback')).not.toBe('nothing');
     expect(first('notification')).not.toBe('nothing');
     expect(['topic start', 'term control-state']).toContain(first('who controls'));
-    expect(first('band')).toBe('topic house');
+    expect(first('build period')).toBe('topic house');
     expect(first('csv')).toBe('topic activity');
   });
 });
@@ -127,7 +127,7 @@ describe('help search for owners, per language', () => {
     expect(['topic start', 'term control-state']).toContain(first(nl, 'wie stuurt'));
     expect(first(nl, 'schaduw')).toBe('term shadow');
     expect(first(nl, 'terugval')).not.toBe('nothing');
-    expect(first(nl, 'klasse')).toBe('topic house');
+    expect(first(nl, 'bouwperiode')).toBe('topic house');
     expect(first(nl, 'csv')).toBe('topic activity');
   });
 

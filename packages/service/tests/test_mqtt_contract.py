@@ -27,6 +27,7 @@ RECORDS = 3000
 
 
 def fixture_records(path: Path, limit: int) -> list[CaptureRecord]:
+    """Read up to a limit of heat-pump capture records from a gzipped capture file."""
     records: list[CaptureRecord] = []
     with gzip.open(path, "rt", encoding="utf-8") as fh:
         for line in fh:
@@ -41,12 +42,14 @@ def fixture_records(path: Path, limit: int) -> list[CaptureRecord]:
 
 @pytest.fixture
 async def publisher(broker: tuple[str, int]) -> AsyncIterator[aiomqtt.Client]:
+    """Yield an MQTT client connected to the test broker for publishing."""
     host, port = broker
     async with aiomqtt.Client(host, port, identifier=f"ovenbird-test-{secrets.token_hex(4)}") as c:
         yield c
 
 
 async def wait_until(condition: Callable[[], bool], limit: float = 15.0) -> None:
+    """Poll until a condition holds, failing after the time limit."""
     deadline = time.monotonic() + limit
     while not condition():
         if time.monotonic() > deadline:
@@ -60,6 +63,7 @@ async def test_ingest_against_a_real_broker(
     make_settings: Callable[..., Settings],
     capture_slice: Path,
 ) -> None:
+    """Ingest handles retained and live messages from a real broker, marking retained ones stale."""
     host, port = broker
     base = f"ovenbird_contract_{secrets.token_hex(4)}"
     records = fixture_records(capture_slice, RECORDS)

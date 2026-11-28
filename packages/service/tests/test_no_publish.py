@@ -52,6 +52,7 @@ MISSING = [
 
 
 def test_wrapper_exposes_no_publish_capability() -> None:
+    """The read-only client exposes only subscribe and messages, no publish or will."""
     public = {name for name in dir(ReadOnlyMqttClient) if not name.startswith("_")}
     assert public == {"subscribe", "messages"}
     assert not any(
@@ -61,34 +62,47 @@ def test_wrapper_exposes_no_publish_capability() -> None:
 
 
 class SpyClient:
+    """MQTT client stand-in that records which attributes are used and what is published."""
+
     def __init__(self, **kwargs: Any) -> None:
+        """Keep the constructor arguments and start with nothing used or published."""
         self.kwargs = kwargs
         self.used: set[str] = set()
         self.published: list[tuple[str, str, int, bool]] = []
 
     def __getattribute__(self, name: str) -> Any:
+        """Record every public attribute access except the spy's own bookkeeping."""
         if name not in {"kwargs", "used", "published", "__dict__", "__class__"}:
             object.__getattribute__(self, "used").add(name)
         return object.__getattribute__(self, name)
 
     async def __aenter__(self) -> SpyClient:
+        """Enter the connection context."""
         return self
 
     async def __aexit__(self, *args: object) -> None:
-        return None
+        """Leave the connection context."""
+        return
 
     async def subscribe(self, topic: str, qos: int = 0) -> None:
-        return None
+        """Accept a subscription without doing anything."""
+        return
 
     async def publish(self, topic: str, payload: str, qos: int = 0, retain: bool = False) -> None:
+        """Record a published message as ``(topic, payload, qos, retain)``."""
         self.published.append((topic, payload, qos, retain))
 
     @property
     def messages(self) -> Any:
+        """Return a stream delivering a single outside temperature message."""
+
         async def stream() -> Any:
+            """Yield one delivered message."""
             message = inbound("panasonic_heat_pump/main/Outside_Temp", "3")
 
             class Delivered:
+                """A delivered MQTT message with topic, payload and retain flag."""
+
                 topic = message.topic
                 payload = message.payload
                 retain = False
@@ -101,9 +115,11 @@ class SpyClient:
 async def test_wrapper_uses_only_subscribe_capabilities(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """The read-only wrapper touches only the allowed client methods and sets no will."""
     spies: list[SpyClient] = []
 
     def factory(**kwargs: Any) -> SpyClient:
+        """Create a spy client and keep it for inspection."""
         spy = SpyClient(**kwargs)
         spies.append(spy)
         return spy
@@ -119,14 +135,17 @@ async def test_wrapper_uses_only_subscribe_capabilities(
 
 
 def _python_files() -> list[Path]:
+    """Return all Python source files of the package, sorted."""
     return sorted(PACKAGE_DIR.rglob("*.py"))
 
 
 def _publish_sites(path: Path) -> list[str]:
+    """Return the scope and name of every publish-like call or attribute in a source file."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     sites: list[str] = []
 
     def visit(node: ast.AST, scope: tuple[str, ...]) -> None:
+        """Collect forbidden call sites in ``node`` and below, tracking the enclosing scope."""
         if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
             scope = (*scope, node.name)
         if isinstance(node, ast.Call):
@@ -146,6 +165,7 @@ def _publish_sites(path: Path) -> list[str]:
 
 
 def test_only_the_command_link_publishes() -> None:
+    """The only publish call in the package is ``CommandLink.send``."""
     sites = {
         path.relative_to(PACKAGE_DIR).as_posix(): _publish_sites(path) for path in _python_files()
     }
@@ -154,6 +174,7 @@ def test_only_the_command_link_publishes() -> None:
 
 
 def _string_constants(path: Path) -> list[int]:
+    """Return the line numbers of non-docstring string constants that name command topics."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     docstrings = {
         id(node.body[0].value)
@@ -173,6 +194,7 @@ def _string_constants(path: Path) -> list[int]:
 
 
 def test_only_the_adapter_names_command_topics() -> None:
+    """Only the publishing module contains command topic strings."""
     offenders = {
         path.name: lines
         for path in _python_files()
@@ -183,7 +205,10 @@ def test_only_the_adapter_names_command_topics() -> None:
 
 
 def _link(settings: Settings, spies: list[SpyClient]) -> CommandLink:
+    """Build a command link over a spy client, recording the spy in ``spies``."""
+
     def factory(**kwargs: Any) -> SpyClient:
+        """Create a spy client and keep it for inspection."""
         spy = SpyClient(**kwargs)
         spies.append(spy)
         return spy
@@ -194,6 +219,7 @@ def _link(settings: Settings, spies: list[SpyClient]) -> CommandLink:
 
 
 def _safety() -> SafetyLimits:
+    """Return the safety limits of the mixed preset."""
     return OvenbirdConfig.preset("mixed").safety
 
 
@@ -201,6 +227,7 @@ def _safety() -> SafetyLimits:
 def test_link_refuses_without_each_condition(
     make_settings: Callable[..., Settings], field: str, value: object
 ) -> None:
+    """The command link refuses to be built when any one of the three conditions is missing."""
     spies: list[SpyClient] = []
     with pytest.raises(CommandsRefusedError):
         _link(make_settings(**{**ALL_THREE, field: value}), spies)
@@ -210,6 +237,7 @@ def test_link_refuses_without_each_condition(
 async def test_link_publishes_allowlisted_topics_unretained_and_rechecks_the_guard(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """The link publishes allowlisted topics unretained and refuses others or a revoked guard."""
     spies: list[SpyClient] = []
     settings = make_settings(**ALL_THREE)
     link = _link(settings, spies)
@@ -234,9 +262,11 @@ async def test_link_publishes_allowlisted_topics_unretained_and_rechecks_the_gua
 
 
 def _service(make_settings: Callable[..., Settings], **overrides: Any) -> Any:
+    """Build a service whose command connection fails the test if it is ever created."""
     calls: list[str] = []
 
     def command_connect() -> Any:
+        """Fail the test because no publishing connection may be built."""
         calls.append("connect")
         raise AssertionError("no publishing connection may be built")
 
@@ -245,6 +275,7 @@ def _service(make_settings: Callable[..., Settings], **overrides: Any) -> Any:
 
 
 def _feed(service: Any) -> None:
+    """Feed a heat pump message set into the service's runtime."""
     ingest = MqttIngest(service.settings, service.runtime)
     for message in pump_messages(Z1_Water_Target_Temp="25"):
         ingest.ingest(message)
@@ -253,6 +284,7 @@ def _feed(service: Any) -> None:
 def test_shadow_service_has_no_publisher_and_records_would_be_commands(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """In shadow mode there is no publisher and the decision only records the would-be command."""
     service, calls = _service(make_settings, **{**ALL_THREE, "control_mode": "shadow"})
     assert service.worker is None
     assert [c.name for c in service.components] == [
@@ -262,8 +294,6 @@ def test_shadow_service_has_no_publisher_and_records_would_be_commands(
         "control",
         "safety",
         "weather",
-        "learner",
-        "learner-run",
         "mqtt-trial",
     ]
     _feed(service)
@@ -281,6 +311,7 @@ def test_shadow_service_has_no_publisher_and_records_would_be_commands(
 def test_auto_without_all_conditions_has_no_publisher(
     make_settings: Callable[..., Settings], field: str, value: object
 ) -> None:
+    """Auto mode with any condition missing builds no publisher and no connection."""
     service, calls = _service(make_settings, **{**ALL_THREE, field: value})
     assert service.worker is None
     assert "commands" not in [c.name for c in service.components]
@@ -292,6 +323,7 @@ def test_auto_without_all_conditions_has_no_publisher(
 async def test_all_three_conditions_build_the_only_publisher(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """With all three conditions the service builds the command link as its only publisher."""
     service = build_service(make_settings(**ALL_THREE))
     assert service.worker is not None
     assert [c.name for c in service.components][-1] == "commands"

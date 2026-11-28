@@ -35,6 +35,26 @@ def snapshot_with(
     at: float = T0,
     reason: str | None = None,
 ) -> Snapshot:
+    """Build a synthetic snapshot with the pump outside temperature and optionally a garden sensor.
+
+    Parameters
+    ----------
+    pump
+        Outside temperature of the pump's own sensor, in °C.
+    garden
+        Value of the chosen garden sensor in °C, or None to leave it out.
+    age
+        Age of the garden reading in seconds.
+    at
+        Unix time of the snapshot.
+    reason
+        Reason marking the garden value as unusable, if any.
+
+    Returns
+    -------
+    Snapshot
+        The snapshot including the garden signal view.
+    """
     now = Instant.from_unix(at)
     snapshot = synthetic_snapshot(now, PlantView(outside=pump, room=20.5))
     if garden is None:
@@ -56,12 +76,14 @@ def snapshot_with(
 
 
 def decide(config: OvenbirdConfig, snapshot: Snapshot) -> DecisionRecord:
+    """Return the first decision of a fresh controller for the given snapshot."""
     controller = OvenbirdController(config)
     inputs = control_inputs(snapshot, room_signal=ROOM_SIGNAL)
     return controller.step(controller.initial_state(), inputs).decision
 
 
 def test_without_a_chosen_sensor_the_pump_sensor_drives_the_curve() -> None:
+    """Without a chosen sensor the pump's outside sensor is used."""
     result = curve_outside(None, snapshot_with(5.0, 0.0), 5.0)
     assert result.value == 5.0
     assert result.source == HeishaSignal.OUTSIDE_TEMP
@@ -69,6 +91,7 @@ def test_without_a_chosen_sensor_the_pump_sensor_drives_the_curve() -> None:
 
 
 def test_a_fresh_chosen_sensor_drives_the_curve() -> None:
+    """A fresh chosen sensor replaces the pump's outside sensor."""
     result = curve_outside(CHOSEN.outside, snapshot_with(5.0, 0.0), 5.0)
     assert result.value == 0.0
     assert result.source == GARDEN
@@ -81,6 +104,7 @@ def test_a_fresh_chosen_sensor_drives_the_curve() -> None:
 def test_a_missing_or_old_chosen_sensor_falls_back_to_the_pump(
     garden: float | None, age: float, reason: str
 ) -> None:
+    """A missing or stale chosen sensor falls back to the pump sensor with a note."""
     result = curve_outside(CHOSEN.outside, snapshot_with(5.0, garden, age), 5.0)
     assert result.value == 5.0
     assert result.fallback
@@ -90,6 +114,7 @@ def test_a_missing_or_old_chosen_sensor_falls_back_to_the_pump(
 
 
 def test_a_refused_value_is_named_as_unusable_not_stale() -> None:
+    """A value refused at ingestion falls back as missing, naming the refusal reason."""
     snapshot = snapshot_with(5.0, 0.0, reason="unit: no temperature unit")
     result = curve_outside(CHOSEN.outside, snapshot, 5.0)
     assert result.value == 5.0
@@ -99,6 +124,7 @@ def test_a_refused_value_is_named_as_unusable_not_stale() -> None:
 
 @pytest.mark.parametrize("garden", [-40.5, 50.5, math.nan, math.inf])
 def test_an_implausible_chosen_value_falls_back_to_the_pump(garden: float) -> None:
+    """A chosen value outside the plausible range or non-finite falls back as implausible."""
     result = curve_outside(CHOSEN.outside, snapshot_with(5.0, garden), 5.0)
     assert result.value == 5.0
     assert result.source == HeishaSignal.OUTSIDE_TEMP
@@ -111,12 +137,14 @@ def test_an_implausible_chosen_value_falls_back_to_the_pump(garden: float) -> No
 
 @pytest.mark.parametrize("garden", [-40.0, 50.0])
 def test_the_plausible_range_includes_its_ends(garden: float) -> None:
+    """The plausible range limits themselves are accepted."""
     result = curve_outside(CHOSEN.outside, snapshot_with(garden, garden), garden)
     assert result.value == garden
     assert not result.fallback
 
 
 def test_a_chosen_value_too_far_from_the_pump_falls_back() -> None:
+    """A chosen value deviating too far from the pump sensor falls back with an explanatory note."""
     result = curve_outside(CHOSEN.outside, snapshot_with(5.0, 15.5), 5.0)
     assert result.value == 5.0
     assert result.fallback
@@ -128,6 +156,7 @@ def test_a_chosen_value_too_far_from_the_pump_falls_back() -> None:
 
 
 def test_a_chosen_value_within_the_deviation_is_used() -> None:
+    """A chosen value within the allowed deviation is used."""
     result = curve_outside(CHOSEN.outside, snapshot_with(5.0, 15.0), 5.0)
     assert result.value == 15.0
     assert not result.fallback
@@ -135,12 +164,14 @@ def test_a_chosen_value_within_the_deviation_is_used() -> None:
 
 
 def test_without_a_pump_value_only_the_range_applies() -> None:
+    """Without a pump value only the plausible range is checked."""
     result = curve_outside(CHOSEN.outside, snapshot_with(5.0, 30.0), None)
     assert result.value == 30.0
     assert not result.fallback
 
 
 def test_the_limits_are_settings() -> None:
+    """Plausible range and maximum deviation come from the source settings."""
     narrow = OutsideSource(GARDEN, plausible_min_c=-20.0, plausible_max_c=30.0, max_deviation_k=3.0)
     assert curve_outside(narrow, snapshot_with(5.0, -21.0), -21.0).reason == "implausible"
     assert curve_outside(narrow, snapshot_with(25.0, 31.0), 31.0).reason == "implausible"
@@ -149,6 +180,7 @@ def test_the_limits_are_settings() -> None:
 
 
 def test_the_default_limits() -> None:
+    """The default plausible range is -40 to 50 °C and the default deviation 10 K."""
     source = OutsideSource(GARDEN)
     assert (source.plausible_min_c, source.plausible_max_c) == (-40.0, 50.0)
     assert source.max_deviation_k == 10.0
@@ -163,11 +195,13 @@ def test_the_default_limits() -> None:
     ],
 )
 def test_the_limits_are_range_checked(overrides: dict[str, float]) -> None:
+    """Inconsistent limit settings are rejected naming the offending field."""
     with pytest.raises(ValueError, match=next(iter(overrides))):
         OutsideSource(GARDEN, **overrides)
 
 
 def test_the_curve_follows_the_chosen_sensor_and_says_so() -> None:
+    """The curve term uses the chosen sensor, notes it, and records it as an input."""
     pump = decide(MIXED, snapshot_with(10.0, 0.0))
     chosen = decide(CHOSEN, snapshot_with(10.0, 0.0))
     curve = chosen.term("curve")
@@ -179,6 +213,7 @@ def test_the_curve_follows_the_chosen_sensor_and_says_so() -> None:
 
 
 def test_the_safety_envelope_keeps_the_pump_sensor() -> None:
+    """The safety envelope is evaluated on the pump sensor, not the chosen sensor."""
     tolerant = OvenbirdConfig.preset("mixed", outside=OutsideSource(GARDEN, max_deviation_k=50.0))
     warm_garden = decide(tolerant, snapshot_with(-10.0, 15.0))
     curve = warm_garden.term("curve")
@@ -190,6 +225,7 @@ def test_the_safety_envelope_keeps_the_pump_sensor() -> None:
 
 
 def test_a_stale_chosen_sensor_gives_the_pump_curve_and_a_note() -> None:
+    """A stale chosen sensor yields the same setpoint as the pump sensor, with a note."""
     stale = decide(CHOSEN, snapshot_with(10.0, 0.0, age=4000.0))
     pump = decide(MIXED, snapshot_with(10.0, None))
     curve = stale.term("curve")
@@ -199,9 +235,11 @@ def test_a_stale_chosen_sensor_gives_the_pump_curve_and_a_note() -> None:
 
 
 def test_one_bad_sample_never_enters_the_outside_filter() -> None:
+    """Implausible or deviating chosen samples are kept out of the outside filter."""
     controller = OvenbirdController(CHOSEN)
 
     def run(second: float | None) -> OvenbirdState:
+        """Step twice, with the second garden sample as given, and return the final state."""
         state = controller.initial_state()
         for at, garden in ((T0, 2.0), (T0 + 60.0, second)):
             inputs = control_inputs(snapshot_with(3.0, garden, at=at), room_signal=ROOM_SIGNAL)
@@ -219,16 +257,19 @@ def test_one_bad_sample_never_enters_the_outside_filter() -> None:
     ("garden", "reason"), [(2.0, None), (80.0, "implausible"), (14.0, "deviates")]
 )
 def test_the_controller_state_carries_the_reason(garden: float, reason: str | None) -> None:
+    """The decision's controller state records the outside fallback and its reason."""
     record = decide(CHOSEN, snapshot_with(3.0, garden))
     assert record.controller_state["outside_reason"] == reason
     assert record.controller_state["outside_fallback"] is (reason is not None)
 
 
 def test_without_a_chosen_sensor_no_reason_key() -> None:
+    """Without a chosen sensor the controller state has no outside reason key."""
     record = decide(MIXED, snapshot_with(3.0, 80.0))
     assert "outside_reason" not in record.controller_state
 
 
 def test_the_age_limit_must_be_positive() -> None:
+    """A non-positive maximum age is rejected."""
     with pytest.raises(ValueError, match="max_age_s"):
         OutsideSource(GARDEN, max_age_s=0.0)

@@ -97,6 +97,7 @@ def json_int(node: Any) -> int:
 
 
 def _path(document: Any, *keys: str) -> Any:
+    """Return the value at the nested ``keys`` of a document, or ``None`` when a key is missing."""
     node = document
     for key in keys:
         if not isinstance(node, dict) or key not in node:

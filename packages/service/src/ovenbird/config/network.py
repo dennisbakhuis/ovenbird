@@ -110,6 +110,11 @@ def normalise_broker(entry: str) -> str:
 
     IPv6 addresses with a port are written ``[addr]:port``.
 
+    Parameters
+    ----------
+    entry
+        Broker allowlist entry as typed: ``host``, ``host:port`` or ``[addr]:port``.
+
     Raises
     ------
     ValueError

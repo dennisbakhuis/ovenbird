@@ -26,6 +26,7 @@ jobs:
           python-version-file: .python-version
       - run: uv sync --all-packages --frozen
       - run: uv run ruff check .
+      - run: uv run python .github/scripts/check_docstrings.py
       - run: uv run ruff format --check .
 
   typecheck:
@@ -121,5 +122,3 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Service starts and reports its version
         run: docker run --rm ovenbird:ci-check --version
-      - name: Learner imports inside the image
-        run: docker run --rm --entrypoint python ovenbird:ci-check -P -c "import ovenbird_sim.learn.run"

@@ -39,12 +39,16 @@ TABLES = ("decisions", "intents", "inputs", "reference")
 
 
 def _controller() -> OvenbirdController:
+    """Return the ovenbird controller with the comfort target the open-loop tests use."""
     return OvenbirdController(OvenbirdConfig.preset("mixed", comfort_room_c=22.5))
 
 
 @pytest.fixture
 def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail the test when the open-loop run tries to open a network connection."""
+
     def refuse(*args: object, **kwargs: object) -> None:
+        """Raise instead of connecting."""
         raise AssertionError("the open-loop run must not open network connections")
 
     monkeypatch.setattr(socket.socket, "connect", refuse)
@@ -56,6 +60,7 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_open_loop_sends_nothing_and_stores_valid_records(
     tmp_path: Path, capture_slice: Path
 ) -> None:
+    """An open-loop run sends nothing and stores consistent decision and intent records."""
     summary = open_loop_run(
         _controller(), capture_slice, tmp_path, options=OpenLoopOptions(room=RoomSource.MIRROR)
     )
@@ -81,6 +86,7 @@ def test_open_loop_sends_nothing_and_stores_valid_records(
 
 
 def test_open_loop_outputs_say_no_outcome_claims(tmp_path: Path, capture_slice: Path) -> None:
+    """Open-loop summaries, database and report all carry the no-outcome-claims banner."""
     summary = open_loop_run(_controller(), capture_slice, tmp_path)
     assert summary["banner"] == NO_CLAIMS_BANNER
     written = json.loads((tmp_path / SUMMARY_NAME).read_text(encoding="utf-8"))
@@ -98,6 +104,7 @@ def test_open_loop_outputs_say_no_outcome_claims(tmp_path: Path, capture_slice: 
 
 
 def test_open_loop_is_deterministic(tmp_path: Path, capture_slice: Path) -> None:
+    """Two open-loop runs over the same capture produce identical tables, summaries and metadata."""
     first = open_loop_run(_controller(), capture_slice, tmp_path / "a")
     second = open_loop_run(_controller(), capture_slice, tmp_path / "b")
     for table in TABLES:
@@ -116,14 +123,18 @@ def test_open_loop_is_deterministic(tmp_path: Path, capture_slice: Path) -> None
 
 @dataclass(frozen=True)
 class _Spy:
+    """Controller that records the inputs it is given and always requests the same setpoint."""
+
     name: str = "spy"
 
     def initial_state(self) -> list[ControlInputs]:
+        """Return an empty list of inputs seen so far."""
         return []
 
     def step(
         self, state: list[ControlInputs], inputs: ControlInputs
     ) -> StepResult[list[ControlInputs]]:
+        """Return the constant setpoint decision (setpoint 30) without changing anything."""
         record = DecisionRecord(
             at=inputs.now,
             controller=self.name,
@@ -144,10 +155,12 @@ class _Spy:
 
 
 def _capture(t: float, topic: str, payload: str) -> CaptureRecord:
+    """Return a capture record of ``topic`` under the HeishaMon base topic at time ``t``."""
     return CaptureRecord(t, f"panasonic_heat_pump/{topic}", payload)
 
 
 def test_ticks_follow_the_capture_and_never_see_later_readings() -> None:
+    """Ticks follow the capture clock and each tick only sees readings from before it."""
     stream: list[CaptureRecord | Reading] = []
     for k in range(121):
         stream.append(_capture(5.0 * k + 1000.0, "stats", '{"uptime":1}'))
@@ -170,6 +183,7 @@ def test_ticks_follow_the_capture_and_never_see_later_readings() -> None:
 
 
 def test_open_loop_judges_the_room_by_the_live_policy() -> None:
+    """The room value is stale after the live maximum age unless a longer one is configured."""
     from ovenbird_core.store import HA_MAX_AGE_S
 
     assert OpenLoopOptions().room_max_age_s == HA_MAX_AGE_S

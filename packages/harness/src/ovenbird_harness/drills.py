@@ -71,6 +71,7 @@ LOWER_ROOM_K: Final = 2.0
 
 
 def _wall(ts: float) -> datetime:
+    """Return the wall-clock datetime of the simulation timestamp ``ts``."""
     return datetime.fromtimestamp(ts, UTC)
 
 
@@ -84,6 +85,7 @@ def _verified_idle(run: FullRun) -> int | None:
 
 
 def _comfort(run: FullRun, comfort: float | None, comment: str) -> None:
+    """Apply an operator comfort temperature (°C) through the config manager; None reverts it."""
     manager = run.system.config
     changes = {"control_comfort_c": comfort}
     warnings = [w.code for w in manager.validate(changes).warnings]
@@ -121,6 +123,7 @@ class Drill(Scenario):
     latest: dict[str, Any] = field(default_factory=dict)
 
     def _decision(self, row: DecisionRow) -> None:
+        """Record the decision's binding and keep its record as the latest one."""
         super()._decision(row)
         record = json.loads(row.record)
         self.latest = record
@@ -160,6 +163,7 @@ class DefrostHold(Drill):
         self._arm(run, self.start)
 
     def _arm(self, run: FullRun, t: float) -> None:
+        """Start the defrost once a verified setpoint is idle outside a defrost and a DHW run."""
         board = run.board
         quiet = not board.state.defrosting and not board.dhw
         if _verified_idle(run) is None or not quiet:
@@ -205,21 +209,26 @@ class DefrostHold(Drill):
         return bool(record["setpoint"] >= floor + LOWER_ROOM_K)
 
     def _lower(self, run: FullRun, t: float) -> None:
+        """Lower the comfort temperature by :attr:`lower_k`."""
         comfort = round(run.settings.control_comfort_c - self.lower_k, 1)
         _comfort(run, comfort, "golden drill: comfort lowered")
         self.notes.setdefault("comfort_c", []).append(comfort)
 
     def _defrost_end(self, run: FullRun, t: float) -> None:
+        """Clear the reported defrost."""
         run.board.overrides.pop(DEFROST_TOPIC, None)
 
     def _dhw_start(self, run: FullRun, t: float) -> None:
+        """Start the DHW run and remember when."""
         run.board.dhw = True
         self.dhw_at = t
 
     def _dhw_end(self, run: FullRun, t: float) -> None:
+        """End the DHW run."""
         run.board.dhw = False
 
     def _revert(self, run: FullRun, t: float) -> None:
+        """Revert the comfort temperature to the configured one."""
         _comfort(run, None, "golden drill: comfort reverted")
 
     def checks(self, run: FullRun) -> list[Check]:
@@ -254,12 +263,26 @@ class ManualOverride(Drill):
         self._set(run, self.start)
 
     def _request(self, run: FullRun, t: float, kind: OverrideKind, value: float) -> None:
+        """Put a manual request of ``kind`` and ``value`` into the loop's manual request slot.
+
+        Parameters
+        ----------
+        run
+            The full run.
+        t
+            Simulation time of the call in unix seconds.
+        kind
+            Override kind.
+        value
+            Water setpoint in °C or boost in K.
+        """
         wall = _wall(t)
         request = ManualRequest(True, _wall(t + self.hold_s), DRILL_ACTOR, wall, kind, value)
         run.system.loop.stove_request = request
         self.notes.setdefault("requests", []).append({"kind": kind.value, "value": value})
 
     def _set(self, run: FullRun, t: float) -> None:
+        """Request the manual setpoint, a few kelvin off the verified one, once it is idle."""
         verified = _verified_idle(run)
         if verified is None:
             if t - self.start < self.max_wait_s:
@@ -272,6 +295,7 @@ class ManualOverride(Drill):
         self.at(t - self.start + self.hold_s + 120.0, self._boost)
 
     def _boost(self, run: FullRun, t: float) -> None:
+        """Request the boost."""
         self._request(run, t, OverrideKind.BOOST, self.boost_k)
         self.boost_at = t
 
@@ -322,6 +346,15 @@ class LatchedHold(Drill):
         self._write(run, self.start)
 
     def _write(self, run: FullRun, t: float) -> None:
+        """Write a foreign setpoint, or schedule the restart and release once the hold latches.
+
+        Parameters
+        ----------
+        run
+            The full run.
+        t
+            Simulation time of the call in unix seconds.
+        """
         adapter = run.system.adapter
         hold = adapter.hold
         if hold is not None and hold.latched:
@@ -351,14 +384,17 @@ class LatchedHold(Drill):
         return self.pending and run.board.registers.curve_target_high == verified
 
     def _stop(self, run: FullRun, t: float) -> None:
+        """Stop the service."""
         run.stop_service()
 
     def _start(self, run: FullRun, t: float) -> None:
+        """Start the service again and record whether the latch survived."""
         run.start_service()
         hold = run.system.adapter.hold
         self.notes["latched_after_restart"] = hold is not None and hold.latched
 
     def _release(self, run: FullRun, t: float) -> None:
+        """Release the latched hold as an operator and record the outcome."""
         released = run.system.adapter.release_hold(run.clock(), HARNESS_ADMIN)
         self.released_at = t
         self.notes["released"] = None if released is None else released.to_json()
@@ -399,16 +435,19 @@ class GoLiveRestore(Drill):
         self.at(self.resume_after_s, self._resume)
 
     def _raise(self, run: FullRun, t: float) -> None:
+        """Raise the comfort temperature by :attr:`raise_k`."""
         comfort = round(run.settings.control_comfort_c + self.raise_k, 1)
         _comfort(run, comfort, "golden drill: comfort raised")
 
     def _release(self, run: FullRun, t: float) -> None:
+        """Release control through the go-live release, restoring the snapshot."""
         release = run.system.loop.release
         assert release is not None
         release.config = run.system.config
         release.start(Actor(HARNESS_ADMIN), rehearsal=True, reason="golden drill")
 
     def _resume(self, run: FullRun, t: float) -> None:
+        """Record the release, revert the comfort and resume control."""
         release = run.system.loop.release
         assert release is not None
         self.released = release.last()
@@ -458,7 +497,18 @@ class StuckWarmFlagged(Drill):
         run.feed.stick(value, self.start, self.start + self.stuck_s)
 
     def checks(self, run: FullRun) -> list[Check]:
-        """Check the flag, the rollback to the learned value and the held offset."""
+        """Check the flag, the rollback to the learned value and the held offset.
+
+        Parameters
+        ----------
+        run
+            The full run whose settings, board and checker the verdicts read.
+
+        Returns
+        -------
+        list[Check]
+            The verdicts.
+        """
         resume = self.start + self.stuck_s
         during = self.between(self.start, resume)
         rolled = [d for d in during if "room_lost_rollback" in str(d.state.get("frozen_by"))]

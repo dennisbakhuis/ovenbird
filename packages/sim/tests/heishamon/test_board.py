@@ -25,6 +25,7 @@ SETCURVES = '{"zone1":{"heat":{"target":{"high":%d}}}}'
 
 
 def make_board(**config: object) -> SimulatedHeishaMon:
+    """Return a board on the cold week with ``config`` overrides, pre-rolled for six hours."""
     weather = ColdWeek(START)
     state = preroll(REFERENCE_PARAMS, weather, START, 33, hours=6.0)
     return SimulatedHeishaMon(
@@ -38,15 +39,18 @@ def make_board(**config: object) -> SimulatedHeishaMon:
 
 
 def by_topic(pubs: list[Publication]) -> dict[str, Publication]:
+    """Return the publications by topic."""
     return {p.topic: p for p in pubs}
 
 
 def main_topics(pubs: list[Publication]) -> dict[str, str]:
+    """Return the ``main/*`` publications as a mapping from topic name to payload."""
     prefix = f"{BASE}/main/"
     return {p.topic.removeprefix(prefix): p.payload for p in pubs if p.topic.startswith(prefix)}
 
 
 def test_first_cycle_dumps_everything_retained_with_stats_and_lwt() -> None:
+    """The first cycle dumps every main topic retained, with stats and the online status."""
     board = make_board()
     pubs = board.cycle()
     topics = by_topic(pubs)
@@ -63,10 +67,12 @@ def test_first_cycle_dumps_everything_retained_with_stats_and_lwt() -> None:
 
 
 def test_will_is_offline_retained() -> None:
+    """The last-will message is a retained ``Offline``."""
     assert make_board().will() == Publication(f"{BASE}/LWT", "Offline", True)
 
 
 def test_publish_on_change_then_full_dump_every_300_s() -> None:
+    """After the first full dump only changes are published, with a full dump every 300 s."""
     board = make_board(room_topic=None)
     first = board.cycle()
     dump_size = len(main_topics(first))
@@ -82,6 +88,7 @@ def test_publish_on_change_then_full_dump_every_300_s() -> None:
 
 
 def test_command_takes_effect_on_next_cycle_without_echo() -> None:
+    """A command is applied on the next cycle without being echoed back on a topic."""
     board = make_board(target_lag_cycles=0)
     board.cycle()
     assert board.receive(f"{CMD}/SetCurves", SETCURVES % 30)
@@ -96,6 +103,7 @@ def test_command_takes_effect_on_next_cycle_without_echo() -> None:
 
 
 def test_water_target_follows_one_cycle_after_the_register() -> None:
+    """The water target reported follows a changed setpoint one cycle after the register."""
     board = make_board()
     board.cycle()
     board.receive(f"{CMD}/SetZ1HeatRequestTemperature", "29")
@@ -110,6 +118,7 @@ def test_water_target_follows_one_cycle_after_the_register() -> None:
 
 
 def test_pump_duty_and_quiet_mode_registers() -> None:
+    """The max pump duty and quiet mode commands change their registers and are counted."""
     board = make_board()
     board.cycle()
     board.receive(f"{CMD}/SetMaxPumpDuty", "102")
@@ -121,6 +130,7 @@ def test_pump_duty_and_quiet_mode_registers() -> None:
 
 
 def test_integer_parsing_reaches_main_topics() -> None:
+    """Integer command payloads are parsed like the firmware does, wrapping to a signed byte."""
     board = make_board(target_lag_cycles=0)
     board.cycle()
     board.receive(f"{CMD}/SetZ1HeatRequestTemperature", b"31abc")
@@ -130,6 +140,7 @@ def test_integer_parsing_reaches_main_topics() -> None:
 
 
 def test_unknown_foreign_and_overflowing_commands() -> None:
+    """Unknown, foreign-base, state-topic and overflowing commands are ignored or dropped."""
     board = make_board()
     board.cycle()
     assert not board.receive(f"{CMD}/SetHeatpump", "0")
@@ -145,6 +156,7 @@ def test_unknown_foreign_and_overflowing_commands() -> None:
 
 
 def test_room_temperature_every_minute_on_its_topic() -> None:
+    """The room temperature is published on its own retained topic every minute."""
     board = make_board(room_topic="sim/room", room_interval_s=60.0)
     rooms = []
     for _ in range(36):
@@ -155,6 +167,7 @@ def test_room_temperature_every_minute_on_its_topic() -> None:
 
 
 def test_example_room_sensor_reports_on_change_with_humidity() -> None:
+    """The example room sensor publishes on change in 0.1 K steps, with humidity."""
     from ovenbird_sim.evaluate.sensors import example_room_sensor
 
     board = make_board(
@@ -179,6 +192,7 @@ def test_example_room_sensor_reports_on_change_with_humidity() -> None:
 
 
 def test_default_room_sensor_is_periodic() -> None:
+    """By default the room sensor reports periodically and is considered fresh for 30 minutes."""
     model = BoardConfig(room_interval_s=120.0).room_model()
     assert model.confirm_s == 120.0
     assert model.sample_s == 120.0
@@ -187,6 +201,7 @@ def test_default_room_sensor_is_periodic() -> None:
 
 
 def test_compensation_mode_is_reported() -> None:
+    """Compensation heating mode is reported in the main topics."""
     weather = ColdWeek(START)
     board = SimulatedHeishaMon(
         REFERENCE_PARAMS, weather, START, registers=Registers(heating_mode=0)
@@ -197,6 +212,7 @@ def test_compensation_mode_is_reported() -> None:
 
 
 def test_plant_reacts_to_a_setpoint_raise() -> None:
+    """The plant heats up after the setpoint is raised."""
     board = make_board(target_lag_cycles=0)
     for _ in range(12):
         board.cycle()
@@ -211,11 +227,13 @@ def test_plant_reacts_to_a_setpoint_raise() -> None:
 
 
 def test_start_must_be_aware() -> None:
+    """A start time without a time zone is refused."""
     with pytest.raises(ValueError, match="aware"):
         SimulatedHeishaMon(REFERENCE_PARAMS, ColdWeek(START), datetime(2026, 11, 7))
 
 
 def test_preroll_settles_near_the_requested_room() -> None:
+    """The pre-roll brings the room near the requested temperature and keeps the last setpoint."""
     weather = ColdWeek(START)
     state = preroll(REFERENCE_PARAMS, weather, START, 33, room_c=21.0, hours=24.0)
     assert abs(state.t_air - 21.0) < 0.6
@@ -228,6 +246,7 @@ def test_preroll_settles_near_the_requested_room() -> None:
 
 
 def test_defrost_runs_the_pump_at_its_own_duty() -> None:
+    """During a defrost the pump runs at the defrost duty, and at the maximum duty afterwards."""
     board = make_board()
     board.receive(f"{CMD}/SetMaxPumpDuty", "159")
     board.state = replace(board.state, running=True, defrost_left_s=60.0)
@@ -242,6 +261,7 @@ def test_defrost_runs_the_pump_at_its_own_duty() -> None:
 
 
 def test_room_thermostat_is_an_integer_near_the_room_plus_offset() -> None:
+    """The room thermostat is reported as an integer near the room temperature plus the offset."""
     board = make_board()
     values = []
     for _ in range(240):
@@ -258,6 +278,7 @@ def test_room_thermostat_is_an_integer_near_the_room_plus_offset() -> None:
 
 
 def test_dhw_flag_silenced_topics_and_reboot() -> None:
+    """The hot-water flag, silenced topics and a reboot show up in the published topics."""
     board = make_board()
     board.cycle()
     board.dhw = True

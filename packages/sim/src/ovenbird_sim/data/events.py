@@ -25,11 +25,10 @@ Detection (on a regular grid; :func:`detect_stove`):
    the living room's mass and furniture keeps lowering the heat demand after the air
    excess has gone, so the plant is not comparable yet.
 
-The owner can also leave whole local days out (``house_learn_excluded_days``:
-a party, a window left open, a sensor moved): :func:`excluded_days` turns them into
-events of kind :data:`EXCLUDED_DAY` from local midnight to local midnight, without a
-recovery tail (the owner can leave the next day out too); they are masked like a
-fire, never merged with one, and listed with the same JSON shape.
+Whole local days can also be left out (a party, a window left open, a sensor moved):
+:func:`excluded_days` turns them into events of kind :data:`EXCLUDED_DAY` from local
+midnight to local midnight, without a recovery tail (the next day can be left out too);
+they are masked like a fire, never merged with one, and listed with the same JSON shape.
 
 Thresholds were set on a recording of several weeks with one fire (60 s grid,
 living-room composite, hall and bedroom): outside the fire the anomaly stayed below
@@ -74,7 +73,7 @@ REASON: Final = (
     "rising {rise:.1f} K/h; the model has no stove heat"
 )
 JOURNAL_REASON: Final = "wood-stove mode in the controller's journal; the model has no stove heat"
-EXCLUDED_REASON: Final = "left out by the owner (house_learn_excluded_days)"
+EXCLUDED_REASON: Final = "left out by the owner"
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +127,7 @@ class Event:
         zone = ZoneInfo(tz)
 
         def local(t: float) -> str:
+            """Format a Unix timestamp as local ISO time to the minute."""
             return datetime.fromtimestamp(t, zone).isoformat(timespec="minutes")
 
         return {
@@ -147,6 +147,7 @@ class Event:
 
 
 def _rolling_median(values: FloatArray, half_width: int) -> FloatArray:
+    """Return the rolling median over ``2 * half_width + 1`` samples, ignoring NaN."""
     out = np.full(values.size, np.nan)
     for i in range(values.size):
         window = values[max(0, i - half_width) : i + half_width + 1]
@@ -196,6 +197,7 @@ def relative_rise(t: FloatArray, living: FloatArray, reference: FloatArray) -> F
 
 
 def _runs(flag: BoolArray) -> list[tuple[int, int]]:
+    """Return the ``(start, end)`` indices of the consecutive true runs of ``flag``."""
     edges = np.diff(np.concatenate([[0], flag.astype(np.int8), [0]]))
     return list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1), strict=True))
 

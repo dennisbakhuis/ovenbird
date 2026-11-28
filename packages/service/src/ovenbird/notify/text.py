@@ -230,6 +230,12 @@ EN: Final[dict[str, AlarmText]] = {
         "Nothing to do. Days the history no longer held are missing from that month; the "
         "damaged file stays in the archive folder.",
     ),
+    "compressor_starts": AlarmText(
+        "Many compressor starts",
+        "Keeps controlling as before; short runs wear the compressor and cost efficiency.",
+        "Look at the run lengths under Insight; a lower minimum setpoint, quiet mode after a "
+        "start or a longer minimum run can help.",
+    ),
 }
 
 NL: Final[dict[str, AlarmText]] = {
@@ -437,6 +443,12 @@ NL: Final[dict[str, AlarmText]] = {
         "Je hoeft niets te doen. Dagen die de historie niet meer had, ontbreken in die maand; "
         "het beschadigde bestand blijft in de archiefmap.",
     ),
+    "compressor_starts": AlarmText(
+        "Veel compressorstarts",
+        "Regelt door zoals voorheen; korte runs slijten de compressor en kosten rendement.",
+        "Bekijk de runlengtes onder Inzicht; een lagere minimale aanvoer, stille modus na een "
+        "start of een langere minimale run kan helpen.",
+    ),
 }
 
 WORDS: Final[dict[Language, dict[str, str]]] = {
@@ -459,6 +471,9 @@ WORDS: Final[dict[Language, dict[str, str]]] = {
         "hold_release": "Command hold released",
         "command_hold": "Command hold",
         "stove_mode": "Wood-stove mode",
+        "boost": "Boost",
+        "away_mode": "Away",
+        "summer_mode": "Summer switch",
         "envelope_correction": "Safety rule correction",
         "started": "started",
         "expired": "ended",
@@ -488,6 +503,9 @@ WORDS: Final[dict[Language, dict[str, str]]] = {
         "hold_release": "Blokkade vrijgegeven",
         "command_hold": "Blokkade van opdrachten",
         "stove_mode": "Houtkachelmodus",
+        "boost": "Boost",
+        "away_mode": "Afwezig",
+        "summer_mode": "Zomerstand",
         "envelope_correction": "Correctie door de veiligheidsregel",
         "started": "gestart",
         "expired": "afgelopen",
@@ -501,15 +519,27 @@ WORDS: Final[dict[Language, dict[str, str]]] = {
 }
 
 
+RETIRED: Final[dict[str, tuple[str, str]]] = {
+    "model_plan": ("Retired model plan entry", "Vervallen vermelding van het modelplan"),
+    "house_learn_run": ("Retired house learning entry", "Vervallen vermelding van het huisleren"),
+}
+
+
 def alarm_text(code: str, language: Language) -> AlarmText:
     """Return the display name and advice of ``code`` (the code itself when unknown)."""
     texts = NL if language == "nl" else EN
     found = texts.get(code)
     if found is not None:
         return found
+    retired = RETIRED.get(code)
+    if retired is not None:
+        return AlarmText(retired[language == "nl"], "", "")
     return AlarmText(code.replace("_", " "), "", "")
 
 
 def word(key: str, language: Language) -> str:
     """Return the phrase ``key`` in ``language`` (the key itself when unknown)."""
+    retired = RETIRED.get(key)
+    if retired is not None:
+        return retired[language == "nl"]
     return WORDS[language].get(key, key)

@@ -26,7 +26,10 @@ RAISED_CURVE = [[-10.0, 39.0], [0.0, 36.0], [15.0, 25.0]]
 
 
 class Rig:
+    """A built service with a fake clock, MQTT ingest and helpers to tick and reconfigure."""
+
     def __init__(self, service: Service, clock: FakeClock) -> None:
+        """Attach the fake clock to the service runtime and create the MQTT ingest."""
         self.service = service
         self.clock = clock
         self.service.runtime.clock = clock
@@ -34,25 +37,30 @@ class Rig:
 
     @property
     def config(self) -> Any:
+        """Return the service's configuration manager."""
         assert self.service.config is not None
         return self.service.config
 
     def feed(self, **overrides: str) -> None:
+        """Ingest one set of simulated pump MQTT messages, with optional topic payload overrides."""
         for message in pump_messages(**overrides):
             self.ingest.ingest(message)
 
     def tick(self, seconds: float = 60.0, **overrides: str) -> Any:
+        """Advance the clock, feed the pump messages and run one control tick, returning its row."""
         self.clock.advance(seconds)
         self.feed(**overrides)
         return self.service.control.tick()
 
     def apply(self, **changes: Any) -> dict[str, Any]:
+        """Apply config changes as admin, acknowledging every validation warning."""
         config = self.config
         warnings = [w.code for w in config.validate(changes).warnings]
         return dict(config.apply(config.version or 0, changes, ADMIN, acknowledge=warnings))
 
 
 def rig(make_settings: Callable[..., Settings], **overrides: Any) -> Rig:
+    """Build a publishing service from the settings with a fake clock on its config store."""
     clock = FakeClock()
     service = build_service(make_settings(**{**PUBLISH, **overrides}))
     service.config.clock = clock  # type: ignore[union-attr]
@@ -62,6 +70,7 @@ def rig(make_settings: Callable[..., Settings], **overrides: Any) -> Rig:
 def test_apply_takes_effect_at_the_next_tick_through_deadband_and_dwell(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """A config change takes effect only at the next tick, through deadband and dwell."""
     run = rig(make_settings)
     first = run.tick()
     assert first.setpoint == 32
@@ -92,6 +101,7 @@ def test_apply_takes_effect_at_the_next_tick_through_deadband_and_dwell(
 def test_lower_maximum_moves_adapter_clamp_and_monitor(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """A lower maximum supply moves the adapter clamp and the safety monitor at the next tick."""
     run = rig(make_settings)
     run.tick()
     adapter = run.service.control.adapter
@@ -114,6 +124,7 @@ def test_lower_maximum_moves_adapter_clamp_and_monitor(
 def test_defrost_low_flow_setting_reaches_the_monitor_at_the_next_tick(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """The defrost low-flow setting reaches the safety monitor at the next tick and is validated."""
     run = rig(make_settings)
     run.tick()
     monitor = run.service.control.safety
@@ -132,6 +143,7 @@ def test_defrost_low_flow_setting_reaches_the_monitor_at_the_next_tick(
 def test_a_new_configuration_is_announced_on_the_websocket(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """Applying a new configuration pushes a config message to websocket channels."""
     run = rig(make_settings)
     channel = Channel()
     app: Any = run.service.server.config.app
@@ -151,6 +163,7 @@ def test_a_new_configuration_is_announced_on_the_websocket(
 def test_room_signal_change_resubscribes_home_assistant(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """Changing the room signal re-subscribes the Home Assistant component to the new entity."""
     run = rig(
         make_settings,
         ha_url="http://ha.local:8123",
@@ -172,6 +185,7 @@ def test_room_signal_change_resubscribes_home_assistant(
 def test_retention_change_reaches_the_history_writer_at_the_next_tick(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """Retention changes reach the history writer at the next tick, with zero meaning forever."""
     run = rig(make_settings)
     writer = run.service.writer
     assert writer.retention.raw_days == 14.0
@@ -190,6 +204,7 @@ def test_retention_change_reaches_the_history_writer_at_the_next_tick(
 def test_retention_soft_range_warns_but_forever_does_not(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """A retention below the soft minimum warns, while zero (forever) does not."""
     run = rig(make_settings)
     warnings = run.config.validate({"history_raw_days": 0, "history_1m_days": 2}).warnings
     assert [(w.field, w.code) for w in warnings] == [("history_1m_days", "below_soft_min")]
@@ -198,6 +213,7 @@ def test_retention_soft_range_warns_but_forever_does_not(
 def test_pause_stops_queueing_and_publishing_until_resume(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """Pausing sends the controller to shadow without commands, and resuming restores auto."""
     run = rig(make_settings, simulation=False)
     adapter = run.service.control.adapter
     assert adapter is not None
@@ -224,6 +240,7 @@ def test_pause_stops_queueing_and_publishing_until_resume(
 def test_lost_store_starts_in_shadow_until_acknowledged(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """A lost config store starts the controller in shadow with an alarm until acknowledged."""
     settings = make_settings(**PUBLISH)
     first = build_service(settings)
     assert first.config is not None

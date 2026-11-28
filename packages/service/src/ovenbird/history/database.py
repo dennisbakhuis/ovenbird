@@ -225,6 +225,8 @@ class Retention:
 
 @dataclass(slots=True)
 class _Aggregate:
+    """Running time-weighted aggregate of one signal in one rollup bucket."""
+
     weighted_sum: float = 0.0
     duration: float = 0.0
     minimum: float = math.inf
@@ -233,6 +235,7 @@ class _Aggregate:
     last_ts: float = -math.inf
 
     def add(self, value: float, duration: float, at: float) -> None:
+        """Add a value held for ``duration`` seconds, last seen at ``at``."""
         self.weighted_sum += value * duration
         self.duration += duration
         self.minimum = min(self.minimum, value)
@@ -243,6 +246,8 @@ class _Aggregate:
 
 @dataclass(slots=True)
 class _Held:
+    """The last value of a signal, held until the next sample or a gap."""
+
     value: float
     ts: float
 
@@ -291,6 +296,7 @@ class HistoryDatabase:
         self._held.clear()
 
     def _known_signal_id(self, name: str) -> int | None:
+        """Return the id of a signal already stored, or ``None``."""
         known = self._signal_ids.get(name)
         if known is not None:
             return known
@@ -298,6 +304,7 @@ class HistoryDatabase:
         return None if row is None else int(row[0])
 
     def _signal_id(self, sample: Sample) -> int:
+        """Return the id of the sample's signal, storing or updating it when needed."""
         meta = (sample.unit, sample.kind.value)
         known = self._signal_ids.get(sample.signal)
         if known is not None and self._signal_meta.get(sample.signal) == meta:
@@ -386,6 +393,7 @@ class HistoryDatabase:
         return result
 
     def _end_hold(self, gap: Sample, aggregates: dict[tuple[int, int, int], _Aggregate]) -> None:
+        """End the held value of the gap's signal at the gap, adding it to the rollups."""
         signal_id = self._known_signal_id(gap.signal)
         if signal_id is None:
             return
@@ -448,6 +456,7 @@ class HistoryDatabase:
 
 
 def _bucket(ts: float, step: int) -> int:
+    """Return the start of the ``step`` second bucket holding ``ts``."""
     return math.floor(ts / step) * step
 
 
@@ -458,6 +467,21 @@ def _integrate(
     start: float,
     end: float,
 ) -> None:
+    """Add a value held from ``start`` to ``end`` to the aggregate of every rollup step it spans.
+
+    Parameters
+    ----------
+    aggregates
+        Aggregates by ``(signal id, step, bucket)`` to add to.
+    signal_id
+        Signal the value belongs to.
+    value
+        Held value.
+    start
+        Start of the hold, Unix time.
+    end
+        End of the hold, Unix time.
+    """
     for step in ROLLUP_STEPS:
         cursor = start
         while cursor < end:

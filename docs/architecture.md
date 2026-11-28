@@ -15,8 +15,8 @@ harness  ->  core, service, sim
 | Package | Import name | Role |
 | --- | --- | --- |
 | `packages/core` | `ovenbird_core` | Pure domain logic: the control algorithm (`control/`), HeishaMon parsing, inputs, readings, store. No I/O, no clock, no network. |
-| `packages/service` | `ovenbird` | The asyncio service: MQTT, SQLite history, config store, REST and WebSocket API, notifications, weather, learner glue. |
-| `packages/sim` | `ovenbird_sim` | Plant model and identification, open-loop run, learning, evaluation, the simulated HeishaMon. Depends on `core` only. |
+| `packages/service` | `ovenbird` | The asyncio service: MQTT, SQLite history, config store, REST and WebSocket API, notifications, weather. |
+| `packages/sim` | `ovenbird_sim` | Simulated plant, open-loop and closed-loop runs, the paired-replica gate, the simulated HeishaMon. Depends on `core` only. |
 | `packages/harness` | `ovenbird_harness` | Stepped closed-loop runs of the whole service on the simulated plant, invariants, fault scenarios, the golden decision log. Depends on all of the above. |
 | `ui/` | | Svelte 5 UI. Talks to the service through `api/v1` only. |
 

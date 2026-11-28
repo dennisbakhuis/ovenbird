@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { settled } from './settle';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -51,7 +52,7 @@ for (const viewport of [
       await expect(
         page.locator('[aria-current="page"]', { hasText: /Compare|Vergelijken/ }),
       ).toHaveCount(1);
-      await page.waitForTimeout(600);
+      await settled(page);
       expect(await overflow(page)).toBeLessThanOrEqual(0);
       if (viewport.label === 'phone') {
         const height = await page.evaluate(() => document.documentElement.scrollHeight);
@@ -193,7 +194,7 @@ test.describe('shadow screenshots', () => {
           await language(page, lang);
           await page.goto('./#/system/shadow');
           await expect(page.getByTestId('shadow-chart')).toBeVisible();
-          await page.waitForTimeout(800);
+          await settled(page);
           await page.screenshot({
             path: join(SHOTS!, `shadow-${viewport.label}-${scheme}-${lang}.png`),
             fullPage: true,

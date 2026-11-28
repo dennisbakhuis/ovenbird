@@ -7,16 +7,14 @@ cannot change anything in Home Assistant. Every state HA reports becomes a readi
 built by the core's :func:`~ovenbird_core.ha_reading`, with HA's ``last_reported``
 (or ``last_updated``) as the source timestamp.
 
-What it reads
--------------
+**What it reads**
 The input follows the configuration: :meth:`HaInput.configure` takes the URL, the
 token, the entities whose state is read (the ``ha/`` signals of the configuration
 plus the optional ``ha_entities``) and the thermostat attributes
 (``ha/climate.x#current_temperature``). A changed URL, token or entity set closes
 the session and reconnects at once; without a URL and token the input waits.
 
-Units
------
+**Units**
 Temperatures in °F or K become °C in the core. A temperature input (the room,
 cross-check, stove reference and outside signals) without a temperature unit, or with
 one ovenbird does not know, is used only when Home Assistant's unit system is metric
@@ -25,8 +23,7 @@ view carries the reason ``unit: ...`` naming the signal and is not fresh, so the
 controller treats it as a missing value. A thermostat's ``current_temperature`` has HA's
 temperature unit.
 
-Freshness
----------
+**Freshness**
 ``subscribe_entities`` forwards state *changes* only, and its compressed states
 carry no ``last_reported``; a sensor that keeps reporting the same value (a stable
 room temperature) therefore produces no event at all. To confirm such values the
@@ -46,8 +43,7 @@ one; the store moves the value's confirmation back to that moment. So:
 Every reading also carries HA's ``last_changed``, so the store knows how long a
 value has been held, also right after a restart.
 
-Entity index
-------------
+**Entity index**
 Every ``get_states`` result also refreshes :attr:`HaInput.index`, the ``sensor.*`` and
 ``climate.*`` entities with their name, unit, device class and state (the
 configuration's signal pickers), and :attr:`HaInput.home`, the latitude and longitude
@@ -55,8 +51,7 @@ of ``zone.home`` (the default weather location). The registry lists give each
 entity's device and area (:meth:`HaInput.device_of`, :meth:`HaInput.area_of`); when
 they fail the pickers just lack them. Everything is only read, never written.
 
-Link state
-----------
+**Link state**
 The client reports its link to the store (:meth:`~ovenbird_core.StateStore.set_link`):
 connected after subscribing, *confirmed* at every successful ``get_states``
 re-read, down when the connection ends. A held room value (``on_change`` sensor
@@ -156,12 +151,14 @@ def websocket_url(base_url: str) -> str:
 
 
 def _timestamp(raw: Any) -> float | None:
+    """Return a Unix timestamp (s) from a JSON number, or ``None`` for anything else."""
     if isinstance(raw, bool) or not isinstance(raw, int | float):
         return None
     return float(raw)
 
 
 def _iso_timestamp(raw: Any) -> float | None:
+    """Return the Unix time (s) of an ISO 8601 timestamp, or ``None`` when it does not parse."""
     parsed = parse_timestamp(raw)
     return None if parsed is None else parsed.timestamp()
 
@@ -216,7 +213,15 @@ class EntityState:
         )
 
     def apply_diff(self, diff: dict[str, Any]) -> None:
-        """Apply a change diff (``+`` additions, ``-`` removals)."""
+        """Apply a change diff (``+`` additions, ``-`` removals).
+
+        Compressed change from ``subscribe_entities``.
+
+        Parameters
+        ----------
+        diff
+            Compressed change from ``subscribe_entities`` (``+`` set values, ``-`` removed).
+        """
         additions = diff.get("+")
         if isinstance(additions, dict):
             if "s" in additions:
@@ -245,6 +250,7 @@ class EntityState:
 
 
 def _location(attributes: Any) -> tuple[float, float] | None:
+    """Return ``(latitude, longitude)`` from a zone's attributes, or ``None`` if incomplete."""
     if not isinstance(attributes, dict):
         return None
     values: list[float] = []
@@ -257,14 +263,17 @@ def _location(attributes: Any) -> tuple[float, float] | None:
 
 
 def _utc(timestamp: float | None) -> datetime | None:
+    """Return the UTC datetime of a Unix timestamp (s), or ``None``."""
     return None if timestamp is None else datetime.fromtimestamp(timestamp, UTC)
 
 
 def _text(raw: Any) -> str | None:
+    """Return ``raw`` when it is a non-empty string, else ``None``."""
     return raw if isinstance(raw, str) and raw else None
 
 
 def _attribute_text(state: EntityState, attribute: str) -> str:
+    """Return an attribute of ``state`` as text; ``unavailable``/``unknown`` pass through."""
     if state.state.strip().lower() in {"unavailable", "unknown"}:
         return state.state
     raw = state.attributes.get(attribute)
@@ -368,6 +377,19 @@ class HaInput:
         reconnects at once (or waits while nothing is configured). A changed set of
         temperature inputs only re-applies the known states.
 
+        Parameters
+        ----------
+        url
+            Home Assistant URL, ``None`` when not configured.
+        token
+            Long-lived access token, ``None`` when not configured.
+        entities
+            Entity ids whose state is read as a signal.
+        attributes
+            ``(entity, attribute)`` pairs read as separate signals.
+        temperature
+            Signals that carry a temperature and need a known unit.
+
         Returns
         -------
         bool
@@ -427,6 +449,7 @@ class HaInput:
         )
 
     def _restart(self) -> None:
+        """Wake the run loop and close the open session so it reconnects at once."""
         self._reconnect = True
         if self._wake is not None:
             self._wake.set()
@@ -443,6 +466,10 @@ class HaInput:
         return f"HaInput(url={self.url!r}, entities={self.subscription!r})"
 
     async def _pause(self, delay: float | None) -> None:
+        """Wait ``delay`` seconds (forever when ``None``) or until woken.
+
+        A requested reconnect skips the wait.
+        """
         if self._wake is None:
             self._wake = asyncio.Event()
         if self._reconnect:
@@ -552,6 +579,7 @@ class HaInput:
         return message_id
 
     async def _refresh_loop(self, ws: ClientConnection) -> None:
+        """Re-read all states every ``refresh_interval`` seconds, backing off after a failure."""
         backoff = Backoff(initial=1.0, cap=self.refresh_interval)
         while True:
             message_id = self.expect_states()
@@ -570,6 +598,7 @@ class HaInput:
             await asyncio.sleep(self.refresh_interval)
 
     async def _authenticate(self, ws: ClientConnection) -> None:
+        """Run the token handshake on a new connection, raising on a refused or unexpected reply."""
         if self._token is None:
             raise HaAuthError("no token")
         hello = await _receive(ws)
@@ -641,6 +670,10 @@ class HaInput:
         return True
 
     def _apply_config(self, message: dict[str, Any]) -> None:
+        """Take the temperature unit and version from the ``get_config`` result.
+
+        A changed unit re-applies the known states.
+        """
         result = message.get("result")
         if message.get("type") != "result" or not message.get("success", False):
             LOGGER.warning("HA get_config failed: %s", message.get("error"))
@@ -656,6 +689,7 @@ class HaInput:
             self._replay_states()
 
     def _apply_registry(self, message_id: int, message: dict[str, Any]) -> None:
+        """Store the entity, device or area registry list that ``message_id`` asked for."""
         result = message.get("result")
         if message.get("type") != "result" or not message.get("success", False):
             LOGGER.info("HA registry list %d not available: %s", message_id, message.get("error"))
@@ -700,6 +734,15 @@ class HaInput:
         return None if area is None else self._area_names.get(area, area)
 
     def _apply_full_states(self, message: dict[str, Any]) -> None:
+        """Rebuild the entity index and home location and apply every wanted state.
+
+        Each state carries its ``last_reported``.
+
+        Parameters
+        ----------
+        message
+            ``get_states`` reply from Home Assistant.
+        """
         result = message.get("result")
         if message.get("type") != "result" or not message.get("success", False):
             LOGGER.warning("HA get_states failed: %s", message.get("error"))
@@ -731,15 +774,18 @@ class HaInput:
         self.runtime.set_link(SourceKind.HA, up=True, confirmed=True)
 
     def _report_missing(self) -> None:
+        """Log the subscribed entities that Home Assistant does not know."""
         missing = sorted(set(self.subscription) - set(self._states))
         if missing:
             LOGGER.warning("HA entities not found: %s", ", ".join(missing))
 
     def _replay_states(self) -> None:
+        """Emit every known state again, for instance after the temperature unit changed."""
         for entity_id in list(self._states):
             self._emit(entity_id)
 
     def _emit(self, entity_id: str) -> None:
+        """Turn the state of ``entity_id`` into readings of the entity and its attributes."""
         state = self._states.get(entity_id)
         if state is None:
             return
@@ -799,6 +845,7 @@ class HaInput:
         return f"{what} and {system}; {reading.signal} is not used as a temperature"
 
     def _apply(self, item: Reading | ParseError) -> None:
+        """Apply a reading, or refuse it with the unit reason, and count it."""
         if isinstance(item, Reading):
             reason = self.refusal(item)
             if reason is not None:
@@ -826,6 +873,7 @@ class NoRedirectConnect(connect):
 
 
 def _default_connector(url: str) -> Any:
+    """Return the WebSocket connection to ``url``, without redirects or proxy."""
     return NoRedirectConnect(
         url,
         open_timeout=OPEN_TIMEOUT_S,
@@ -839,6 +887,7 @@ def _default_connector(url: str) -> Any:
 
 
 async def _receive(ws: ClientConnection) -> dict[str, Any]:
+    """Receive one message within the authentication timeout and require it to be a JSON object."""
     raw = await asyncio.wait_for(ws.recv(), AUTH_TIMEOUT_S)
     message = json.loads(raw)
     if not isinstance(message, dict):
@@ -847,12 +896,14 @@ async def _receive(ws: ClientConnection) -> dict[str, Any]:
 
 
 async def _decode(raw: str | bytes) -> list[dict[str, Any]]:
+    """Return the JSON objects in a message, parsing a large one in a worker thread."""
     if len(raw) > LARGE_MESSAGE_BYTES:
         return await asyncio.to_thread(_messages, raw)
     return _messages(raw)
 
 
 def _messages(raw: str | bytes) -> list[dict[str, Any]]:
+    """Return the JSON objects in a message (one object or a list), ignoring bad text."""
     try:
         decoded = json.loads(raw)
     except ValueError:

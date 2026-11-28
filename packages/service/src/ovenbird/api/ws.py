@@ -154,6 +154,7 @@ class Broadcaster:
         self._fan_out("config", encode("config", data))
 
     def _fan_out(self, kind: str, text: str) -> None:
+        """Offer one encoded message to every client's channel."""
         for channel in list(self.channels):
             channel.offer(kind, text)
 
@@ -166,7 +167,13 @@ class Broadcaster:
             await asyncio.sleep(tick)
 
     async def serve(self, websocket: WebSocket) -> None:
-        """Handle one client from accept to disconnect."""
+        """Handle one client from accept to disconnect.
+
+        Parameters
+        ----------
+        websocket
+            Accepted-on-entry client connection to serve.
+        """
         await websocket.accept()
         if len(self.channels) >= self.max_clients:
             await websocket.close(TRY_AGAIN_LATER, "too many clients")
@@ -213,6 +220,7 @@ class Broadcaster:
 
 
 async def _drain_incoming(websocket: WebSocket) -> None:
+    """Read and discard client messages until the client disconnects."""
     with contextlib.suppress(WebSocketDisconnect):
         while True:
             message = await websocket.receive()

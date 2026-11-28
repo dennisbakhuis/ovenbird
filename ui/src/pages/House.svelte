@@ -1,317 +1,42 @@
 <!--
-  House: what the learned house model says, in tabs. Overview: what the model can be
-  trusted for (three gates), the indicative insulation score, the other learned figures and a line about the model in use. Model: the energy signature
-  and the model's quality. Control: how the controller uses the model (the shadow switch, what the
-  planner does and why not, the computed shifts). Learning: the learner and its run now button, how the model is learned
-  (errors, left-out periods, data) and the curve suggestion (opened as a settings draft, never
-  applied here). Before a model exists the page shows what is missing and the learner; on an
-  older service one card says so. Loads insight/house and insight/house/history, refreshed
-  every 30 minutes and after a learner run, and insight/house/control every minute (an older
-  service without it shows no use card). The schematic's balance is refetched every minute and
-  when a new live decision arrives, at most every 15 s.
+  House: the heat loss of the house now, the heat the heat pump gives it, how the heat loss was
+  measured and the heat production by outside temperature, then (last) the facts about the house
+  (the owner's answers, editable). Facts go through the settings draft and the draft bar.
 -->
 <script lang="ts">
-  import FactsCard from '$components/house/FactsCard.svelte';
-  import ModelPlanCard from '$components/house/ModelPlanCard.svelte';
-  import HouseSchematic from '$components/house/HouseSchematic.svelte';
-  import PredictionChart from '$components/house/PredictionChart.svelte';
-  import WhatIfCard from '$components/house/WhatIfCard.svelte';
+  import HouseBasics from '$components/house/HouseBasics.svelte';
   import HouseInputCard from '$components/house/HouseInputCard.svelte';
-  import LearningCard from '$components/house/LearningCard.svelte';
-  import ProposalCard from '$components/house/ProposalCard.svelte';
-  import QualityCard from '$components/house/QualityCard.svelte';
-  import RunCard from '$components/house/RunCard.svelte';
-  import ScoreCard from '$components/house/ScoreCard.svelte';
-  import SignatureChart from '$components/house/SignatureChart.svelte';
-  import StatusLine from '$components/house/StatusLine.svelte';
-  import SunGateLine from '$components/house/SunGateLine.svelte';
-  import TimelineCard from '$components/house/TimelineCard.svelte';
-  import TrustNote from '$components/house/TrustNote.svelte';
-  import Tabs from '$ui/Tabs.svelte';
-  import { fetchVersions } from '$lib/core/api';
-  import { fetchHouseBalance, type BalanceResult } from '$lib/house/balance';
-  import { cfg } from '$lib/core/cfg.svelte';
   import type { ControlStore } from '$lib/core/control.svelte';
-  import {
-    dataWarnings,
-    fetchHouse,
-    fetchHouseHistory,
-    type HouseHistory,
-    type HouseResult,
-  } from '$lib/house/house';
-  import type { LiveStore } from '$lib/core/live.svelte';
-  import { fetchHouseControl } from '$lib/house/plan';
-  import type { HouseControl } from '$lib/house/shapes';
-  import { buildHash, router } from '$lib/core/router.svelte';
+  import { cfg } from '$lib/core/cfg.svelte';
   import { draft } from '$lib/core/draft.svelte';
+  import type { LiveStore } from '$lib/core/live.svelte';
   import { t } from '$lib/core/settings.svelte';
-  import { SUBSET_GROUP, changedSinceRun, modelMadeAt, type Subset } from '$lib/house/settings';
-  import type { ConfigVersion } from '$lib/core/types';
 
-  let { live, ctl }: { live: LiveStore; ctl: ControlStore } = $props();
+  let { ctl }: { live: LiveStore; ctl: ControlStore } = $props();
 
-  const REFRESH_MS = 1_800_000;
-  const BALANCE_REFRESH_MS = 60_000;
-  const BALANCE_MIN_GAP_MS = 15_000;
-  const VERSIONS_SHOWN = 50;
-  const CONTROL_REFRESH_MS = 60_000;
-  const TABS = ['overview', 'model', 'control', 'learning', 'what-if'] as const;
-  type Tab = (typeof TABS)[number];
-
-  const active = $derived<Tab>(TABS.find((tab) => tab === router.location.sub[0]) ?? 'overview');
-  const items = $derived(
-    TABS.filter(
-      (tab) =>
-        (tab !== 'what-if' || balance?.kind !== 'absent') &&
-        (tab !== 'control' || control !== null),
-    ).map((tab) => ({
-      id: tab,
-      label: t(`houseTab_${tab}` as 'houseTab_overview'),
-      href: buildHash('house', tab === 'overview' ? [] : [tab]),
-    })),
-  );
-
-  let result = $state<HouseResult | null>(null);
-  let history = $state<HouseHistory | null>(null);
-  let failed = $state(false);
-  let reload = $state(0);
-  let versions = $state<ConfigVersion[]>([]);
-  let balance = $state<BalanceResult | null>(null);
-  let balanceFailed = $state(false);
-  let control = $state<HouseControl | null>(null);
-  let controlChecked = $state(false);
-
-  function openFacts(): void {
-    document
-      .querySelector('[data-testid="house-facts-input"]')
-      ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-  }
-
-  let balanceAt = 0;
-  let balanceConfig: number | null | undefined;
-
-  $effect(() => {
-    const configVersion = live.configVersion;
-    void live.decisionSeq;
-    const throttled = configVersion === balanceConfig;
-    balanceConfig = configVersion;
-    const controller = new AbortController();
-    let timer: number | undefined;
-    const load = async () => {
-      balanceAt = Date.now();
-      try {
-        balance = await fetchHouseBalance(controller.signal);
-        balanceFailed = false;
-      } catch {
-        if (controller.signal.aborted) return;
-        balanceFailed = true;
-      }
-      timer = window.setTimeout(load, BALANCE_REFRESH_MS);
-    };
-    const wait = throttled ? Math.max(0, balanceAt + BALANCE_MIN_GAP_MS - Date.now()) : 0;
-    timer = window.setTimeout(load, wait);
-    return () => {
-      controller.abort();
-      window.clearTimeout(timer);
-    };
-  });
-
-  $effect(() => {
-    void live.configVersion;
-    void ctl.config?.version;
-    const controller = new AbortController();
-    let timer: number | undefined;
-    const load = async () => {
-      try {
-        control = await fetchHouseControl(controller.signal);
-        controlChecked = true;
-      } catch {
-        if (controller.signal.aborted) return;
-      }
-      timer = window.setTimeout(load, CONTROL_REFRESH_MS);
-    };
-    void load();
-    return () => {
-      controller.abort();
-      window.clearTimeout(timer);
-    };
-  });
-
-  function openControl(): void {
-    router.navigate('house', ['control']);
-  }
+  const schema = $derived(cfg.schema);
+  const config = $derived(ctl.config);
 
   $effect(() => {
     void cfg.loadSchema();
-  });
-
-  $effect(() => {
-    void live.configVersion;
-    void ctl.config?.version;
-    const controller = new AbortController();
-    fetchVersions(VERSIONS_SHOWN, controller.signal)
-      .then((body) => (versions = body.versions))
-      .catch(() => {
-        if (!controller.signal.aborted) versions = [];
-      });
-    return () => controller.abort();
-  });
-
-  const comfortC = $derived.by(() => {
-    const value = ctl.config?.fields['control_comfort_c']?.value;
-    return typeof value === 'number' ? value : 21;
-  });
-  const schema = $derived(cfg.schema);
-  const config = $derived(ctl.config);
-  const available = (subset: Subset) =>
-    schema !== null &&
-    config !== null &&
-    Object.values(schema.fields).some((def) => def.group === SUBSET_GROUP[subset]);
-  const changedSince = $derived(
-    changedSinceRun(versions, modelMadeAt(result?.kind === 'ready' ? result.data : null)),
-  );
-
-  $effect(() => {
-    void live.configVersion;
-    void reload;
-    const controller = new AbortController();
-    let timer: number | undefined;
-    const load = async () => {
-      try {
-        const [house, models] = await Promise.all([
-          fetchHouse(controller.signal),
-          fetchHouseHistory(controller.signal).catch(() => null),
-        ]);
-        result = house;
-        history = models;
-        failed = false;
-      } catch {
-        if (controller.signal.aborted) return;
-        failed = result === null;
-      }
-      timer = window.setTimeout(load, REFRESH_MS);
-    };
-    void load();
-    return () => {
-      controller.abort();
-      window.clearTimeout(timer);
-    };
   });
 </script>
 
 <h1>{t('houseTitle')}</h1>
 <p class="lead muted">{t('houseLead')}</p>
 
-{#if failed}
-  <LearningCard kind="failed" />
-{:else if result === null}
-  <p class="muted" data-testid="house-loading">{t('loading')}</p>
-{:else if result.kind === 'missing'}
-  <LearningCard kind="missing" />
-{:else if result.kind === 'learning'}
-  <div class="grid">
-    {#if balance?.kind !== 'absent'}
-      <HouseSchematic {balance} failed={balanceFailed} onfacts={openFacts} />
-    {/if}
-    <LearningCard
-      kind={result.data.state === 'not_run' ? 'not_run' : 'learning'}
-      data={result.data}
-    />
-    {#if available('facts') && schema && config}
-      <HouseInputCard subset="facts" {schema} {config} showRun={false} />
-    {/if}
-    <RunCard waiting onsettled={() => (reload += 1)} />
-  </div>
-{:else}
-  <Tabs {items} {active} label={t('houseTabs')} />
-  {#if active === 'model'}
-    <div class="grid" data-testid="house-page" data-tab="model">
-      <SignatureChart house={result.data} />
-      <PredictionChart />
-      <QualityCard house={result.data} {history} />
-      {#if available('bounds') && schema && config}
-        <HouseInputCard
-          subset="bounds"
-          {schema}
-          {config}
-          house={result.data}
-          {changedSince}
-          onstarted={() => (reload += 1)}
-        />
-      {/if}
-    </div>
-  {:else if active === 'control'}
-    {#if control}
-      <div class="sun-line"><SunGateLine house={result.data} /></div>
-    {/if}
-    <div class="grid" data-testid="house-page" data-tab="control">
-      {#if control}
-        <ModelPlanCard {control} {schema} {config} />
-      {:else if controlChecked}
-        <p class="muted" data-testid="house-control-absent">{t('houseCtlAbsent')}</p>
-      {/if}
-    </div>
-  {:else if active === 'learning'}
-    <div class="grid" data-testid="house-page" data-tab="learning">
-      <RunCard
-        credibility={result.data.credibility}
-        revalidation={result.data.revalidation}
-        warnings={dataWarnings(result.data)}
-        onsettled={() => (reload += 1)}
-      />
-      {#if available('learning') && schema && config}
-        <HouseInputCard
-          subset="learning"
-          {schema}
-          {config}
-          house={result.data}
-          {changedSince}
-          showRun={false}
-        />
-      {/if}
-      <TimelineCard house={result.data} {schema} {config} />
-      <ProposalCard house={result.data} {ctl} />
-    </div>
-  {:else if active === 'what-if'}
-    <div class="grid" data-testid="house-page" data-tab="what-if">
-      <WhatIfCard {comfortC} onoverview={() => router.navigate('house')} />
-    </div>
-  {:else}
-    <StatusLine house={result.data} use={control?.use ?? null} onuse={openControl} />
-    <div class="grid" data-testid="house-page" data-tab="overview">
-      {#if balance?.kind !== 'absent'}
-        <HouseSchematic
-          {balance}
-          failed={balanceFailed}
-          onfacts={openFacts}
-          capacity={result.kind === 'ready' ? (result.data.heat_capacity_kwh_per_k ?? null) : null}
-        />
-      {/if}
-      <TrustNote house={result.data} />
-      <ScoreCard house={result.data} />
-      <FactsCard house={result.data} />
-      {#if available('facts') && schema && config}
-        <HouseInputCard
-          subset="facts"
-          {schema}
-          {config}
-          house={result.data}
-          {changedSince}
-          onstarted={() => (reload += 1)}
-        />
-      {/if}
-    </div>
+<div class="grid" data-testid="house-page">
+  <HouseBasics />
+  {#if schema && config}
+    <HouseInputCard {schema} {config} />
   {/if}
-{/if}
+</div>
 
 {#if draft.count > 0}<div class="spacer" aria-hidden="true"></div>{/if}
 
 <style>
   .spacer {
     height: 4.5rem;
-  }
-  .sun-line {
-    margin-bottom: var(--space-4);
   }
   .lead {
     margin: calc(-1 * var(--space-2)) 0 var(--space-4);

@@ -54,6 +54,7 @@ PUMP_VALUES: dict[str, Any] = {
 
 
 def basic(user: str = "admin", password: str = PASSWORD) -> dict[str, str]:
+    """Return Basic-auth headers for the given user and password."""
     token = base64.b64encode(f"{user}:{password}".encode()).decode()
     return {"Authorization": f"Basic {token}"}
 
@@ -62,11 +63,15 @@ BEARER = {"Authorization": f"Bearer {TOKEN}"}
 
 
 async def no_sleep(_: float) -> None:
-    return None
+    """Replace the asyncio sleep so the control loop does not wait."""
+    return
 
 
 class FakeHa:
+    """Home Assistant stand-in with room, humidity and climate entities in Fahrenheit."""
+
     def __init__(self) -> None:
+        """Fill the entity index, home location and temperature unit."""
         self.home = (52.091, 5.118)
         self.index = {
             "sensor.living_room_temperature": EntityState(
@@ -87,14 +92,18 @@ class FakeHa:
         self.temperature_unit: str | None = "°F"
 
     def area_of(self, entity_id: str) -> str | None:
+        """Return the area of living-room entities, otherwise none."""
         return "Living room" if "living_room" in entity_id else None
 
     def device_of(self, entity_id: str) -> str | None:
+        """Return a device id for living-room sensor entities, otherwise none."""
         return "dev-1" if entity_id.startswith("sensor.living_room") else None
 
 
 @dataclass
 class Stack:
+    """A runtime, control loop, config manager, pump settings and weather service wired together."""
+
     manager: ConfigManager
     runtime: Runtime
     loop: ControlLoop
@@ -103,6 +112,7 @@ class Stack:
     weather: WeatherService
 
     def client(self, **kwargs: Any) -> TestClient:
+        """Create a test client for an app built on this stack with a fake Home Assistant."""
         settings = self.manager.settings
         ha = FakeHa()
         app = create_app(
@@ -117,6 +127,7 @@ class Stack:
         return TestClient(app, **kwargs)
 
     def report(self, values: dict[str, Any]) -> None:
+        """Apply the given pump values and a heartbeat to the runtime at the current time."""
         now = self.clock()
         for signal, value in values.items():
             self.runtime.apply(Reading(signal, value, None, now, SourceKind.HEISHAMON))
@@ -124,6 +135,7 @@ class Stack:
 
 
 def stack(settings: Settings) -> Stack:
+    """Build a stack from the settings and report a complete set of pump values."""
     clock = FakeClock()
     manager = ConfigManager.open(settings, clock, locked={})
     runtime = Runtime(clock=clock)
@@ -150,11 +162,13 @@ def stack(settings: Settings) -> Stack:
 
 @pytest.fixture
 def open_settings(make_settings: Callable[..., Settings]) -> Settings:
+    """Provide settings with command publishing and an operate token, without admin password."""
     return make_settings(**PUBLISH, operate_token=TOKEN)
 
 
 @pytest.fixture
 def secured(make_settings: Callable[..., Settings]) -> Settings:
+    """Provide settings reachable from the network with operate token and admin password."""
     return make_settings(
         **PUBLISH, operate_token=TOKEN, http_host="0.0.0.0", admin_password=PASSWORD
     )
@@ -162,10 +176,12 @@ def secured(make_settings: Callable[..., Settings]) -> Settings:
 
 @pytest.fixture
 def ingress(make_settings: Callable[..., Settings]) -> Settings:
+    """Provide settings for Home Assistant ingress access."""
     return make_settings(**PUBLISH, ingress=True)
 
 
 def body_for(path: str) -> dict[str, Any]:
+    """Return a valid JSON request body for the endpoint at the given path."""
     if path.endswith("/config/preview"):
         return {"changes": {"control_comfort_c": 21.4}, "hours": 1}
     if "/pump/settings/" in path:
@@ -188,6 +204,7 @@ RANK = {"read": 0, "operate": 1, "admin": 2}
 
 
 def call(client: TestClient, method: str, path: str, headers: dict[str, str]) -> int:
+    """Call an endpoint and return its HTTP status, with the request mark on writes."""
     if method == "GET":
         return client.get(path, headers=headers).status_code
     return client.request(
@@ -215,6 +232,7 @@ def test_role_matrix(
     path: str,
     needed: str,
 ) -> None:
+    """Each endpoint serves roles at or above its needed rank and refuses lower ones with 403."""
     settings = request.getfixturevalue({"open": "open_settings"}.get(mode, mode))
     rig = stack(settings)
     kwargs = {"client": INGRESS} if mode == "ingress" else {}
@@ -230,6 +248,7 @@ def test_role_matrix(
 def test_without_credentials_nothing_is_served(
     secured: Settings, method: str, path: str, needed: str
 ) -> None:
+    """With an admin password set, every endpoint answers 401 without credentials."""
     with stack(secured).client() as client:
         assert call(client, method, path, {}) == 401
     del needed
@@ -255,6 +274,7 @@ def test_request_rules(
     status: int,
     path: str,
 ) -> None:
+    """State-changing endpoints refuse unmarked, non-JSON and cross-origin requests untouched."""
     rig = stack(request.getfixturevalue(source))
     auth = basic() if source == "secured" else {}
     kwargs = {"client": INGRESS} if source == "ingress" else {}
@@ -267,6 +287,7 @@ def test_request_rules(
 
 
 def test_pump_settings_shape(open_settings: Settings) -> None:
+    """The pump settings listing has the expected row shape, access, owner and writable subset."""
     rig = stack(open_settings)
     with rig.client() as client:
         body = client.get("/api/v1/pump/settings").json()
@@ -306,6 +327,7 @@ def test_pump_settings_shape(open_settings: Settings) -> None:
 
 
 def test_pump_settings_name_the_model_profile(open_settings: Settings) -> None:
+    """The pump settings name the model profile only for a known heat pump model code."""
     rig = stack(open_settings)
     with rig.client() as client:
         assert client.get("/api/v1/pump/settings").json()["profile"] is None
@@ -319,6 +341,7 @@ def test_pump_settings_name_the_model_profile(open_settings: Settings) -> None:
 
 
 def test_an_unsupported_enum_is_not_supported(open_settings: Settings) -> None:
+    """A setting whose enum value the firmware reports as unknown is listed as unsupported."""
     rig = stack(open_settings)
     rig.runtime.apply(
         ParseError(
@@ -337,6 +360,7 @@ def test_an_unsupported_enum_is_not_supported(open_settings: Settings) -> None:
 
 
 def test_an_admin_write_is_queued_audited_and_journalled(secured: Settings) -> None:
+    """An admin write is queued, audited and shown as last write; a second one is in flight."""
     rig = stack(secured)
     with rig.client() as client:
         response = client.post(
@@ -391,6 +415,7 @@ def test_an_admin_write_is_queued_audited_and_journalled(secured: Settings) -> N
 def test_refusals(
     ingress: Settings, path: str, body: dict[str, Any], status: int, code: str
 ) -> None:
+    """Invalid pump setting writes are refused with the matching status and code."""
     rig = stack(ingress)
     with rig.client(client=INGRESS) as client:
         response = client.post(path, json=body, headers=MARK)
@@ -401,6 +426,7 @@ def test_refusals(
 def test_writes_are_refused_while_paused_and_in_shadow(
     ingress: Settings, make_settings: Callable[..., Settings]
 ) -> None:
+    """Pump setting writes are refused while control is paused or in shadow, with the reason."""
     rig = stack(ingress)
     rig.manager.hold.paused = True
     with rig.client(client=INGRESS) as client:
@@ -422,6 +448,7 @@ def test_writes_are_refused_while_paused_and_in_shadow(
 
 
 def test_preview_now_and_open_loop_run(open_settings: Settings) -> None:
+    """The preview returns current and candidate decisions and an open-loop run, checking input."""
     rig = stack(open_settings)
     with rig.client(headers=BEARER) as client:
         response = client.post(
@@ -454,6 +481,7 @@ def test_preview_now_and_open_loop_run(open_settings: Settings) -> None:
 
 
 def test_signal_candidates(secured: Settings) -> None:
+    """The signal picker lists room, liveness and crosscheck candidates with units and values."""
     rig = stack(secured)
     with rig.client() as client:
         body = client.get("/api/v1/config/signals", headers=basic()).json()
@@ -494,6 +522,7 @@ def test_signal_candidates(secured: Settings) -> None:
 
 
 def test_weather_endpoint(open_settings: Settings, make_settings: Callable[..., Settings]) -> None:
+    """The weather endpoint reports disabled without a provider and rejects a far horizon."""
     rig = stack(open_settings)
     with rig.client() as client:
         body = client.get("/api/v1/weather").json()
@@ -505,10 +534,12 @@ def test_weather_endpoint(open_settings: Settings, make_settings: Callable[..., 
 def test_replay_coverage_reads_the_history_off_the_event_loop(
     open_settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The replay coverage is read in a worker thread, not on the event loop."""
     seen: list[bool] = []
     real = coverage_payload
 
     def fake(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        """Record whether it ran inside an event loop, then delegate to the real function."""
         try:
             asyncio.get_running_loop()
         except RuntimeError:

@@ -1,13 +1,20 @@
+import { poll } from './poll.svelte';
 import {
   failureKind,
   type FailureKind,
   fetchConfig,
+  endAway,
+  endBoost,
   fetchDecisionsLatest,
   isMissing,
   pauseControl,
   releaseHold,
   resumeControl,
+  setAway,
   setStove,
+  startBoost,
+  type AwayBody,
+  type BoostBody,
 } from './api';
 import type { MessageKey } from '$lib/i18n';
 import type {
@@ -58,18 +65,16 @@ export class ControlStore {
   failed = $state(false);
   admin = $state<boolean | null>(null);
 
-  #timer: number | null = null;
+  #stopPoll: (() => void) | null = null;
   #busy = false;
 
   start(intervalMs = 15_000): void {
-    void this.refresh();
-    if (this.#timer === null)
-      this.#timer = window.setInterval(() => void this.refresh(), intervalMs);
+    this.#stopPoll ??= poll(() => this.refresh(), { intervalMs });
   }
 
   stop(): void {
-    if (this.#timer !== null) window.clearInterval(this.#timer);
-    this.#timer = null;
+    this.#stopPoll?.();
+    this.#stopPoll = null;
   }
 
   async refresh(): Promise<void> {
@@ -115,6 +120,51 @@ export class ControlStore {
       const until = hours === null ? undefined : nowMs + hours * 3_600_000;
       const result: StoveResult = await setStove(hours !== null, until);
       if (this.control && result.stove) this.control = { ...this.control, stove: result.stove };
+    } catch (error) {
+      return this.#learn(error);
+    }
+    await this.refresh();
+    return null;
+  }
+
+  /**
+   * Start a boost (room target shifted by `offset_k` for `duration_s`). A 409 means boost is off or
+   * away is set.
+   */
+  async boost(body: BoostBody): Promise<ActionError | null> {
+    return this.#act(async () => {
+      const result = await startBoost(body);
+      if (this.control) this.control = { ...this.control, boost: result.boost };
+    });
+  }
+
+  async endBoost(): Promise<ActionError | null> {
+    return this.#act(async () => {
+      const result = await endBoost();
+      if (this.control) this.control = { ...this.control, boost: result.boost };
+    });
+  }
+
+  /**
+   * Set an away period; the service ends a running boost.
+   */
+  async away(body: AwayBody): Promise<ActionError | null> {
+    return this.#act(async () => {
+      const result = await setAway(body);
+      if (this.control) this.control = { ...this.control, away: result.away };
+    });
+  }
+
+  async endAway(): Promise<ActionError | null> {
+    return this.#act(async () => {
+      const result = await endAway();
+      if (this.control) this.control = { ...this.control, away: result.away };
+    });
+  }
+
+  async #act(call: () => Promise<void>): Promise<ActionError | null> {
+    try {
+      await call();
     } catch (error) {
       return this.#learn(error);
     }

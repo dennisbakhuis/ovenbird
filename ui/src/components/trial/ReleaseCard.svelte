@@ -11,6 +11,7 @@
   | null), onchanged() (after a release finished: reload the checklist).
 -->
 <script lang="ts">
+  import { poll } from '$lib/core/poll.svelte';
   import ActionRow from '$ui/ActionRow.svelte';
   import InlineMessage from '$ui/InlineMessage.svelte';
   import TextInput from '$ui/TextInput.svelte';
@@ -117,26 +118,24 @@
 
   $effect(() => {
     if (!running) return;
-    let stopped = false;
-    const timer = window.setInterval(async () => {
-      try {
-        const state = await fetchRelease();
-        if (stopped || !state?.release) return;
-        pollFailed = false;
-        run = state.release;
-        fetchedAt = Date.now();
-        if (state.release.done) {
-          onchanged();
-          void ctl.refresh();
+    return poll(
+      async (signal) => {
+        try {
+          const state = await fetchRelease();
+          if (signal.aborted || !state?.release) return;
+          pollFailed = false;
+          run = state.release;
+          fetchedAt = Date.now();
+          if (state.release.done) {
+            onchanged();
+            void ctl.refresh();
+          }
+        } catch {
+          if (!signal.aborted) pollFailed = true;
         }
-      } catch {
-        if (!stopped) pollFailed = true;
-      }
-    }, POLL_MS);
-    return () => {
-      stopped = true;
-      window.clearInterval(timer);
-    };
+      },
+      { intervalMs: POLL_MS, immediate: false },
+    );
   });
 
   async function ask(kind: 'rehearse' | 'release'): Promise<void> {

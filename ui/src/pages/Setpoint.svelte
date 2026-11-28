@@ -1,10 +1,18 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import { fetchAlarms, fetchDecisions, fetchHistory, fetchSeries, isMissing } from '$lib/core/api';
+  import {
+    fetchAlarms,
+    fetchDayShift,
+    fetchDecisions,
+    fetchHistory,
+    fetchSeries,
+    isMissing,
+  } from '$lib/core/api';
   import type { Point } from '$lib/core/chart';
   import Card from '$ui/Card.svelte';
   import EmptyState from '$ui/EmptyState.svelte';
   import DecisionTable from '$components/setpoint/DecisionTable.svelte';
+  import DayShiftCard from '$components/setpoint/DayShiftCard.svelte';
   import Details from '$ui/Details.svelte';
   import Icon from '$ui/Icon.svelte';
   import InputsTable from '$components/setpoint/InputsTable.svelte';
@@ -46,7 +54,9 @@
     type StackedSeries,
   } from '$lib/setpoint/series';
   import { settings, t, tc } from '$lib/core/settings.svelte';
-  import type { Decision, DecisionSeries } from '$lib/core/types';
+  import { dayshiftShown } from '$lib/setpoint/dayshift';
+  import { poll } from '$lib/core/poll.svelte';
+  import type { DayShift, Decision, DecisionSeries } from '$lib/core/types';
 
   let { live, ctl }: { live: LiveStore; ctl: ControlStore } = $props();
 
@@ -66,6 +76,20 @@
     return [6, 24, 168].includes(value) ? value : 24;
   });
   const atMs = $derived(at ? Date.parse(at) : Number.NaN);
+
+  let dayshift = $state<DayShift | null>(null);
+  $effect(() => {
+    return poll(
+      async (signal) => {
+        try {
+          dayshift = await fetchDayShift(signal);
+        } catch {
+          if (!signal.aborted) dayshift = null;
+        }
+      },
+      { intervalMs: 30_000 },
+    );
+  });
 
   let picked = $state<Decision | null>(null);
   let pickedMissing = $state(false);
@@ -455,6 +479,10 @@
       </div>
     {/if}
   </Card>
+
+  {#if dayshift && dayshiftShown(dayshift)}
+    <DayShiftCard shift={dayshift} />
+  {/if}
 
   <Card
     span={12}

@@ -99,7 +99,7 @@ export const integrations: Record<keyof typeof en, string> = {
   check_ca_file_missing: 'Het CA-certificaatbestand bestaat niet op de ovenbird-server.',
   curveOutsideTitle: 'Buitentemperatuur',
   curveOutsideOnly:
-    'Alleen de stooklijn gebruikt deze sensor. De veiligheidsband, de veiligheidsbewaking en het huismodel blijven de eigen sensor van de pomp gebruiken.',
+    'Alleen de stooklijn gebruikt deze sensor. De veiligheidsband en de veiligheidsbewaking blijven de eigen sensor van de pomp gebruiken.',
   curveOutsidePump: 'Geen sensor gekozen: de stooklijn gebruikt de eigen buitensensor van de pomp.',
   curveOutsideFallback:
     'De gekozen sensor heeft geen verse, aannemelijke waarde, dus de stooklijn gebruikt nu de sensor van de pomp.',

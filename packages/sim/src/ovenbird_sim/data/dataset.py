@@ -338,6 +338,20 @@ def _house_mean(
     ``anchored``, the mean of the shifts is added back, so with every sensor present
     the result is the plain mean; anchored, the result stays on the first sensor's
     level (a finer-resolution stand-in for it). A bin needs at least half the sensors.
+
+    Parameters
+    ----------
+    columns
+        Sensor series on the common grid, by name (degC).
+    names
+        The sensors to average, first one being the reference level.
+    anchored
+        Keep the first sensor's level instead of the plain mean.
+
+    Returns
+    -------
+    FloatArray
+        The averaged series; NaN where fewer than half the sensors have a value.
     """
     present = [n for n in names if n in columns and np.isfinite(columns[n]).any()]
     if not present:
@@ -411,6 +425,7 @@ def fuse_outside(
 
 
 def _running_nanmean(values: FloatArray, width: int) -> FloatArray:
+    """Return the centred running mean over ``width`` samples, ignoring NaN."""
     finite = np.isfinite(values)
     csum = np.concatenate([[0.0], np.cumsum(np.where(finite, values, 0.0))])
     ccount = np.concatenate([[0], np.cumsum(finite)])
@@ -434,6 +449,7 @@ def local_hours(t: FloatArray, tz: str = LOCAL_TZ) -> FloatArray:
 
 
 def _span(series: Mapping[str, Series]) -> tuple[float, float]:
+    """Return the first and last capture timestamp (Unix s), preferring the liveness signal."""
     live = series.get(cap.LIVENESS)
     if live is not None and len(live):
         return float(live.t[0]), float(live.t[-1])
@@ -484,6 +500,7 @@ def assemble(
     flags: dict[str, BoolArray] = {}
 
     def main(name: str, max_age: float = MAIN_MAX_AGE_S) -> FloatArray:
+        """Return main signal ``name`` on the grid, expiring values older than ``max_age`` s."""
         series = capture.get(MAIN_SIGNALS[name], Series.empty())
         return hold(series, times, max_age)[0]
 

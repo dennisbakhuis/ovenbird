@@ -67,7 +67,7 @@ As seen in the recorded data:
   while the compressor runs most commands are small corrections of it.
 - `SetMaxPumpDuty` with a running and an idle value, also sent during defrosts, without
   effect (the pump drives its own duty during a defrost).
-- Absent: minimum run times, forecast, prices, PV, house model.
+- Absent: minimum run times, forecast, prices, PV.
 - Pump's own start/stop rule: the flow's comment documents on at inlet ≤ SP − 4 and off at
   outlet ≥ SP + 2 for 3 min. The plant model fits its own start and stop margins per install;
   the example house uses generic inverter values (`ovenbird_sim.heishamon.reference`).
@@ -129,8 +129,8 @@ unsupported topology. Capabilities per model are data-driven.
 
 Setpoint = **curve(outside, time-filtered)** + **room feedback** + **plan term** + **start
 ramp**, then clamps, rounding with hysteresis, deadband ≥ 1 K and dwell.
-- Curve: piecewise-linear, user-editable; initial points proposed from the house model or
-  imported from the pump's stored curve.
+- Curve: piecewise-linear, user-editable; initial points imported from the pump's stored
+  curve.
 - Room feedback: PI on room error (target = schedule comfort + plan room offset), clamped
   ±3 K water, anti-windup, frozen during defrost/DHW and when room temp is stale or
   implausible: the held offset (positive integrator plus the P part of one sensor step,
@@ -173,60 +173,45 @@ ramp**, then clamps, rounding with hysteresis, deadband ≥ 1 K and dwell.
   pass the level before a dip, so the rebound after airing is no stove. A configured
   reference room without a fresh temperature halves the back-off and raises
   `stove_reference_missing`. See `docs/control-interface.md` (Wood-stove mode).
+- Boost and away (on request only): a manual room-target shift in its own input slot
+  (`ControlInputs.room_override`, kinds `room_target` and `away`), so it coexists with a
+  stove request. It runs through the room PI like a plan slice (without a trusted room it
+  maps through the curve slope) and replaces the plan while it runs; every limit stays.
+  A stove episode or the summer switch pauses it (its clock runs on); a manual stove
+  start ends a boost; away ends a boost and refuses a new one, so the two never stack.
+  Away returns to comfort a lead time before its end, and until the end the
+  comfort-floor alarm follows the away target, the day shift pauses and the house basics
+  skip the days.
+- Summer switch (opt-in): a 24 h exponential mean of the curve's outside value (one full
+  day and night, so a warm afternoon or a mild night does not toggle it; it waits one
+  time constant of samples before it may switch) above 18 °C stops space heating the safe
+  way: the setpoint goes to the safety minimum and the room PI is frozen, exactly as the
+  stove's "to minimum"; no new command, never `SetHeatpump 0`. Below 16 °C (2 K
+  hysteresis) heating resumes. The pump's own `Heating_Off_Outdoor_Temp` stays reported
+  only.
+- Quiet after a start (opt-in): quiet mode for the first minutes of a compressor run, the
+  quieter of it and a window, through the same quiet-mode intent; held through a defrost.
+- Compressor starts are counted from `Compressor_Freq` (a restart around a defrost is no
+  start) and warn (`compressor_starts`) above 4 per hour in two consecutive hours or 30
+  per day.
 
 ## Planner
 
-- **Rule planner** (permanent fallback): price rank + forecast PV surplus + comfort band →
+- **Rule planner** (**not built**; permanent fallback): price rank + forecast PV surplus + comfort band →
   room offsets; anticipates solar gain.
-- **Model plan** (built; `shadow` available, `on` locked; owner decision 2026-11-27,
-  [record](decisions/2026-11-27-learned-model-in-controller.md)): the champion house
-  model's predicted effect of forecast sun and forecast outside temperature over the
-  next hours → a room-target offset through the same plan hook
-  (`ovenbird_core.control.planner`, pure Python; the service side is
-  `ovenbird.control.modelplan`). Bounds are settings (defaults: set back at most 0.5 K,
-  pre-heat at most 0.3 K, horizon 6 h), so the comfort effect is at most the bound whatever
-  the model error. Start ramp, cycling floor, wood-stove pause and safety clamp still apply
-  after it. No automatic curve or gain change. Two kinds of slice exist (below); the service
-  issues only the room-target kind. Switch
-  `control_model_use`: `off` (default; no planner call, nothing recorded), `shadow` (computed
-  every quarter hour and recorded as `derived/model_plan_offset_k` and
-  `derived/model_plan_applied`, the guard verdict changes journalled as informational
-  `model_plan` events; decisions byte-identical to `off`), `on` (refused with
-  `model_use_on_locked` until an offline evaluation with deliberately wrong models and
-  missing-sun forecasts shows no meaningful worsening of undershoot or starts, and two weeks
-  of live shadow have been reviewed by the owner; lifting the lock is one line,
-  `ovenbird.config.validation.modelplan.ON_LOCKED`). Guards, each failing to "no plan" with
-  the reason shown: `weather_off`, `model_missing`, `model_not_credible`, `model_stale`,
-  `model_error_high` (held-out 24 h room error above `control_model_max_rmse_k`),
-  `forecast_stale`, `room_untrusted`, `stove_active`, `stove_tail` (12 h after an episode,
-  read back from the journal after a restart). The cheap ones are re-checked at every tick
-  and withdraw a slice at once. After a restart no plan is in force until the first
-  evaluation and the rate limit ramps from 0. The weather forecast is a controller input only
-  through this path and only with `on`.
-  - *Room-target slice* (v1, `plan_offset`; wired into the service): shifts the room
-    target. It has little authority below 0.5 K: the controller's `kp` turns 0.5 K of target
-    into 1 K of water, the setpoint rounding step.
-  - *Water slice* (v2, `plan_water`, `PlanSlice.water_offset_k`; in core and in the
-    evaluation, **not** wired into the service): lowers the water setpoint ahead of forecast
-    sun. The sun is read as an equivalent outside-temperature rise (aperture × irradiance ÷
-    heat loss) and moved down the heating curve by its slope; lead 1.5 h, 0.5 K steps,
-    default at most 3 K down, and an optional raise after the sun
-    (`max_raise_water_k`, default 0). It has no room offset. The controller clamps it to
-    `max_lower_water_k` / `max_raise_water_k` and scales it by a room authority: full while
-    the trusted room is at most `authority_full_k` (0.1 K, but at least one sensor step)
-    below comfort, none from `authority_zero_k` (0.4 K), linear between (mirrored above
-    comfort for a raise). The decision extras then carry `model_plan_water_requested_k`,
-    `model_plan_water_applied_k` and `model_plan_authority`.
-  - Evaluation, 2026-11-28 ([page](evaluation/model-plan.md),
-    [record](decisions/2026-11-28-model-plan-after-evaluation.md)): neither planner passes
-    the gate. v1 has no credible FAIL, a small benefit and stays in `shadow`. v2 at full
-    strength costs comfort and starts; half gain with recovery is the most promising
-    setting and is still blocked. `on` stays locked.
-- **LP optimiser** (experimental, shadow until it wins): HiGHS via scipy; 15-min steps to
+- **Sun day shift** (built in 0.6.0, `off` by default, `shadow` available, `on` an
+  experimental opt-in after the evaluation did not pass; see [the decision](decisions/2026-11-28-sun-day-shift-after-evaluation.md)
+  and [the evaluation](evaluation/dayshift.md)): a rule that raises the room target a little
+  on a sunny, mild day and lowers it in the night after, through the plan hook.
+- **Model plan** (removed in 0.6.0): a planner on a learned house model never passed its
+  evaluation. See the [note](notes/house-model-attempt.md) and
+  [the decision](decisions/2026-11-28-house-model-removed.md). The plan hook (`PlanSlice`)
+  and the evaluation harness stay.
+- **LP optimiser** (**not built**; experimental, shadow until it wins): HiGHS via scipy; 15-min steps to
   end of published prices; uses the fitted model (below); COP per step incl. defrost
   penalty; separate import/export; terminal constraint; start penalty.
-- Tariff model generic (markup, tax, VAT, fixed/dynamic) with an NL post-saldering preset.
-  Prices default from an HA price entity; ENTSO-E (needs a personal token) optional.
+- Tariff model (**not built**) generic (markup, tax, VAT, fixed/dynamic) with an NL post-saldering preset.
+  Prices default from an HA price entity; ENTSO-E (needs a personal token) optional (**not built**).
 - Reason codes as plan data, incl. "why not heating". Forecasts used in open-loop runs must be
   **lead-time correct** (as issued at decision time) — no peeking at the future.
 
@@ -312,7 +297,7 @@ or "no change, because …", reason code, actor (planner/user/token).
 | Grid power (P1) | HA entity | true solar surplus |
 | PV power | HA entity | surplus estimate, irradiance proxy, PV-forecast calibration |
 | Heat-pump electricity | HA entity / HeishaMon s0 | real COP and cost (pump estimates flagged) |
-| Prices | HA price entity / ENTSO-E | price-aware planning, cost |
+| Prices (**not built**) | HA price entity / ENTSO-E | price-aware planning, cost |
 | Weather forecast | built-in Open-Meteo | forecast-aware planning |
 
 HA connection: one read-only WebSocket client; `last_updated`/`last_reported` give age.
@@ -320,158 +305,20 @@ HeishaMon liveness from the 5 s `stats` cadence, not `LWT`.
 
 ## House insight
 
-Heat delivered = flow × (outlet − inlet) × c_p (inlet/outlet offset calibrated on
-pump-on/compressor-off periods). Change-point regression of daily heat on (room − outside)
-with an irradiance regressor and room-temperature-change correction → *apparent* heat-loss
-coefficient (single sensor), balance temperature; RC time constant. Shown with intervals;
-capacity check at design temperature hidden until data is within ~10 K of it;
-low-confidence flag when signature and RC estimates differ > 20 %.
+House basics (0.6.0, `GET api/v1/insight/basics`, [contract](api-v1.md)): two plain estimates in
+pure Python from the daily and 15 min aggregates, no learning step. The *heat loss*
+is a least-squares fit of the mean heating power against the room-minus-outside difference,
+`P = H x dT - G`, over 48 h windows of qualifying days (wood-stove and away days left out),
+shown with its 95 % band, the balance temperature and the loss now, tonight and on the
+design day. The *heat pump* part shows the heat delivered now and over 24 h and what the
+floor can give at each water temperature. Heat delivered is flow x (outlet - inlet) x
+`c_p`, with the inlet/outlet offset calibrated on pump-on/compressor-off periods. Limits: with
+one room sensor the figure is **apparent** (ventilation and infiltration included, the house as
+that sensor sees it) and no sun is modelled. No number is shown before about 10 qualifying
+heating days.
 
-**Model.** Three nodes in a chain: the loop water, the *emitter* (the fast node: floor,
-screed, radiators; about an hour) and the *building* (the slow node: air, furniture,
-inner walls; days), heat flowing loop → emitter → building → outside. Eight parameters
-are fitted: the three capacities, the two internal conductances, the heat-loss
-coefficient UA, the solar aperture (all sun onto the building node) and constant
-internal gains. Four are held by the structure because the data cannot separate them
-(profile fits on real and simulated histories, 2026-11): the direct loop-to-room
-conductance (5 W/K, its hard lower bound, where free fits ended anyway), the share of
-the sun onto the emitter (0), and the day-curve of the internal gains (amplitude 0, so
-its peak hour drops out). Freeing them is a fit option, not a setting. The internal
-gains are reported as net free heat, not separable from the heat loss (the data fix the
-balance temperature: 100 W more gains is about `100 / ΔT` W/K more UA at the window's
-mean indoor-outdoor difference ΔT). The owner can pin or bound UA, the time constant, the
-aperture and the gains only. Shown: UA, total capacity, the building time constant, the
-emitter time constant, the aperture; never a single node's capacity as a fact.
-
-**Credibility: three gates, one per use.** A model can be good enough for one thing and
-not another, so each consumer reads its own gate:
-
-- *Heat loss (U)*, for the insulation score, the curve proposal, the what-if steady
-  state and the live balance: the signature over ~30 heating days spanning ≥ 10 K,
-  enough heating weather in the fit window (20 days with ≥ 5 K indoor-outside and the
-  pump running, a 10 K range), the reported UA range (the envelope of the bootstrap
-  interval and the rolling-origin train-window UAs) within 30 % of the UA, RC and
-  signature UA within 20 %, and every rolling-origin train-window UA within 15 % of the
-  full fit's (the learned UA must not depend on which weeks it came from). Room
-  prediction skill is not part of it.
-- *Dynamics (D)*, for the what-if cool-down and the room-target planner: a positive
-  skill against persistence pooled over the first 6 h of held-out days. The 24 h skill
-  is reported only: in a room the controller holds flat, "no change" is hard to beat a
-  day ahead.
-- *Sun (S)*, for the water planner: at least 5 sunny held-out days (global irradiance
-  above 150 W/m² for 3 h), the sun term improving the 6 h room prediction on sunny hours
-  against the same model without sun, and the slope of the measured sun response on the
-  model's (09:00 origins, 8 h) with a 90 % day-block interval overlapping 0.67-1.5: a
-  model learned only on low autumn sun and wrong by more than a factor 1.5 fails.
-
-`credible` is the heat-loss gate. Every learner run re-validates the champion's three
-gates on the newest data; a new model never replaces a champion while failing a dynamics
-or sun gate the champion passes on the same days.
-
-### Learning loop (self-learning house model)
-
-The model **proposes, the owner approves**: a curve, PI gains or any other configuration
-change from the learner is a draft the owner reviews and applies. The one exception is
-the bounded model plan (see Planner; owner decision 2026-11-27,
-[record](decisions/2026-11-27-learned-model-in-controller.md)): a room-target offset of
-at most −0.5 K / +0.3 K by default, off unless `control_model_use` is `on` (locked for
-now; `shadow` computes and records it without effect).
-
-- **Data.** The service stores the loop heat it computes live
-  (`derived/heat_delivered_w`: core's `heat_delivered_w`, 0 with the compressor stopped,
-  negative in a defrost, a gap in DHW) as an ordinary history signal, so its 1 min /
-  15 min / 1 h rollups are time-weighted means of the real product, not
-  mean(flow) × mean(ΔT). The learner reads `history.snapshot.db` (written every 6 h,
-  replaced atomically; the service exports it into its `learner/` directory as a hard
-  link or copy) read-only through `ovenbird_sim.data.historydb`: signals by role
-  from the service configuration (`control_room_signal`, `control_stove_reference_signal`,
-  `control_timezone`), 1 min rollups for the identification, 15 min rollups (kept
-  forever) for the energy signature. The inlet/outlet offset is calibrated on
-  circulation-only minutes and removed from the stored heat over the running share.
-  Weather: the stored forecasts as issued, the shortest-lead row per hour standing in
-  for the observation; only temperature and **global horizontal irradiance** are
-  stored, so the solar aperture is an effective GHI aperture (no orientation, no
-  direct/diffuse split).
-- **Known events.** Wood-stove periods (the detector, which needs a reference room, and
-  the service's own `stove_mode` journal) plus a 12 h recovery tail are left out of the
-  fit windows, masked in the scoring and their days dropped from the signature.
-- **Fit.** `python -m ovenbird_sim.learn` runs the full plant identification on the last
-  60 days of 1 min history (heat pump and building, emitter matching, cycling
-  calibration, rolling-origin folds of 14 days, 20 day-block bootstrap replicates); when
-  the heat-pump layer cannot be fitted on the history (missing signals) it falls back to
-  the building alone with the same folds and bootstrap. Fixed seeds: the result depends
-  only on the database, the configuration and the code version. About 5 min for 40-50
-  days on one core; the building-only fit on a 41-day simulated history took 11 s of one
-  thread and 237 MB peak memory (measured 2026-11-27).
-- **Owner input.** The owner can state facts about the house as weak priors (floor area,
-  volume, build period, windows, occupants), and pin or bound four learned quantities
-  only: heat loss (UA), time constant, solar aperture and internal gains. Internal
-  conductances are not pinnable; they are not separately identifiable. The floor-heating
-  share is no longer a fact: the chain holds the direct loop-to-room path it would
-  split.
-- **Promotion (champion/challenger).** The challenger is the latest fold's train-only
-  building (fitted before the latest 14 days). Its free-run room error at 24 h on those
-  14 days is compared with the current champion's on the same days (events masked);
-  the new model is promoted when it is **not worse** (`challenger ≤ champion`, an
-  optional `--tolerance-k`), or when there is no champion. Both errors and the rule are
-  reported. The champion has usually seen part of those days (it was fitted up to its
-  own run), so the rule leans towards keeping the current model.
-- **Files** (`<data_dir>/models`): `house-<YYYYMMDD>.json` (plant parameters in the
-  simulator's format, intervals, validation, credibility, provenance: data span, config
-  hash, code version), `insight-<YYYYMMDD>.json` (what the House page shows),
-  `current.json` → the champion, `index.json` (every run), `status.json` (last run:
-  outcome, what is missing, stage timings). A challenger that loses on the champion's
-  own day is written as `house-<YYYYMMDD>-<n>` so the champion's files stay intact. Every
-  file is written durably (unique temporary file, fsync, rename, directory fsync);
-  `status.json` carries the learner's interval. The service writes
-  `learner/learner-config.json` (its effective `control_*` and `house_*` fields) at start
-  and after every apply, outside the directory the learner can write.
-- **Trust.** The service treats `models/` as untrusted input: no links, regular files up
-  to 4 MB, strict JSON, an allow-list of keys with bounded sizes and checked types;
-  anything else is served as `state: learning` with the reason. A model whose learner
-  has not run for twice its interval is reported as stale (`learner.stale`).
-- **Running it.** Default since 0.5.0 (decided 2026-11-27): the fit runs inside the
-  ovenbird image as a supervised low-priority child process of the service (one container),
-  weekly at night and on request, limited to 30 min wall time and 512 MB, and skipped while
-  less than 400 MB of memory is free. Core stays pure Python; the service still reads the
-  model files through the trust checks above. As an option for source builds, the learner
-  is its own image (`Dockerfile` target `learner`, with numpy/scipy); a lock file in
-  `models/` lets it run next to the built-in one, one run at a time. It runs as its own uid in the service's group and mounts only `learner/`
-  (read-only) and `models/` of the data volume, never `options.json`, `config.db` or the
-  live history; no network, read-only root, no capabilities. In the dev stack it is the
-  optional compose service `learner` (`COMPOSE_PROFILES=learner`, weekly loop); the
-  production `docker run` line is in `packages/service/README.md` (House-model learner).
-  Offline: `make learn`.
-
-### Insulation score (indicative)
-
-UA = the RC model's envelope conductance `h_air_out` (W/K) with its reported range; heat loss at design conditions = UA × (20 − (−10)) K; per m² with the optional
-installation field `house_floor_area_m2`. Bands (W/m² at design, upper limits): **A** < 30,
-**B** < 45, **C** < 60, **D** < 80, **E** < 100, **F** < 125, **G** ≥ 125 (a well-insulated
-new build sits around 25-40 W/m², an unrenovated pre-1975 house above 100). Shown with its
-interval (the reported UA range: bootstrap and train-window UAs) and the band of each end,
-and only when the heat-loss gate above passes;
-otherwise "insufficient data: N more heating days needed" (and outside span).
-**Indicative, not the official energielabel**: the label is an asset rating (primary
-energy per m² per year under standard use), this is a measured apparent heat-loss rate.
-
-Limits: with one room sensor the UA is **apparent** (ventilation and infiltration
-included, the house as that sensor sees it; a warm living room with cooler bedrooms reads
-as a better envelope); stove periods are excluded, not modelled; the history's forecasts
-are not measurements.
-
-### Curve proposal
-
-From the champion: the water temperature needed to hold the comfort temperature at each
-outside temperature of the current curve, at steady state without sun and with the
-model's mean internal gains (`Q = UA (T_comfort − T_o) − Q_int`, loop mean
-`T_comfort + Q / K` with `K` the water-to-air conductance through the emitters and the
-floor, supply = loop mean + `Q / (2 ṁ c_p)` at the median running flow), rounded to
-0.5 °C, non-increasing, clamped to the minimum setpoint, maximum supply and the safety
-envelope (each clamp named), points colder than the data marked extrapolated, with the
-change per point against the current curve. `POST api/v1/insight/house/proposal/draft`
-turns it into a configuration draft labelled "Suggested by the house model"; the owner
-previews and applies it like any other change (validation, preview, audit, rollback).
+The learned three-node house model, its learner, the insulation score and the curve
+proposal of 0.5.0 were removed in 0.6.0: see the [note](notes/house-model-attempt.md).
 
 ## Security, reliability, HA presence
 
@@ -585,8 +432,8 @@ then runs in the owner's cluster (not on the NAS; the NAS only hosts the recorde
 4. **Supervised winter trials** with the existing controller on standby (4 h daytime → 24 h → 1 week)
    → cut-over.
 5. Custom HA integration (climate entity, presets, services) + schedules + rule planner
-   (prices, forecast, solar) + Plan / Comfort / House insight pages → **v1**.
-6. LP optimiser (experimental), HA app polish, docs for other users, public release.
+   (prices, forecast, solar; **not built**) + Plan / Comfort / House insight pages → **v1**.
+6. LP optimiser (experimental; **not built**), HA app polish, docs for other users, public release.
 
 ## Definition of done
 

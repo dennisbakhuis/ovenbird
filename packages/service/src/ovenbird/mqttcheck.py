@@ -116,6 +116,7 @@ async def mqtt_check(
 
 
 def _rc(exc: aiomqtt.MqttCodeError) -> int | None:
+    """Return the MQTT return code of an error as an integer, if it has one."""
     rc = exc.rc
     if isinstance(rc, int):
         return rc
@@ -123,6 +124,19 @@ def _rc(exc: aiomqtt.MqttCodeError) -> int | None:
 
 
 def _timeout_text(code: str, base: str, limit_s: float, *, retained: bool = False) -> str:
+    """Return the message for a timed-out connection test.
+
+    Parameters
+    ----------
+    code
+        Error code of the timeout: ``no_heishamon`` or a connection timeout.
+    base
+        HeishaMon base topic.
+    limit_s
+        Time limit that elapsed, in seconds.
+    retained
+        Whether retained HeishaMon values arrived.
+    """
     if code == "no_heishamon" and retained:
         return (
             f"connected, but only retained HeishaMon values on {base}/main/# and no live "
@@ -134,6 +148,7 @@ def _timeout_text(code: str, base: str, limit_s: float, *, retained: bool = Fals
 
 
 def _failed(result: dict[str, Any], code: str, text: str) -> dict[str, Any]:
+    """Record a failure on the result and return it."""
     result["error_code"] = code
     result["error"] = text
     return result

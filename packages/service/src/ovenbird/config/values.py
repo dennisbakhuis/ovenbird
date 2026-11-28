@@ -118,10 +118,12 @@ class QuietWindowSetting(BaseModel):
     @field_validator("start", "end")
     @classmethod
     def _clock_time(cls, value: str) -> str:
+        """Check the clock time is ``HH:MM``."""
         return check_clock_time(value)
 
     @model_validator(mode="after")
     def _not_empty(self) -> Self:
+        """Check the window has a length."""
         check_window(self.start, self.end)
         return self
 
@@ -156,10 +158,12 @@ class MqttInput(BaseModel):
     @field_validator("topic")
     @classmethod
     def _valid_topic(cls, value: str) -> str:
+        """Check the topic is a valid subscribable topic."""
         return check_topic(value, "topic")
 
     @model_validator(mode="after")
     def _valid_bounds(self) -> Self:
+        """Check the plausibility bounds are finite and ordered."""
         bounds = [value for value in (self.minimum, self.maximum) if value is not None]
         if not all(math.isfinite(value) for value in bounds):
             raise PydanticCustomError("input_bounds", "the plausibility bounds must be finite")

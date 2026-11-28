@@ -16,7 +16,6 @@ from ovenbird.config.fromcore import CORE_FIELDS, CoreSource
 from ovenbird.configstore.fields import FIELDS, unit_of
 from ovenbird_core.control import (
     CyclingConfig,
-    ModelPlanConfig,
     OutsideSource,
     OvenbirdConfig,
     PumpDutyConfig,
@@ -28,15 +27,12 @@ from ovenbird_core.control import (
     StartRampConfig,
     StoveConfig,
 )
-from ovenbird_core.control.planner import PlannerConfig
 from ovenbird_core.setting import specs
 
 CONFIGS: Final = (
     CyclingConfig,
-    ModelPlanConfig,
     OutsideSource,
     OvenbirdConfig,
-    PlannerConfig,
     PumpDutyConfig,
     QuietModeConfig,
     RoomFeedbackConfig,
@@ -55,22 +51,6 @@ CORE_ONLY: Final = frozenset(
         (StoveConfig, "fault_step_k"),
         (StoveConfig, "fault_step_window_s"),
         (StoveConfig, "crosscheck_allow_k"),
-        (ModelPlanConfig, "max_lower_water_k"),
-        (ModelPlanConfig, "max_raise_water_k"),
-        (ModelPlanConfig, "authority_full_k"),
-        (ModelPlanConfig, "authority_zero_k"),
-        (PlannerConfig, "max_setback_k"),
-        (PlannerConfig, "max_preheat_k"),
-        (PlannerConfig, "gain"),
-        (PlannerConfig, "dead_zone_k"),
-        (PlannerConfig, "quantum_k"),
-        (PlannerConfig, "rate_k_per_slice"),
-        (PlannerConfig, "slice_s"),
-        (PlannerConfig, "grace_s"),
-        (PlannerConfig, "outside_weight"),
-        (PlannerConfig, "outside_filter_tau_s"),
-        (PlannerConfig, "weather_compensation"),
-        (PlannerConfig, "max_outside_mismatch_k"),
     }
 )
 SWITCHED: Final = frozenset({"control_stove_rise_k"})
@@ -83,10 +63,12 @@ BOUNDS: Final = {
 
 
 def bound() -> dict[str, CoreSource]:
+    """Return the core-bound fields that exist as service settings."""
     return {name: CORE_FIELDS[name] for name in Settings.model_fields if name in CORE_FIELDS}
 
 
 def split_none(annotation: Any) -> tuple[Any, bool]:
+    """Split an annotation into its non-None part and whether it allowed None."""
     if get_origin(annotation) in (Union, types.UnionType):
         args = [arg for arg in get_args(annotation) if arg is not type(None)]
         rest = args[0] if len(args) == 1 else Union[tuple(args)]  # noqa: UP007
@@ -95,6 +77,7 @@ def split_none(annotation: Any) -> tuple[Any, bool]:
 
 
 def normal(annotation: Any) -> Any:
+    """Reduce an annotation to a comparable form, resolving aliases, enums and literals."""
     if isinstance(annotation, TypeAliasType):
         return normal(annotation.__value__)
     if get_origin(annotation) is Annotated:
@@ -109,11 +92,13 @@ def normal(annotation: Any) -> Any:
 
 
 def core_type(source: CoreSource) -> Any:
+    """Return the type hint of the core field behind ``source``."""
     return hints(source.owner)[source.name]
 
 
 @pytest.mark.parametrize("name", sorted(bound()))
 def test_annotation_matches_the_core_type(name: str) -> None:
+    """A service field has the same type as its core setting, optional only where allowed."""
     source = CORE_FIELDS[name]
     service, service_none = split_none(Settings.model_fields[name].annotation)
     core, core_none = split_none(core_type(source))
@@ -127,6 +112,7 @@ def test_annotation_matches_the_core_type(name: str) -> None:
 
 @pytest.mark.parametrize("name", sorted(bound()))
 def test_default_and_range_come_from_core(name: str) -> None:
+    """A service field takes its default and bounds from the core setting."""
     source = CORE_FIELDS[name]
     info = Settings.model_fields[name]
     assert info.default == (None if source.unset else source.default)
@@ -150,6 +136,7 @@ def test_default_and_range_come_from_core(name: str) -> None:
 
 @pytest.mark.parametrize("name", sorted(bound()))
 def test_a_narrowed_range_stays_inside_the_core_range(name: str) -> None:
+    """A service range narrowed from the core one never exceeds it."""
     source = CORE_FIELDS[name]
     offered, core = source.spec, source.core_spec
     for value in (offered.gt, offered.ge, offered.lt, offered.le):
@@ -158,6 +145,7 @@ def test_a_narrowed_range_stays_inside_the_core_range(name: str) -> None:
 
 
 def test_every_core_setting_has_exactly_one_service_field() -> None:
+    """Each core setting is exposed once, except the listed core-only ones."""
     counts = Counter((source.owner, source.name) for source in bound().values())
     assert all(count == 1 for count in counts.values()), counts
     for owner in CONFIGS:
@@ -167,6 +155,7 @@ def test_every_core_setting_has_exactly_one_service_field() -> None:
 
 
 def test_units_of_core_fields_are_not_repeated() -> None:
+    """Units of core fields come from the core spec and are not set again in the field table."""
     for name, source in bound().items():
         assert name not in FIELDS or FIELDS[name].unit is None, name
         assert unit_of(name) == source.spec.unit

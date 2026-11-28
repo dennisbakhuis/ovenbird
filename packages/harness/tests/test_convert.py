@@ -37,6 +37,7 @@ ENV_DATA_DIR = "OVENBIRD_DATA_DIR"
 
 @pytest.fixture
 def capture(tmp_path: Path) -> Path:
+    """Provide a capture directory holding the synthetic recorded day."""
     folder = tmp_path / "capture"
     folder.mkdir()
     shutil.copy(FIXTURE, folder / FIXTURE.name)
@@ -44,10 +45,12 @@ def capture(tmp_path: Path) -> Path:
 
 
 def _options(capture: Path, out: Path, *, force: bool = False) -> ConvertOptions:
+    """Return conversion options for the recorded day with the example seed."""
     return ConvertOptions(capture=capture, out=out, start=DAY, end=DAY, config=SEED, force=force)
 
 
 def _converted(capture: Path, out: Path) -> Path:
+    """Convert the recorded day into ``out`` and return the history database path."""
     settings, values = build_settings(SEED)
     return convert(_options(capture, out), settings, values).history_path
 
@@ -55,12 +58,14 @@ def _converted(capture: Path, out: Path) -> Path:
 def test_the_identity_check_reproduces_every_recorded_setpoint(
     capture: Path, tmp_path: Path
 ) -> None:
+    """The open-loop identity check reproduces every recorded setpoint of the converted day."""
     settings, values = build_settings(SEED)
     result = convert(_options(capture, tmp_path / "out"), settings, values)
     assert result.decisions >= 100
     assert len(result.days) == 1
 
     def config_of(version: int | None) -> OvenbirdConfig | None:
+        """Return the controller configuration for any version (the seed's one)."""
         return settings.controller_config()
 
     replay = run_open_loop(
@@ -75,6 +80,7 @@ def test_the_identity_check_reproduces_every_recorded_setpoint(
 
 
 def test_the_samples_and_rollups_are_the_services(capture: Path, tmp_path: Path) -> None:
+    """The converted database holds the named signals, samples and 1 min, 15 min, 1 h rollups."""
     path = _converted(capture, tmp_path / "out")
     with sqlite3.connect(path) as db:
         names = {row[0] for row in db.execute("SELECT name FROM signal")}
@@ -95,6 +101,7 @@ def test_the_samples_and_rollups_are_the_services(capture: Path, tmp_path: Path)
 
 
 def test_recorded_commands_are_not_ovenbirds_writes(capture: Path, tmp_path: Path) -> None:
+    """Recorded commands are stored with the recorded status and never count as sent or verified."""
     path = _converted(capture, tmp_path / "out")
     rows = query_commands(path, DAY_START, DAY_END, 100)
     assert {row.kind for row in rows} == {"water_setpoint", "max_pump_duty"}
@@ -108,6 +115,7 @@ def test_recorded_commands_are_not_ovenbirds_writes(capture: Path, tmp_path: Pat
 
 
 def test_the_effective_seed_is_written_next_to_the_database(capture: Path, tmp_path: Path) -> None:
+    """The effective seed is written to ``config-seed.json`` next to the database."""
     out = tmp_path / "out"
     _converted(capture, out)
     written = json.loads((out / "config-seed.json").read_text(encoding="utf-8"))
@@ -117,6 +125,7 @@ def test_the_effective_seed_is_written_next_to_the_database(capture: Path, tmp_p
 
 
 def test_an_existing_database_needs_force(capture: Path, tmp_path: Path) -> None:
+    """An existing non-empty database is refused without ``force`` and replaced with it."""
     out = tmp_path / "out"
     _converted(capture, out)
     with pytest.raises(ConvertError, match="--force"):
@@ -129,6 +138,7 @@ def test_an_existing_database_needs_force(capture: Path, tmp_path: Path) -> None
 def test_the_production_data_directory_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The service's data directory from the environment is refused, even with ``force``."""
     monkeypatch.setenv(ENV_DATA_DIR, str(tmp_path / "service"))
     with pytest.raises(ConvertError, match="data directory"):
         check_output(tmp_path / "service", force=True)
@@ -137,6 +147,7 @@ def test_the_production_data_directory_is_refused(
 def test_the_command_line_converts_and_refuses(
     capture: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The command line converts a day, refuses an existing database, accepts ``--force``."""
     argv = [
         *("--capture", str(capture)),
         *("--from", "2026-01-06", "--to", "2026-01-06"),
@@ -156,10 +167,12 @@ def _room_limits_used(
     monkeypatch: pytest.MonkeyPatch,
     room_max_age_s: float | None = None,
 ) -> list[float]:
+    """Convert the recorded day and return the room staleness limits the converter used."""
     seen: list[float] = []
     original = staleness_policy
 
     def spy(room_max_age_s: float, reference: tuple[str, float] | None = None) -> StalenessPolicy:
+        """Record the room limit the converter asks for, then defer to the real policy."""
         seen.append(room_max_age_s)
         return original(room_max_age_s, reference)
 
@@ -173,6 +186,7 @@ def _room_limits_used(
 def test_the_room_hold_defaults_to_the_profile_silence_limit(
     capture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Without an explicit limit, the room hold equals the room profile's silence limit."""
     settings, _ = build_settings(SEED)
     expected = settings.room_profile().max_age_s
     assert expected > 1800.0
@@ -182,4 +196,5 @@ def test_the_room_hold_defaults_to_the_profile_silence_limit(
 def test_an_explicit_room_max_age_overrides_the_profile(
     capture: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """An explicit ``room_max_age_s`` overrides the profile's silence limit."""
     assert set(_room_limits_used(capture, tmp_path, monkeypatch, room_max_age_s=900.0)) == {900.0}

@@ -42,7 +42,6 @@ export const codes = {
   ladder_rule_plan: 'Rule plan',
   ladder_schedule_curve_feedback: 'Curve with room feedback',
   ladder_curve_only: 'Curve only',
-  ladder_model_plan: 'Curve with room feedback and model plan',
   ladder_hold: 'Hold',
   ladder_refuse: 'Refuse',
   term_curve: 'Heating curve',
@@ -118,6 +117,8 @@ export const codes = {
   counter_superseded: 'Superseded',
   counter_corrections: 'Corrections',
   counter_restarts: 'Restarts',
+  alarm_model_plan: 'Retired: house model plan',
+  audit_house_learn_run: 'Retired: house model learner run',
   audit_config_apply: 'Config applied',
   audit_config_reset: 'Config store lost, reset',
   audit_config_rollback: 'Config rolled back',
@@ -194,7 +195,6 @@ export const codes = {
   alarmText_room_report_overdue: 'The room sensor report is overdue.',
   alarmText_command_hold: 'Commands are on hold.',
   alarm_stove_mode: 'Wood-stove mode',
-  alarm_model_plan: 'Model plan guard',
   alarmText_setpoint_above_max: 'The water setpoint is above the maximum supply temperature.',
   alarmText_outlet_overshoot: 'The supply water is warmer than its limit.',
   alarmText_low_flow: 'The water flow is below the minimum while the compressor runs.',
@@ -209,8 +209,6 @@ export const codes = {
   alarmText_room_sensor_silent: 'The room sensor has not reported for longer than its limit.',
   alarmText_room_sensor_quiet: 'The room sensor has shown no sign of life for hours.',
   alarmText_stove_mode: 'Wood-stove mode started or ended.',
-  alarmText_model_plan:
-    'Started: a guard blocks the model plan. Released: every guard passes again. Information only.',
   alarm_envelope_mismatch: 'Value outside the safety rule',
   alarmText_envelope_mismatch:
     "ovenbird set a water temperature outside the HeishaMon safety rule's band; the rule corrected it.",
@@ -269,7 +267,6 @@ export const codes = {
   alarmText_room_unit_refused:
     'The room sensor reports no temperature unit and Home Assistant does not use °C, so its value is not used.',
   audit_archive_delete: 'Deleted from the yearly archive',
-  audit_house_learn_run: 'House model learner started by hand',
   audit_ha_connection: 'Home Assistant connection changed',
   alarm_outside_sensor_stale: 'Outside sensor not fresh',
   alarmText_outside_sensor_stale:

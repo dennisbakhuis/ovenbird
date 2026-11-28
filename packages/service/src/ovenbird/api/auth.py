@@ -71,6 +71,8 @@ def scope_role(scope: Mapping[str, Any]) -> Role:
 
 @dataclass(slots=True)
 class _Failures:
+    """Failed-login state of one key: attempt count, last failure and lockout end (monotonic s)."""
+
     count: int
     last: float
     locked_until: float
@@ -114,6 +116,7 @@ class FailedAuthLimiter:
         self._sources: OrderedDict[Hashable, _Failures] = OrderedDict()
 
     def _current(self, source: Hashable, now: float) -> _Failures | None:
+        """Return the live entry of ``source`` at ``now``, or ``None`` once it has lapsed."""
         entry = self._sources.get(source)
         if entry is not None and now - entry.last > self.forget_after and now >= entry.locked_until:
             del self._sources[source]
@@ -176,6 +179,7 @@ class LiveTickets:
         self._tickets: OrderedDict[str, tuple[float, Role]] = OrderedDict()
 
     def _prune(self, now: float) -> None:
+        """Drop the expired tickets from the front of the (oldest-first) store."""
         while self._tickets and next(iter(self._tickets.values()))[0] <= now:
             self._tickets.popitem(last=False)
 
@@ -200,12 +204,14 @@ class LiveTickets:
 
 
 def _query_ticket(scope: Scope) -> str | None:
+    """Return the WebSocket ticket in the query string, or ``None`` when absent."""
     raw = bytes(scope.get("query_string") or b"").decode("latin-1")
     values = parse_qs(raw).get(TICKET_PARAM)
     return values[0] if values else None
 
 
 def _decode_basic(header: bytes | None) -> tuple[bytes, bytes] | None:
+    """Return the ``(user, password)`` bytes of a Basic header, or ``None`` if malformed."""
     if header is None:
         return None
     scheme, _, encoded = header.partition(b" ")
@@ -271,11 +277,13 @@ def limiter_key(source: str, header: bytes | None) -> tuple[str, str]:
 
 
 def _source(scope: Scope) -> str:
+    """Return the client address of the connection (``"unknown"`` without one)."""
     client = scope.get("client")
     return str(client[0]) if client else "unknown"
 
 
 def _header(scope: Scope, name: bytes) -> bytes | None:
+    """Return the first value of header ``name`` (lowercase bytes), or ``None``."""
     for key, value in scope.get("headers") or ():
         if key.lower() == name:
             return bytes(value)
@@ -285,6 +293,21 @@ def _header(scope: Scope, name: bytes) -> bytes | None:
 async def _reject(
     send: Send, scope: Scope, status: int, detail: str, headers: list[tuple[bytes, bytes]]
 ) -> None:
+    """Refuse the request: close a WebSocket with a policy violation, answer HTTP with a JSON error.
+
+    Parameters
+    ----------
+    send
+        ASGI send callable.
+    scope
+        ASGI connection scope.
+    status
+        HTTP status code of the refusal.
+    detail
+        Message for the ``detail`` key of the JSON body.
+    headers
+        Extra response headers, such as ``Retry-After``.
+    """
     if scope["type"] == "websocket":
         await send({"type": "websocket.close", "code": POLICY_VIOLATION})
         return
@@ -362,11 +385,34 @@ class BasicAuthMiddleware:
         self.limiter = limiter or FailedAuthLimiter()
 
     async def _serve(self, scope: Scope, receive: Receive, send: Send, role: Role) -> None:
+        """Stamp ``role`` on the scope and pass the connection to the application.
+
+        Parameters
+        ----------
+        scope
+            ASGI connection scope.
+        receive
+            ASGI receive callable.
+        send
+            ASGI send callable.
+        role
+            Role granted to the connection.
+        """
         scope[ROLE_SCOPE_KEY] = role
         await self.app(scope, receive, send)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Reject unauthenticated requests before they reach the application."""
+        """Reject unauthenticated requests before they reach the application.
+
+        Parameters
+        ----------
+        scope
+            ASGI connection scope.
+        receive
+            ASGI receive callable.
+        send
+            ASGI send callable.
+        """
         if scope["type"] not in ("http", "websocket") or scope["path"] in self._exempt:
             await self.app(scope, receive, send)
             return

@@ -7,10 +7,7 @@ One top-level :class:`asyncio.TaskGroup` runs every component under
 server. The components are the MQTT ingest, the history writer, the HA input (idle
 until a URL and a token are configured; it follows every configuration change), the
 control loop, the weather component (idle unless the forecast is opted
-in), the learner hand-off (keeps the house-model learner's history export current,
-:mod:`ovenbird.insight.house`), the learner runner (starts the learner as a low-priority child
-process, :mod:`ovenbird.insight.learnrun`), the notifier and dead-man ping when configured and,
-only when the publish guard
+in), the notifier and dead-man ping when configured and, only when the publish guard
 permits it, the command worker (the single publishing connection). Stopping (SIGTERM)
 shuts HTTP down gracefully, cancels the components, flushes history and releases the data directory
 lock.
@@ -49,19 +46,19 @@ from ovenbird.control import (
     controller_config,
 )
 from ovenbird.control.adapter import CommandSender
+from ovenbird.control.dayshiftrun import DayShiftRunner
 from ovenbird.control.envelope import EnvelopeWatch
 from ovenbird.control.guard import ModeHold
 from ovenbird.control.loop import alarm_row
-from ovenbird.control.modelplan import ModelPlanRunner
 from ovenbird.control.monitors import SafetyMonitor, monitor_config
 from ovenbird.control.persist import load_state, restore_adapter
+from ovenbird.control.roomtarget import TargetLimits, load_away, load_boost
+from ovenbird.control.starts import start_counter
 from ovenbird.ha import REFRESH_INTERVAL_S, Connector, HaInput
 from ovenbird.history import HistoryWriter
 from ovenbird.history.archive import AlarmHook, ConfigSource, MonthArchiver, clean_build_folders
 from ovenbird.history.journal import latest_decision
 from ovenbird.hotwater import dhw_installed
-from ovenbird.insight.house import models_dir, run_handoff
-from ovenbird.insight.learnrun import LearnRunner
 from ovenbird.instance import Endpoint, InstanceLock, probe_host
 from ovenbird.mqtt import MqttIngest, SubscribeOnlyClient
 from ovenbird.mqttsetup import MqttSetup
@@ -179,6 +176,7 @@ def follow_retention(writer: HistoryWriter) -> Callable[[Settings], None]:
     """Return a reconfigure hook that hands changed retention and archive settings to the writer."""
 
     def follow(settings: Settings) -> None:
+        """Apply a new retention and archive configuration to the history writer."""
         writer.set_retention(settings.history_retention(), settings.history_journal_days())
         if writer.archiver is not None:
             writer.archiver.configure(
@@ -192,6 +190,7 @@ def archive_alarms(board: AlarmBoard, clock: Clock) -> AlarmHook:
     """Return the hook that raises and clears the archive's alarms on ``board``."""
 
     def hook(code: str, active: bool, text: str) -> None:
+        """Raise or clear the archive alarm of ``code``."""
         alarm = AlarmCode(code)
         if active:
             board.raise_alarm(alarm, text, clock())
@@ -314,6 +313,11 @@ class Service:
         Once the data directory lock is held, the archive build folders a crash left
         behind are removed (:func:`~ovenbird.history.archive.clean_build_folders`).
 
+        Parameters
+        ----------
+        stop
+            Event that ends the run when set.
+
         Raises
         ------
         RuntimeError
@@ -342,6 +346,7 @@ class Service:
             LOGGER.info("ovenbird stopped")
 
     async def _serve_http(self, stop: asyncio.Event) -> None:
+        """Serve HTTP until it stops or ``stop`` is set, recording the bound port."""
         recorder = asyncio.create_task(self._record_endpoint())
         try:
             await self.server.serve()
@@ -353,6 +358,7 @@ class Service:
             raise RuntimeError("HTTP server stopped unexpectedly")
 
     async def _record_endpoint(self) -> None:
+        """Wait for the server to listen and record its endpoint."""
         await self.server.ready.wait()
         port = self.server.bound_port()
         if port is None:
@@ -403,7 +409,8 @@ def build_control(
     -------
     tuple
         The control loop (its safety monitor in ``loop.safety``, the release
-        manager in ``loop.release``, the envelope watch in ``loop.envelope``) and
+        manager in ``loop.release``, the envelope watch in ``loop.envelope``, the sun day
+        shift in its plan slot ``loop.plan_rule`` and in ``loop.dayshift``) and
         the command worker (``None`` when publishing is refused).
     """
     config = controller_config(settings)
@@ -450,18 +457,32 @@ def build_control(
         initial_state=load_state(settings.history_path, now, settings.control_state_max_age_s),
         config_version=config_version,
         stove_request=load_request(settings.history_path, now),
+        target_limits=TargetLimits.from_settings(settings),
+        boost_request=load_boost(settings.history_path, now)
+        if settings.control_boost_enabled
+        else None,
+        away_request=load_away(settings.history_path, now)
+        if settings.control_away_enabled
+        else None,
     )
+    store = facts if facts is not None else Facts()
     loop.safety = SafetyMonitor(
         monitor_config(settings, config.safety.max_supply_c),
         alarms,
         runtime,
         adapter=adapter,
         desired=lambda: loop.desired_setpoint,
+        room_shift=loop.room_shift,
+        lowered_target=loop.lowered_target,
+        starts=start_counter(store, now.wall.timestamp(), config.compressor_min_hz),
         interval_s=settings.safety_interval_s,
         sleep=sleep,
     )
+    dayshift = DayShiftRunner(settings, sink=writer, alarms=alarms, state_sink=loop.state_sink)
+    loop.plan_rule = dayshift
+    loop.dayshift = dayshift
+    loop.reconfigure_hooks.append(dayshift.reconfigure)
     runtime.defrost = loop.safety.defrost_state
-    store = facts if facts is not None else Facts()
     latest = latest_decision(settings.history_path)
     loop.release = ReleaseManager(
         loop,
@@ -479,6 +500,7 @@ def ha_follower(ha: HaInput, runtime: Runtime) -> Callable[[Settings], None]:
     """Return the hook that makes the HA input follow new settings (connection, signals)."""
 
     def hook(settings: Settings) -> None:
+        """Apply a new Home Assistant configuration to the connection."""
         runtime.ha_enabled = settings.ha_enabled
         ha.configure(
             settings.ha_url,
@@ -610,20 +632,6 @@ def build_service(
     runtime.weather_check = weather.status
     control.reconfigure_hooks.append(weather.reconfigure)
     components.append(Component("weather", weather.run))
-    components.append(
-        Component("learner", functools.partial(run_handoff, lambda: manager.settings))
-    )
-    learn_runner = LearnRunner(lambda: manager.settings, facts)
-    components.append(Component("learner-run", learn_runner.run))
-    control.model_plan = ModelPlanRunner(
-        manager.settings,
-        lambda: models_dir(manager.settings),
-        weather_enabled=lambda: weather.enabled,
-        embedded=lambda: learn_runner.available,
-        sink=runtime.history,
-        alarms=control.alarms,
-    )
-    control.reconfigure_hooks.append(control.model_plan.reconfigure)
     mqtt_setup = MqttSetup(manager, mqtt, runtime, lambda: control.guard.installed, control.alarms)
     components.append(Component("mqtt-trial", mqtt_setup.run))
     if worker is not None:
@@ -645,7 +653,6 @@ def build_service(
         supervision=supervision,
         writer=writer,
         mqtt=mqtt_setup,
-        learn=learn_runner,
     )
     config = uvicorn.Config(
         app,

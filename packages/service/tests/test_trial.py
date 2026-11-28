@@ -46,6 +46,7 @@ MQTT_ROOM = [{"topic": "sim/room", "signal": ROOM, "unit": "°C"}]
 
 
 def basic(user: str, password: str) -> dict[str, str]:
+    """Build a Basic authorization header for the credentials."""
     token = base64.b64encode(f"{user}:{password}".encode()).decode()
     return {"Authorization": f"Basic {token}"}
 
@@ -53,6 +54,7 @@ def basic(user: str, password: str) -> dict[str, str]:
 def write_samples(
     path: Path, start: float, end: float, values: Callable[[float], dict[str, float]]
 ) -> None:
+    """Write one-minute samples from start to end using the signal values per timestamp."""
     database = HistoryDatabase(open_history(path))
     try:
         batch: list[Sample] = []
@@ -69,6 +71,7 @@ def write_samples(
 def decision(
     ts: float, setpoint: int | None, mode: str = "shadow", reason: str = "curve"
 ) -> DecisionRow:
+    """Build a decision row with the given setpoint, mode and reason."""
     return DecisionRow(ts, "ovenbird", mode, "normal", reason, setpoint, "{}", "{}", "[]", 1)
 
 
@@ -78,6 +81,7 @@ def write_decisions(
     commands: Sequence[CommandRow] = (),
     alarms: Sequence[AlarmRow] = (),
 ) -> None:
+    """Write decision, command and alarm rows to the journal at the path."""
     conn = open_history(path)
     try:
         write_journal(conn, rows, commands, alarms)
@@ -87,9 +91,11 @@ def write_decisions(
 
 @pytest.fixture
 def history(tmp_path: Path) -> Path:
+    """Provide a history with a one-hour pump setpoint excursion and a gap in the decisions."""
     path = tmp_path / "history.db"
 
     def pump(ts: float) -> dict[str, float]:
+        """Return the pump setpoint, raised for the minutes of the excursion."""
         minute = (ts - T0) / 60.0
         return {SETPOINT: 34.0 if 60 <= minute < 120 else 30.0}
 
@@ -101,6 +107,7 @@ def history(tmp_path: Path) -> Path:
 
 
 def test_divergence_finds_the_episode_and_reports_the_gap(history: Path) -> None:
+    """Divergence finds the excursion as one episode and reports the gap in decisions."""
     rows = minutes(history, T0, T0 + 180 * 60)
     assert len(rows) == 180
     assert rows[70].ovenbird == 30
@@ -127,6 +134,7 @@ def test_divergence_finds_the_episode_and_reports_the_gap(history: Path) -> None
 
 
 def test_divergence_names_ovenbird_as_writer_after_a_verified_command(tmp_path: Path) -> None:
+    """After a verified command the setpoint is attributed to ovenbird with no difference."""
     path = tmp_path / "history.db"
     write_samples(path, T0, T0 + 600, lambda _ts: {SETPOINT: 31.0})
     write_decisions(
@@ -140,6 +148,7 @@ def test_divergence_names_ovenbird_as_writer_after_a_verified_command(tmp_path: 
 
 
 def test_runs_are_measured_and_censored_at_gaps() -> None:
+    """Compressor runs are measured, short ones counted and a run at the end is censored."""
     data: dict[int, float] = {}
     base = 1_000_020
     base -= base % 60
@@ -160,9 +169,11 @@ def test_runs_are_measured_and_censored_at_gaps() -> None:
 
 
 def test_runs_payload_reads_the_rollups(tmp_path: Path) -> None:
+    """The runs payload derives run counts and durations from the stored compressor samples."""
     path = tmp_path / "history.db"
 
     def compressor(ts: float) -> dict[str, float]:
+        """Return a compressor frequency that runs 15 minutes of every hour."""
         minute = int((ts - T0) / 60.0) % 60
         return {COMPRESSOR: 30.0 if 10 <= minute < 25 else 0.0}
 
@@ -176,6 +187,7 @@ def test_runs_payload_reads_the_rollups(tmp_path: Path) -> None:
 
 
 def test_shadow_time_counts_ticks_and_skips_gaps(history: Path) -> None:
+    """Shadow time counts ticks without the gaps and a missing database counts as none."""
     seconds, first, last = shadow_seconds(history, 60.0)
     assert seconds == pytest.approx((149 + 15) * 60.0 + 120.0)
     assert first == T0 + 90
@@ -185,6 +197,7 @@ def test_shadow_time_counts_ticks_and_skips_gaps(history: Path) -> None:
 
 
 def test_csv_cells_cannot_become_formulas() -> None:
+    """CSV cells that could be read as formulas are prefixed with a quote."""
     assert cell("=1+1") == "'=1+1"
     assert cell("-x") == "'-x"
     assert cell(-2.5) == -2.5
@@ -195,12 +208,14 @@ def test_csv_cells_cannot_become_formulas() -> None:
 
 
 def test_redaction_reaches_every_string() -> None:
+    """Redaction replaces every string containing a secret, however deeply nested."""
     body = {"a": ["x tk_secret y", {"b": "fine"}], "c": 1}
     assert redact(body, ["tk_secret"]) == {"a": [REDACTED, {"b": "fine"}], "c": 1}
 
 
 @pytest.fixture
 def service(make_settings: Callable[..., Settings]) -> dict[str, Any]:
+    """Provide the service app with its clock, settings and supervision on a fake clock."""
     settings = make_settings(
         http_host="0.0.0.0",
         admin_password=ADMIN,
@@ -227,10 +242,12 @@ def service(make_settings: Callable[..., Settings]) -> dict[str, Any]:
 
 
 async def _no_sleep(_: float) -> None:
-    return None
+    """Skip sleeping so control retries run instantly."""
+    return
 
 
 def test_trial_status_lists_every_item_with_evidence(service: dict[str, Any]) -> None:
+    """The trial status lists every checklist item with its evidence, groups and criteria."""
     settings: Settings = service["settings"]
     path = settings.history_path
     write_samples(path, T0, T0 + 180 * 60, lambda _ts: {SETPOINT: 30.0, ROOM: 21.0})
@@ -281,10 +298,12 @@ def test_trial_status_lists_every_item_with_evidence(service: dict[str, Any]) ->
 
 
 def test_trial_status_accepts_explicit_periods(service: dict[str, Any]) -> None:
+    """The trial status uses the baseline and trial periods given in the query."""
     settings: Settings = service["settings"]
     path = settings.history_path
 
     def room(ts: float) -> dict[str, float]:
+        """Return a room temperature of 20 degrees in the first half and 21 after."""
         return {ROOM: 20.0 if ts < T0 + 90 * 60 else 21.0}
 
     write_samples(path, T0, T0 + 180 * 60, room)
@@ -306,6 +325,7 @@ def test_trial_status_accepts_explicit_periods(service: dict[str, Any]) -> None:
 
 
 def test_about_reports_the_installation(service: dict[str, Any]) -> None:
+    """The about endpoint reports uptime, starts, register, connections and safety net."""
     clock: FakeClock = service["clock"]
     clock.advance(90)
     with TestClient(service["app"]) as client:
@@ -320,6 +340,7 @@ def test_about_reports_the_installation(service: dict[str, Any]) -> None:
 
 
 def test_diagnostics_never_contain_secrets(service: dict[str, Any]) -> None:
+    """Diagnostics need admin and leave out secrets, in the JSON and in the zip."""
     settings: Settings = service["settings"]
     write_decisions(
         settings.history_path,
@@ -353,6 +374,7 @@ def test_diagnostics_never_contain_secrets(service: dict[str, Any]) -> None:
 
 
 def test_exports_are_csv(service: dict[str, Any]) -> None:
+    """Journals and history export as safe CSV, and other formats are rejected."""
     settings: Settings = service["settings"]
     write_decisions(settings.history_path, [decision(T0 + 190 * 60, 30, reason="=cmd")])
     write_samples(settings.history_path, T0 + 190 * 60, T0 + 192 * 60, lambda _ts: {SETPOINT: 30.0})
@@ -396,6 +418,7 @@ GOOD_PERIOD: dict[str, Any] = {
 
 
 def _snapshot(taken: float, origin: str = "go_live", released: float | None = None) -> PumpSnapshot:
+    """Build a pump snapshot taken at the time, optionally released and with the origin given."""
     return PumpSnapshot(
         datetime.fromtimestamp(taken, UTC),
         "shadow",
@@ -410,6 +433,7 @@ def _snapshot(taken: float, origin: str = "go_live", released: float | None = No
 def test_the_summary_is_met_only_for_a_complete_trial(
     service: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The trial summary is met only for a trial that ran its full period within the snapshot."""
     supervision: Supervision = service["supervision"]
     monkeypatch.setattr(supervision, "_period", lambda _settings, _span: dict(GOOD_PERIOD))
     loop = supervision.control
@@ -440,6 +464,7 @@ def test_the_summary_is_met_only_for_a_complete_trial(
 
 
 def test_long_episodes_marked_as_explained_pass_the_checklist(service: dict[str, Any]) -> None:
+    """A long episode marked as explained passes the checklist; unmarking warns again."""
     supervision: Supervision = service["supervision"]
     episode = {"start": "2026-11-02T01:00:00Z", "end": "2026-11-02T03:30:00Z", "minutes": 150}
     body: dict[str, Any] = {
@@ -470,10 +495,12 @@ def test_long_episodes_marked_as_explained_pass_the_checklist(service: dict[str,
 
 
 def test_explaining_an_episode_through_the_api(service: dict[str, Any]) -> None:
+    """Episodes are explained, unexplained and audited through the API, which needs admin."""
     settings: Settings = service["settings"]
     path = settings.history_path
 
     def pump(ts: float) -> dict[str, float]:
+        """Return the setpoint raised by 4 K during the excursion hour."""
         return {SETPOINT: 34.0 if T0 + 3600 <= ts < T0 + 7200 else 30.0}
 
     write_samples(path, T0, T0 + 180 * 60, pump)
@@ -514,16 +541,21 @@ def test_explaining_an_episode_through_the_api(service: dict[str, Any]) -> None:
 
 
 class UnhealthyWriter:
+    """History writer stub that reports itself as not healthy."""
+
     def healthy(self) -> bool:
+        """Report an unhealthy writer."""
         return False
 
     def starting(self) -> bool:
+        """Report that the writer is not starting."""
         return False
 
 
 def test_the_deadman_is_held_back_while_history_is_not_written(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """The dead-man ping is held back while history is not being written."""
     settings = make_settings()
     clock = FakeClock()
     runtime = Runtime(clock=clock)
@@ -542,6 +574,7 @@ def test_the_deadman_is_held_back_while_history_is_not_written(
 def test_the_notifications_item_follows_the_delivery_health(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """The notifications checklist item follows ntfy and dead-man delivery health."""
     settings = make_settings(
         notify_ntfy_url="https://ntfy.example.test",
         notify_ntfy_topic="topic-secret-x",
@@ -553,6 +586,7 @@ def test_the_notifications_item_follows_the_delivery_health(
     errors: list[Exception] = []
 
     def transport(_request: Any) -> int:
+        """Fail with the first recorded error, otherwise accept the request."""
         if errors:
             raise errors[0]
         return 200
@@ -580,6 +614,7 @@ def test_the_notifications_item_follows_the_delivery_health(
 def test_diagnostics_leave_out_addresses_names_and_the_location(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """Diagnostics leave out addresses, user names and the location."""
     settings = make_settings(
         http_host="0.0.0.0",
         admin_password=ADMIN,

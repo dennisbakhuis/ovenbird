@@ -46,6 +46,7 @@ SLOW_SCENARIOS = frozenset({"room_sensor_silent", "room_sensor_dies_warm", "stov
     ],
 )
 def test_fault_scenario_behaves(name: str, tmp_path: Path) -> None:
+    """Each scenario passes its checks with no invariant violation in its own short run."""
     recorded = recorded_run(reference_config(tmp_path, HOURS[name], faults=(name,)))
     summary = recorded.result.summary
     (outcome,) = summary["faults"]
@@ -58,6 +59,7 @@ def test_fault_scenario_behaves(name: str, tmp_path: Path) -> None:
 @pytest.mark.slow
 @pytest.mark.parametrize("hour", [0, 6, 12, 18])
 def test_a_sensor_dying_warm_keeps_comfort_at_any_hour(hour: int, tmp_path: Path) -> None:
+    """The sensor dying warm at any hour of the day keeps the room above comfort minus 0.75 K."""
     name = "room_sensor_dies_warm"
     at = datetime(2025, 11, 12, tzinfo=UTC) + timedelta(hours=hour)
     start, end = single_span(at, (name,))
@@ -73,10 +75,12 @@ def test_a_sensor_dying_warm_keeps_comfort_at_any_hour(hour: int, tmp_path: Path
 
 
 def test_every_scenario_has_a_test_window() -> None:
+    """Every scenario in the catalogue has a run length in ``HOURS``."""
     assert set(HOURS) == set(SCENARIOS)
 
 
 def test_scheduler_refuses_a_short_span(tmp_path: Path) -> None:
+    """A span too short for a scenario, or an unknown scenario name, is refused."""
     run = FullRun(reference_config(tmp_path, 10.0))
     try:
         with pytest.raises(ValueError, match="too short"):
@@ -88,8 +92,11 @@ def test_scheduler_refuses_a_short_span(tmp_path: Path) -> None:
 
 
 def test_a_missing_alarm_fails_the_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fault run whose expected alarm never appears fails with that check and exit code 1."""
+
     def no_alarm(*_: Any) -> None:
-        return None
+        """Stand in for the link monitor, raising no alarm."""
+        return
 
     monkeypatch.setattr(monitors, "_ha_link", no_alarm)
     code = main(
@@ -119,12 +126,14 @@ def test_a_missing_alarm_fails_the_run(tmp_path: Path, monkeypatch: pytest.Monke
 
 
 def test_every_check_is_pass_or_fail(tmp_path: Path) -> None:
+    """Scenario checks end as pass or fail, never pending."""
     recorded = recorded_run(reference_config(tmp_path, 8.0, faults=("ha_link_down",)))
     statuses = {c["status"] for o in recorded.result.summary["faults"] for c in o["checks"]}
     assert statuses <= {"pass", "fail"}
 
 
 def test_explicit_start_times(tmp_path: Path) -> None:
+    """A scenario placed at an explicit start keeps it; one that does not fit or run is refused."""
     run = FullRun(reference_config(tmp_path, 60.0))
     try:
         at = run.start_ts + 30 * 3600.0

@@ -50,10 +50,12 @@ from ovenbird.payloads import Json
 
 
 def _current(deps: DataDeps) -> Settings:
+    """Return the effective settings: the live configuration's when there is one."""
     return deps.config.settings if deps.config is not None else deps.settings
 
 
 def _folder(deps: DataDeps) -> ArchiveFolder:
+    """Return the archive folder, the archiver's own when it runs."""
     writer = deps.writer
     if writer is not None and writer.archiver is not None:
         return writer.archiver.folder
@@ -61,6 +63,7 @@ def _folder(deps: DataDeps) -> ArchiveFolder:
 
 
 def _state(deps: DataDeps) -> Json | None:
+    """Return the archiver's state for the API, or ``None`` without an archiver."""
     writer = deps.writer
     if writer is None or writer.archiver is None:
         return None
@@ -86,6 +89,7 @@ def archive_status(deps: DataDeps) -> Json:
 
 
 def _month(text: str) -> Month:
+    """Parse a ``YYYY-MM`` path value, turning a bad one into a 400."""
     try:
         return Month.parse(text)
     except ArchiveError as exc:
@@ -93,6 +97,7 @@ def _month(text: str) -> Month:
 
 
 def _zip_response(path: Path, name: str, folder: Path | None = None) -> FileResponse:
+    """Return a zip download, removing ``folder`` once it was sent."""
     return FileResponse(
         path,
         media_type="application/zip",
@@ -107,6 +112,22 @@ def _zip_response(path: Path, name: str, folder: Path | None = None) -> FileResp
 async def _built(
     deps: DataDeps, needed: int, build: Callable[[Path], Path], name: str
 ) -> FileResponse:
+    """Build a zip under the data directory and return it as a download.
+
+    Refuses with 507 when the free space cannot hold ``needed`` bytes plus the reserve, and with 409
+    while another build holds the archive lock.
+
+    Parameters
+    ----------
+    deps
+        Data endpoint dependencies (settings, archive lock).
+    needed
+        Free bytes the build needs in the data directory.
+    build
+        Builds the zip inside the given folder and returns its path.
+    name
+        Download file name.
+    """
     settings = deps.settings
     if shutil.disk_usage(settings.data_dir).free < needed + settings.history_min_free_mb * 2**20:
         raise HTTPException(507, "not enough free space in the data directory for the download")
@@ -139,6 +160,7 @@ async def download_month(deps: DataDeps, month: str, request: Request) -> FileRe
     created = deps.runtime.clock().wall.timestamp()
 
     def build(target: Path) -> Path:
+        """Write the open month's zip into ``target`` and return its path."""
         return write_open_month(working, target, chosen, settings.control_timezone, created, config)
 
     return await _built(
@@ -152,6 +174,21 @@ async def download_month(deps: DataDeps, month: str, request: Request) -> FileRe
 async def _bundle(
     deps: DataDeps, kind: str, period: str, ident: str, months: Sequence[Month]
 ) -> FileResponse:
+    """Return a zip of the frozen months of a period as one download (404 when none).
+
+    Parameters
+    ----------
+    deps
+        Data endpoint dependencies.
+    kind
+        Bundle kind, ``year`` or ``all``.
+    period
+        Period text the bundle covers, for messages.
+    ident
+        Bundle id, the file name stem.
+    months
+        Months the bundle covers; those not frozen are left out.
+    """
     folder = _folder(deps)
     frozen = folder.frozen()
     files = [frozen[month] for month in months if month in frozen]
@@ -161,6 +198,7 @@ async def _bundle(
     created = deps.runtime.clock().wall.timestamp()
 
     def build(target: Path) -> Path:
+        """Write the bundle zip into ``target`` and return its path."""
         found = {
             month: (frozen[month], read_zip_manifest(frozen[month]))
             for month in months
@@ -202,7 +240,15 @@ async def download_season(deps: DataDeps, season: str, request: Request) -> File
 
 
 async def delete_archive(deps: DataDeps, request: Request) -> Json:
-    """``POST archive/delete``: delete a frozen month or every frozen month of a year."""
+    """``POST archive/delete``: delete a frozen month or every frozen month of a year.
+
+    Parameters
+    ----------
+    deps
+        Data endpoint dependencies (settings, archive folder, audit trail).
+    request
+        Incoming request; it needs the admin role and a JSON body with ``period``.
+    """
     who = require_role(request, deps.settings, Role.ADMIN, deps.audit)
     body = await read_json(request)
     period = body.get("period")

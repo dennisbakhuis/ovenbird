@@ -154,7 +154,7 @@ export const glossary: GlossaryEntry[] = [
     term: 'Weersverwachting',
     short:
       'De verwachte buitentemperatuur, zon, bewolking en wind voor de komende dagen, van een online aanbieder.',
-    body: 'Opt-in: alleen je locatie, afgerond op ongeveer 1 km, wordt verstuurd. De verwachting is er om te bekijken; alleen het [[model-plan|modelplan]] rekent ermee, en zolang dat niet op Aan staat, verandert ze niets aan de regeling.',
+    body: 'Opt-in: alleen je locatie, afgerond op ongeveer 1 km, wordt verstuurd. De verwachting is er om te bekijken en verandert niets aan de regeling.',
     related: ['lead-time', 'forecast-bias', 'mae'],
   },
   {
@@ -187,49 +187,5 @@ export const glossary: GlossaryEntry[] = [
       'Hoe ver en hoe lang de kamer onder de comfortband zat: 2 uur lang 1 K te koud is 2 graaduur.',
     body: 'Nul betekent dat de kamer de hele dag comfortabel bleef.',
     related: ['comfort-band'],
-  },
-  {
-    id: 'ua',
-    term: 'Warmteverlies (UA)',
-    short:
-      'Hoeveel watt het huis verliest voor elke graad dat het binnen warmer is dan buiten, in W/K.',
-    body: 'Een huis met een UA van 300 W/K verliest bij 20 °C binnen en 0 °C buiten ongeveer 6 kW. ovenbird leert het uit je eigen geschiedenis; met één kamersensor is het een **schijnbaar** getal: ventilatie en de andere kamers zitten er ook in. Je ziet het met een bewust ruim bereik, dat steekproeven uit de dagen en losse leerperiodes combineert. Gedeeld door het vloeroppervlak geeft het de [indicatieve isolatiescore](#/house).',
-    related: ['balance-temperature', 'time-constant', 'energy-signature'],
-    aliases: ['UA', 'warmteverliescoëfficiënt', 'HLC', 'isolatie', 'heat loss'],
-  },
-  {
-    id: 'balance-temperature',
-    term: 'Stookgrens',
-    short:
-      'De buitentemperatuur waarboven het huis geen verwarming nodig heeft: zon, mensen en apparaten houden het warm.',
-    body: 'Daaronder groeit de warmte die de pomp moet leveren met elke graad dat het kouder wordt. ovenbird leest hem af uit de [[energy-signature]]: waar de lijn door de dagpunten op nul warmte uitkomt.',
-    related: ['energy-signature', 'ua'],
-    aliases: ['balanstemperatuur', 'balance temperature', 'basistemperatuur'],
-  },
-  {
-    id: 'time-constant',
-    term: 'Tijdconstante',
-    short:
-      'Hoe langzaam het huis afkoelt: de uren waarin het zonder verwarming ongeveer twee derde van een temperatuurverschil verliest.',
-    body: 'Een zwaar, goed geïsoleerd huis heeft als geheel een lange tijdconstante (vaak 100 uur of meer), terwijl de vloer zelf al binnen ongeveer een uur reageert: een nacht zonder verwarming kost weinig. Een licht huis koelt snel af. Daarom kan ovenbird de watertemperatuur een tijdje verlagen zonder dat de kamer het meteen merkt.',
-    related: ['ua'],
-    aliases: ['tau', 'thermische massa', 'time constant'],
-  },
-  {
-    id: 'heat-capacity',
-    term: 'Warmtecapaciteit',
-    short: 'Hoeveel warmte de vloer en het huis per graad opslaan, en hoe snel elk deel reageert.',
-    body: 'Het huismodel is een keten van drie delen: de **kring** (het water in de verwarmingskring), de **afgifte** (de vloer met dekvloer, snel) en het **gebouw** (het hele huis, traag). De warmtepomp verwarmt het water, het water verwarmt de vloer en de vloer verwarmt het huis. De afgifte reageert binnen uren, het gebouw pas na dagen: daarom koelt een huis langzaam af en is de [[time-constant|tijdconstante]] lang. De [pagina Huis](#/house) toont de **totale warmtecapaciteit** in kWh per K en beide reactietijden, bijvoorbeeld "de vloer reageert in ongeveer 0,6 uur, het huis in ongeveer 130 uur". In het plaatje slaan de vloer en het huis samen warmte op of geven ze die terug.',
-    related: ['time-constant', 'ua'],
-    aliases: ['thermal mass', 'opslag', 'building mass', 'gebouwmassa', 'heat capacity'],
-  },
-  {
-    id: 'energy-signature',
-    term: 'Energiesignatuur',
-    short:
-      'Een grafiek van de warmte die het huis per dag nodig had, tegen de buitentemperatuur van die dag.',
-    body: 'Hoe kouder de dag, hoe meer warmte. De helling van de lijn door de punten is het [[ua|warmteverlies]]; waar hij op nul uitkomt ligt de [[balance-temperature]]. Zonnige dagen liggen onder de lijn. Dagen met de houtkachel tellen niet mee.',
-    related: ['ua', 'balance-temperature'],
-    aliases: ['energy signature', 'warmtesignatuur'],
   },
 ];

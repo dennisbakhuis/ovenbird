@@ -270,6 +270,7 @@ class Notifier:
         return tuple(sorted(found, key=len, reverse=True))
 
     def _load_notified(self) -> set[str]:
+        """Return the alarm codes stored as already told raised."""
         stored = self.facts.get(STATE_KEY)
         if not isinstance(stored, dict):
             return set()
@@ -277,6 +278,7 @@ class Notifier:
         return {str(code) for code in raised} if isinstance(raised, list) else set()
 
     def _store_notified(self) -> None:
+        """Store the alarm codes told raised."""
         self.facts.set(STATE_KEY, {"raised": sorted(self._notified)})
 
     def attach(self, board: AlarmBoard) -> None:
@@ -303,9 +305,23 @@ class Notifier:
             self._raise_failing()
 
     def _qualifies(self, severity: Severity) -> bool:
+        """Return whether a severity reaches the minimum to notify."""
         return SEVERITY_RANK[severity] >= SEVERITY_RANK[self.min_severity]
 
     def _raised(self, code: str, severity: Severity, detail: str, now: float) -> Message:
+        """Return the message telling that an alarm is raised.
+
+        Parameters
+        ----------
+        code
+            Alarm code.
+        severity
+            Severity of the alarm.
+        detail
+            Detail text of the alarm.
+        now
+            Current Unix time.
+        """
         lang = self.language
         text = alarm_text(code, lang)
         lines = [f"{word(severity.value, lang)}."]
@@ -330,6 +346,19 @@ class Notifier:
         )
 
     def _cleared(self, code: str, severity: Severity, why: str, due: float) -> Message:
+        """Return the message telling that an alarm cleared.
+
+        Parameters
+        ----------
+        code
+            Alarm code.
+        severity
+            Severity of the alarm.
+        why
+            Reason it cleared; may be empty.
+        due
+            Unix time the message may be sent from.
+        """
         lang = self.language
         text = alarm_text(code, lang)
         body = f"{word('details', lang)} {why}" if why else word("resolved", lang)
@@ -346,6 +375,7 @@ class Notifier:
         )
 
     def _brief(self, raised: Message, now: float) -> Message:
+        """Return the message telling that an alarm came and went within the hold."""
         lang = self.language
         text = alarm_text(raised.key or "", lang)
         minutes = max(1, round((now - raised.since) / 60.0))
@@ -364,12 +394,14 @@ class Notifier:
         )
 
     def _put(self, message: Message) -> None:
+        """Queue a message, replacing an older one for the same alarm."""
         if not self.configured or message.key is None:
             return
         self.pending[message.key] = message
         self._wake.set()
 
     def _offer_event(self, message: Message) -> None:
+        """Queue a one-off event message, dropping the oldest when full."""
         if not self.configured:
             return
         if len(self.event_queue) >= EVENT_QUEUE_SIZE:
@@ -380,7 +412,13 @@ class Notifier:
         self._wake.set()
 
     def on_alarm(self, event: AlarmEvent) -> None:
-        """Turn an alarm transition into the alarm's next message (an alarm-board listener)."""
+        """Turn an alarm transition into the alarm's next message (an alarm-board listener).
+
+        Parameters
+        ----------
+        event
+            Alarm transition to turn into a message.
+        """
         lang = self.language
         if event.code in EVENT_JOURNAL_CODES:
             if self.events:
@@ -427,6 +465,7 @@ class Notifier:
         self._offer_event(Message(title, text, 3, ("information_source",)))
 
     def _request(self, message: Message) -> HttpRequest:
+        """Return the ntfy request for a message."""
         assert self.url is not None
         body = {
             "topic": self._topic,
@@ -443,17 +482,21 @@ class Notifier:
         )
 
     def _now_iso(self) -> str:
+        """Return the current time as ISO text."""
         return iso_z(self.clock().wall)
 
     def _redact(self, text: str) -> str:
+        """Return ``text`` with every secret replaced."""
         for secret in self.secrets():
             text = text.replace(secret, "[redacted]")
         return text
 
     def _error_text(self, exc: BaseException) -> str:
+        """Return an error as short, redacted text."""
         return self._redact(f"{type(exc).__name__}: {exc}")[:MAX_ERROR]
 
     def _store_delivery(self) -> None:
+        """Store the delivery state: failure streak, last error and last sent."""
         self.facts.set(
             DELIVERY_KEY,
             {
@@ -465,6 +508,7 @@ class Notifier:
         )
 
     def _raise_failing(self) -> None:
+        """Raise the alarm for failing notification delivery."""
         board = self.board
         if board is None:
             return
@@ -477,7 +521,13 @@ class Notifier:
         )
 
     async def deliver(self, message: Message) -> str | None:
-        """Send one message now; returns ``None`` on success, else the (redacted) error."""
+        """Send one message now; returns ``None`` on success, else the (redacted) error.
+
+        Parameters
+        ----------
+        message
+            Message to send.
+        """
         if not self.configured:
             return "ntfy is not configured"
         try:
@@ -506,12 +556,14 @@ class Notifier:
         return None
 
     def _budget_left(self, budget: Severity, now: float) -> bool:
+        """Return whether the rate budget of a severity allows another message."""
         times = self._sent_times[budget]
         while times and now - times[0] >= RATE_WINDOW_S:
             times.popleft()
         return len(times) < RATE_LIMITS[budget]
 
     def _redundant(self, message: Message) -> bool:
+        """Return whether the phone already knows what a message says."""
         if message.state == RAISED:
             return message.key in self._notified
         if message.state == CLEARED:
@@ -519,6 +571,7 @@ class Notifier:
         return False
 
     def _due(self, now: float) -> Message | None:
+        """Return the most urgent message that is due, or ``None``."""
         ready = [m for m in self.pending.values() if m.due <= now]
         ready.extend(m for m in self.event_queue if m.due <= now)
         if not ready:
@@ -526,6 +579,7 @@ class Notifier:
         return min(ready, key=lambda m: (-SEVERITY_RANK[m.budget], m.due))
 
     def _discard(self, message: Message) -> None:
+        """Remove a message from its queue."""
         if message.key is not None:
             if self.pending.get(message.key) is message:
                 del self.pending[message.key]
@@ -533,6 +587,7 @@ class Notifier:
             self.event_queue.remove(message)
 
     def _delivered(self, message: Message) -> None:
+        """Record that a message reached the phone."""
         if message.state == RAISED and message.key is not None:
             self._notified.add(message.key)
             self._store_notified()
@@ -541,6 +596,15 @@ class Notifier:
             self._store_notified()
 
     async def _attempt(self, message: Message, now: float) -> None:
+        """Try to send a due message, keeping it queued when it fails or the budget is spent.
+
+        Parameters
+        ----------
+        message
+            Message to send.
+        now
+            Current Unix time.
+        """
         if message.key is not None and self._redundant(message):
             self._discard(message)
             return
@@ -598,6 +662,7 @@ class Notifier:
                 pass
 
     def _check_test_rate(self, now: float) -> None:
+        """Raise when a test message was sent too recently."""
         times = self._test_times
         while times and now - times[0] >= RATE_WINDOW_S:
             times.popleft()
@@ -671,6 +736,7 @@ class Notifier:
         }
 
     def _sent_after(self, at: Any) -> bool:
+        """Return whether the last message was sent after ISO time ``at``."""
         sent = (self.last_sent or {}).get("at")
         return isinstance(sent, str) and isinstance(at, str) and sent > at
 
@@ -717,6 +783,7 @@ class Notifier:
 
 
 def _severity_of(code: str) -> Severity:
+    """Return the severity of an alarm code, a warning when it is unknown."""
     try:
         return SEVERITY[AlarmCode(code)]
     except ValueError:

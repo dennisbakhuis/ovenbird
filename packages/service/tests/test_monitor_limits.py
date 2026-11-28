@@ -39,6 +39,7 @@ EXPECTED = {
 
 
 def runtime(make_settings: Callable[..., Settings], **topics: str) -> Runtime:
+    """Build a runtime fed healthy pump readings and a room reading, with topic overrides."""
     settings = make_settings(
         mqtt_inputs=[{"topic": ROOM_TOPIC, "signal": "room_temperature", "unit": "°C"}]
     )
@@ -61,6 +62,7 @@ def runtime(make_settings: Callable[..., Settings], **topics: str) -> Runtime:
 def test_every_monitor_reports_its_limit_unit_and_direction(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """Every safety monitor reports its limit, unit and direction when evaluated."""
     state = runtime(make_settings)
     _since, findings = evaluate(CONFIG, state.store.snapshot(state.clock()), {})
     found = {
@@ -72,6 +74,7 @@ def test_every_monitor_reports_its_limit_unit_and_direction(
 def test_limits_survive_unknown_inputs_and_reach_the_api_form(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """Limits stay None for unknown inputs and all appear in the API status form."""
     state = runtime(make_settings, Heating_Off_Outdoor_Temp="-1000", Pump_Flow="nan")
     monitor = SafetyMonitor(CONFIG, AlarmBoard(), state)
     monitor.check()

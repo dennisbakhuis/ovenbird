@@ -35,7 +35,6 @@ interface Job {
   config: ReplayConfig;
   delta: number;
   now: number;
-  modelPlan: boolean;
   versions: { version: number; at: number }[];
   startedMs: number;
   cancelledMs: number | null;
@@ -241,7 +240,6 @@ export function startReplay(
     config,
     delta: offsetOf(context, config),
     now: context.now,
-    modelPlan: context.scenario.modelplan === 'on',
     versions: versionsOf(context),
     startedMs: Date.now(),
     cancelledMs: null,
@@ -431,11 +429,7 @@ function makeResult(job: Job) {
       sent_recorded: 0,
       share_safety_clamped: ticks ? 0.03 : 0,
       share_feedback_limited: 0,
-      ladder: !ticks
-        ? {}
-        : job.modelPlan
-          ? { model_plan: 0.58, schedule_curve_feedback: 0.36, curve_only: 0.06 }
-          : { schedule_curve_feedback: 0.94, curve_only: 0.06 },
+      ladder: !ticks ? {} : { schedule_curve_feedback: 0.94, curve_only: 0.06 },
       reason: shares(reasons, ticks),
       binding: ticks ? { deadband: 0.41, dwell: 0.12, safety_min: 0.03 } : {},
       episodes: episodes.length,

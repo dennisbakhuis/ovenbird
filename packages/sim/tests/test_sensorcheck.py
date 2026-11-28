@@ -22,6 +22,7 @@ HOUR = 3600.0
 
 
 def write_entity(root: Path, entity: str, rows: list[tuple[float, str]]) -> None:
+    """Write the states ``rows`` (seconds since start, state) of ``entity`` to the datalake."""
     folder = root / "states" / f"entity_id={entity}" / "year=2026" / "month=10"
     folder.mkdir(parents=True, exist_ok=True)
     stamps = [START + timedelta(seconds=t) for t, _ in rows]
@@ -39,6 +40,7 @@ def write_entity(root: Path, entity: str, rows: list[tuple[float, str]]) -> None
 
 @pytest.fixture
 def lake(tmp_path: Path) -> Path:
+    """Return a datalake with an on-change room sensor, a humidity sensor and a periodic sensor."""
     gaps_h = [1.0, 3.0, 0.5, 8.0, 2.0, 30.0, 1.5, 0.7, 12.0, 4.0, 2.5, 6.0]
     values = [21.0, 21.2, 21.4, 21.2, 21.0, 21.2, 21.4, 21.6, 21.4, 21.2, 21.4, 21.2, 21.0]
     t = 0.0
@@ -57,6 +59,7 @@ def lake(tmp_path: Path) -> Path:
 
 
 def test_on_change_sensor_with_liveness(lake: Path) -> None:
+    """An on-change sensor with a liveness signal gets its step, gaps and an on-change proposal."""
     states = dl.load_state(lake, ROOM)
     stats = analyse(states, ROOM, dl.load_state(lake, HUMIDITY), HUMIDITY)
     assert stats.step_k == pytest.approx(0.2)
@@ -80,6 +83,7 @@ def test_on_change_sensor_with_liveness(lake: Path) -> None:
 
 
 def test_on_change_sensor_alone_needs_a_longer_limit(lake: Path) -> None:
+    """An on-change sensor without a liveness signal needs a longer silence limit."""
     proposal = propose(analyse(dl.load_state(lake, ROOM), ROOM))
     assert proposal.silence_limit_s == 48 * HOUR
     assert proposal.liveness == ()
@@ -87,6 +91,7 @@ def test_on_change_sensor_alone_needs_a_longer_limit(lake: Path) -> None:
 
 
 def test_regular_sensor_is_periodic(lake: Path) -> None:
+    """A regularly reporting sensor is proposed as periodic with its interval."""
     proposal = propose(analyse(dl.load_state(lake, PERIODIC), PERIODIC))
     assert proposal.profile == "periodic"
     assert proposal.report_interval_s == 300.0
@@ -95,6 +100,7 @@ def test_regular_sensor_is_periodic(lake: Path) -> None:
 
 
 def test_cli(lake: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The command line prints the proposal as text or JSON and fails for an unknown entity."""
     code = main(["--datalake", str(lake), "--entity", ROOM, "--liveness", HUMIDITY, "--json"])
     assert code == 0
     body = json.loads(capsys.readouterr().out)

@@ -4,6 +4,7 @@ import { codes as enCodes } from './en/codes';
 import { data as enData } from './en/data';
 import { replay as enReplay } from './en/replay';
 import { fields as enFields } from './en/fields';
+import { features as enFeatures } from './en/features';
 import { help as enHelp } from './en/help';
 import { home as enHome } from './en/home';
 import { hotwater as enHotwater } from './en/hotwater';
@@ -17,9 +18,6 @@ import { system as enSystem } from './en/system';
 import { shadow as enShadow } from './en/shadow';
 import { trial as enTrial } from './en/trial';
 import { house as enHouse } from './en/house';
-import { houseControl as enHouseControl } from './en/houseControl';
-import { houseGates as enHouseGates } from './en/houseGates';
-import { houseModel as enHouseModel } from './en/houseModel';
 import { weather as enWeather } from './en/weather';
 import { activity as nlActivity } from './nl/activity';
 import { advice as nlAdvice } from './nl/advice';
@@ -27,6 +25,7 @@ import { codes as nlCodes } from './nl/codes';
 import { data as nlData } from './nl/data';
 import { replay as nlReplay } from './nl/replay';
 import { fields as nlFields } from './nl/fields';
+import { features as nlFeatures } from './nl/features';
 import { help as nlHelp } from './nl/help';
 import { home as nlHome } from './nl/home';
 import { hotwater as nlHotwater } from './nl/hotwater';
@@ -40,9 +39,6 @@ import { system as nlSystem } from './nl/system';
 import { shadow as nlShadow } from './nl/shadow';
 import { trial as nlTrial } from './nl/trial';
 import { house as nlHouse } from './nl/house';
-import { houseControl as nlHouseControl } from './nl/houseControl';
-import { houseGates as nlHouseGates } from './nl/houseGates';
-import { houseModel as nlHouseModel } from './nl/houseModel';
 import { weather as nlWeather } from './nl/weather';
 
 export const en = {
@@ -53,6 +49,7 @@ export const en = {
   ...enSystem,
   ...enSettings,
   ...enFields,
+  ...enFeatures,
   ...enWeather,
   ...enPump,
   ...enInsight,
@@ -62,9 +59,6 @@ export const en = {
   ...enShadow,
   ...enTrial,
   ...enHouse,
-  ...enHouseModel,
-  ...enHouseControl,
-  ...enHouseGates,
   ...enData,
   ...enReplay,
   ...enHotwater,
@@ -82,6 +76,7 @@ export const nl: Dictionary = {
   ...nlSystem,
   ...nlSettings,
   ...nlFields,
+  ...nlFeatures,
   ...nlWeather,
   ...nlPump,
   ...nlInsight,
@@ -91,9 +86,6 @@ export const nl: Dictionary = {
   ...nlShadow,
   ...nlTrial,
   ...nlHouse,
-  ...nlHouseModel,
-  ...nlHouseControl,
-  ...nlHouseGates,
   ...nlData,
   ...nlReplay,
   ...nlHotwater,

@@ -34,7 +34,8 @@
     "release_interrupted",
     "notify_failing",
     "archive_failing",
-    "archive_rebuilt"
+    "archive_rebuilt",
+    "compressor_starts"
   ],
   "alarm_event": [
     "raised",
@@ -48,7 +49,7 @@
     "command_hold",
     "stove_mode",
     "envelope_correction",
-    "model_plan"
+    "dayshift"
   ],
   "audit_action": [
     "config_apply",
@@ -68,8 +69,7 @@
     "ha_connection",
     "mqtt_connection",
     "mqtt_connection_reverted",
-    "archive_delete",
-    "house_learn_run"
+    "archive_delete"
   ],
   "binding": [
     "cycling_floor",
@@ -108,14 +108,14 @@
     "pump_duty",
     "pump",
     "stove",
+    "dayshift",
+    "summer",
+    "manual",
     "quiet",
     "emitter",
     "monitors",
     "weather",
     "house",
-    "house_bounds",
-    "house_learning",
-    "model_plan",
     "ha",
     "mqtt",
     "controller",
@@ -158,33 +158,13 @@
     "timeout",
     "websocket"
   ],
-  "insight_error": [
-    "house_series_missing",
-    "house_model_missing"
-  ],
   "ladder": [
     "optimiser_plan",
-    "model_plan",
     "rule_plan",
     "schedule_curve_feedback",
     "curve_only",
     "hold",
     "refuse"
-  ],
-  "learner_failure": [
-    "timeout",
-    "memory",
-    "exit",
-    "spawn"
-  ],
-  "learner_refusal": [
-    "learner_running",
-    "learner_unavailable"
-  ],
-  "learner_state": [
-    "idle",
-    "running",
-    "unavailable"
   ],
   "mode": [
     "off",
@@ -287,7 +267,11 @@
     "pump_duty_heat",
     "pump_duty_idle",
     "quiet_schedule",
-    "stove"
+    "quiet_start",
+    "stove",
+    "room_target",
+    "away",
+    "summer"
   ],
   "release_item_status": [
     "queued",
@@ -335,8 +319,10 @@
     "curve",
     "room_feedback",
     "plan",
+    "room_target",
     "boost",
     "stove",
+    "summer",
     "start_ramp",
     "override",
     "cycling_floor",
@@ -395,9 +381,6 @@
     "curve_order",
     "curve_outside_range",
     "curve_points",
-    "date_format",
-    "date_future",
-    "date_repeated",
     "input_bounds",
     "integral_time",
     "retention_min",
@@ -418,9 +401,6 @@
     "stove_reference_is_room",
     "signal_not_temperature",
     "min_above_max",
-    "house_bounds_order",
-    "house_fit_days_short",
-    "model_use_on_locked",
     "curve_range",
     "outside_envelope",
     "integral_above_output",
@@ -429,6 +409,8 @@
     "location_pair",
     "location_required",
     "max_supply_raise",
+    "dayshift_windows",
+    "dayshift_on_needs_ack",
     "connection_field",
     "ca_file_missing",
     "password_locked",

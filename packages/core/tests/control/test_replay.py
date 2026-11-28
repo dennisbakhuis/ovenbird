@@ -31,6 +31,7 @@ TICK_S = 60.0
 
 
 def _plant(index: int) -> PlantView:
+    """Return the synthetic plant at minute ``index`` (swinging outside, cycles, defrosts)."""
     hour = index / 60.0
     running = (index // 50) % 3 != 2
     return PlantView(
@@ -46,12 +47,14 @@ def _plant(index: int) -> PlantView:
 
 
 def _config() -> OvenbirdConfig:
+    """Return the mixed preset with an on-change room sensor cross-checked on the inlet."""
     base = OvenbirdConfig.preset("mixed")
     room = RoomSensorProfile(kind=RoomProfile.ON_CHANGE, crosscheck=HeishaSignal.INLET_TEMP)
     return replace(base, room=room, comfort_room_c=21.0)
 
 
 def _run(config: OvenbirdConfig, ticks: int, shift_at: int | None = None) -> list[DecisionRecord]:
+    """Run ``ticks`` minutes on the synthetic plant, shifting the clock at ``shift_at``."""
     controller = OvenbirdController(config)
     state = controller.initial_state()
     origin = 1000.0
@@ -71,6 +74,7 @@ def _run(config: OvenbirdConfig, ticks: int, shift_at: int | None = None) -> lis
 
 
 def _replay(config: OvenbirdConfig, records: list[DecisionRecord]) -> list[DecisionRecord]:
+    """Replay ``records`` through a fresh controller on ``config``, following clock shifts."""
     controller = OvenbirdController(config)
     state = controller.initial_state()
     previous: DecisionRecord | None = None
@@ -89,6 +93,7 @@ def _replay(config: OvenbirdConfig, records: list[DecisionRecord]) -> list[Decis
 
 
 def test_state_round_trips_through_the_flat_form() -> None:
+    """A fully populated state survives the flat form; an empty dict gives the default."""
     state = OvenbirdState(
         setpoint=31,
         last_change_at=12.5,
@@ -111,6 +116,7 @@ def test_state_round_trips_through_the_flat_form() -> None:
 
 
 def test_shift_state_moves_only_times() -> None:
+    """shift_state moves the time fields and leaves the integrator and unset times alone."""
     state = OvenbirdState(setpoint=30, last_change_at=10.0, integral_k=0.3, last_tick_at=20.0)
     moved = shift_state(state, 100.0)
     assert moved.last_change_at == 110.0
@@ -120,6 +126,7 @@ def test_shift_state_moves_only_times() -> None:
 
 
 def test_replay_with_the_same_configuration_reproduces_every_tick() -> None:
+    """Replaying 480 ticks on the same configuration reproduces every decision."""
     config = _config()
     records = _run(config, 480)
     replayed = _replay(config, records)
@@ -130,6 +137,7 @@ def test_replay_with_the_same_configuration_reproduces_every_tick() -> None:
 
 
 def test_replay_follows_a_restart_onto_a_new_monotonic_axis() -> None:
+    """Replay reproduces setpoints across a restart that moved the monotonic clock."""
     config = _config()
     records = _run(config, 300, shift_at=150)
     replayed = _replay(config, records)
@@ -137,6 +145,7 @@ def test_replay_follows_a_restart_onto_a_new_monotonic_axis() -> None:
 
 
 def test_inputs_used_carry_the_pump_duty_and_the_crosscheck_signal() -> None:
+    """A record's inputs_used lists the pump duty and the cross-check signal."""
     records = _run(_config(), 3)
     signals = {ref.signal for ref in records[-1].inputs_used}
     assert HeishaSignal.MAX_PUMP_DUTY in signals
@@ -144,6 +153,7 @@ def test_inputs_used_carry_the_pump_duty_and_the_crosscheck_signal() -> None:
 
 
 def test_a_shifted_curve_moves_the_curve_term_by_the_shift() -> None:
+    """Replaying with a curve raised by 1 K raises the curve term by exactly 1 K in every tick."""
     config = _config()
     records = _run(config, 120)
     shifted = HeatingCurve.of(*((p.outside_c, p.water_c + 1.0) for p in config.curve.points))
@@ -159,6 +169,7 @@ def test_a_shifted_curve_moves_the_curve_term_by_the_shift() -> None:
 
 
 def test_a_different_room_signal_drops_the_room_input() -> None:
+    """Replaying with another room signal drops the room input; the same signal keeps it."""
     config = _config()
     record = _run(config, 2)[-1]
     inputs = replay_inputs(record, room_signal="ha/sensor.other", room_profile=config.room)

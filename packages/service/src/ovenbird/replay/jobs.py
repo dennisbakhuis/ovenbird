@@ -130,6 +130,7 @@ class ReplayJobs:
         return job
 
     async def _run(self, job: ReplayJob) -> None:
+        """Run a replay job in a worker thread and store its result or error."""
         try:
             job.result = await asyncio.to_thread(
                 run_replay,
@@ -151,6 +152,7 @@ class ReplayJobs:
             job.finished = self._clock()
 
     def _expire(self) -> None:
+        """Forget finished jobs older than the keep time."""
         now = self._clock()
         self._jobs = {
             key: job

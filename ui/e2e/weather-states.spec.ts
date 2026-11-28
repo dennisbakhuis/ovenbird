@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { settled } from './settle';
 import { mkdirSync } from 'node:fs';
 
 const PHONE_HEIGHT_BUDGET = 1700;
@@ -50,7 +51,7 @@ for (const viewport of VIEWPORTS) {
               'href',
               '#/settings/weather',
             );
-          await page.waitForTimeout(400);
+          await settled(page);
           await page.screenshot({
             path: `${SHOTS}/${scenario.name}-${viewport.label}-${scheme}.png`,
             fullPage: true,

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { poll } from '$lib/core/poll.svelte';
   import Card from '$ui/Card.svelte';
   import ForecastErrorCard from '$components/weather/ForecastErrorCard.svelte';
   import Details from '$ui/Details.svelte';
@@ -26,22 +27,18 @@
   let phase = $state<'loading' | 'ok' | 'missing' | 'failed'>('loading');
 
   $effect(() => {
-    const controller = new AbortController();
-    const load = async () => {
-      try {
-        data = await fetchWeather(BACK_H, AHEAD_H, controller.signal);
-        phase = 'ok';
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        phase = isMissing(error) ? 'missing' : 'failed';
-      }
-    };
-    void load();
-    const timer = window.setInterval(load, 300_000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
+    return poll(
+      async (signal) => {
+        try {
+          data = await fetchWeather(BACK_H, AHEAD_H, signal);
+          phase = 'ok';
+        } catch (error) {
+          if (signal.aborted) return;
+          phase = isMissing(error) ? 'missing' : 'failed';
+        }
+      },
+      { intervalMs: 300_000 },
+    );
   });
 
   let phone = $state(false);

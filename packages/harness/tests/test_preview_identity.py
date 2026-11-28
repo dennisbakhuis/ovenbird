@@ -21,6 +21,7 @@ HOURS = 26.0
 
 
 def test_replaying_a_simulated_day_reproduces_every_setpoint(tmp_path: Path) -> None:
+    """Replaying a simulated day reproduces every setpoint, across a config change and a restart."""
     config = reference_config(tmp_path, HOURS, faults=("config_apply", "ovenbird_restart"))
     recorded = recorded_run(config)
     assert recorded.result.passed, recorded.result.summary["faults"]

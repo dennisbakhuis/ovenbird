@@ -46,6 +46,7 @@ def local_hour(unix_s: float, utc_offset_h: float) -> float:
 
 
 def _interp(series: Series, unix_s: float) -> float:
+    """Return the linear interpolation of the finite samples of ``series`` at ``unix_s``."""
     valid = np.isfinite(series.v)
     return float(np.interp(unix_s, series.t[valid], series.v[valid]))
 
@@ -128,6 +129,7 @@ class ColdWeek:
     name: str = "cold-week"
 
     def _day_position(self, unix_s: float) -> float:
+        """Return the position in the cold-week cycle (days, fractional) at ``unix_s``."""
         return ((unix_s - self.start.timestamp()) / SECONDS_PER_DAY) % len(COLD_WEEK_MEANS_C)
 
     def mean_c(self, unix_s: float) -> float:

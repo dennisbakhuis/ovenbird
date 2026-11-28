@@ -22,6 +22,11 @@ def check_ha_url(value: str | None) -> str | None:
     the Supervisor proxy. Credentials in the URL are refused: they would end up in
     logs; the token goes in ``ha_token``.
 
+    Parameters
+    ----------
+    value
+        URL as entered, or ``None``.
+
     Raises
     ------
     ValueError

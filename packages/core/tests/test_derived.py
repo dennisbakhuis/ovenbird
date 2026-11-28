@@ -18,10 +18,12 @@ T0 = 1_794_528_000.0
 
 
 def at(seconds: float) -> Instant:
+    """Return the instant ``seconds`` after the test epoch."""
     return Instant.from_unix(T0 + seconds)
 
 
 def snapshot_of(values: dict[str, Value], *, now: float = 1.0, retained: bool = False) -> Snapshot:
+    """Build a snapshot at ``now`` seconds from heat pump readings taken at time zero."""
     store = StateStore()
     for signal, value in values.items():
         store.apply(Reading(signal, value, None, at(0), SourceKind.HEISHAMON, retained))
@@ -30,6 +32,7 @@ def snapshot_of(values: dict[str, Value], *, now: float = 1.0, retained: bool = 
 
 @pytest.mark.parametrize(("frequency", "running"), [(0, False), (1, True), (48, True)])
 def test_compressor_running(frequency: int, running: bool) -> None:
+    """The compressor counts as running at any positive frequency."""
     result = compressor_running(snapshot_of({HeishaSignal.COMPRESSOR_FREQ: frequency}))
     assert result.value is running
     assert result.ok
@@ -39,11 +42,13 @@ def test_compressor_running(frequency: int, running: bool) -> None:
 
 
 def test_compressor_running_threshold_is_configurable() -> None:
+    """The minimum running frequency can be raised."""
     snapshot = snapshot_of({HeishaSignal.COMPRESSOR_FREQ: 15})
     assert compressor_running(snapshot, min_frequency_hz=20).value is False
 
 
 def test_missing_input_gives_no_value() -> None:
+    """A missing input gives no value and names the missing signal."""
     result = compressor_running(snapshot_of({}))
     assert result.value is None
     assert not result.ok
@@ -53,6 +58,7 @@ def test_missing_input_gives_no_value() -> None:
 
 
 def test_stale_input_gives_no_value_unless_allowed() -> None:
+    """A stale input gives no value unless allowed, and is reported as stale either way."""
     snapshot = snapshot_of({HeishaSignal.COMPRESSOR_FREQ: 30}, now=400)
     strict = compressor_running(snapshot)
     assert strict.value is None
@@ -65,6 +71,7 @@ def test_stale_input_gives_no_value_unless_allowed() -> None:
 
 
 def test_retained_only_input_is_stale_with_unknown_age() -> None:
+    """A value known only from a retained message is stale with unknown age."""
     result = defrost_active(snapshot_of({HeishaSignal.DEFROSTING_STATE: 1}, retained=True))
     assert result.value is None
     assert result.stale == (HeishaSignal.DEFROSTING_STATE,)
@@ -72,6 +79,7 @@ def test_retained_only_input_is_stale_with_unknown_age() -> None:
 
 
 def test_non_numeric_value_counts_as_missing() -> None:
+    """A non-numeric value is treated as missing."""
     result = compressor_running(snapshot_of({HeishaSignal.COMPRESSOR_FREQ: "fast"}))
     assert result.value is None
     assert result.missing == (HeishaSignal.COMPRESSOR_FREQ,)
@@ -79,6 +87,7 @@ def test_non_numeric_value_counts_as_missing() -> None:
 
 @pytest.mark.parametrize(("state", "active"), [(0, False), (1, True)])
 def test_defrost_and_dhw(state: int, active: bool) -> None:
+    """Defrost and DHW activity follow their state signals."""
     snapshot = snapshot_of(
         {HeishaSignal.DEFROSTING_STATE: state, HeishaSignal.THREEWAY_VALVE_STATE: state}
     )
@@ -87,6 +96,7 @@ def test_defrost_and_dhw(state: int, active: bool) -> None:
 
 
 def test_heat_power_formula() -> None:
+    """Heat power is flow times temperature difference times heat capacity, minus an offset."""
     assert heat_power_w(60.0, 30.0, 35.0, density_kg_per_l=1.0, cp_j_per_kg_k=4000.0) == 20000.0
     assert heat_power_w(25.55, 28.0, 34.5) == pytest.approx(11_520, rel=0.01)
     assert heat_power_w(20.0, 30.0, 30.5, offset_k=0.5) == 0.0
@@ -105,6 +115,7 @@ LOOP: dict[str, Value] = {
 
 
 def test_heat_delivered_from_snapshot() -> None:
+    """Delivered heat is computed from snapshot flow and loop temperatures and lists all inputs."""
     result = heat_delivered_w(snapshot_of({**HEATING, **LOOP}))
     assert result.value == pytest.approx(heat_power_w(25.55, 28.0, 34.5))
     assert set(result.inputs) == {
@@ -118,6 +129,7 @@ def test_heat_delivered_from_snapshot() -> None:
 
 
 def test_heat_delivered_without_inlet_is_unknown() -> None:
+    """Without the inlet temperature delivered heat is unknown."""
     values: dict[str, Value] = {
         **HEATING,
         HeishaSignal.PUMP_FLOW: 25.0,
@@ -130,11 +142,13 @@ def test_heat_delivered_without_inlet_is_unknown() -> None:
 
 
 def test_heat_delivered_with_zero_flow_is_zero() -> None:
+    """Zero flow gives zero delivered heat."""
     values: dict[str, Value] = {**HEATING, **LOOP, HeishaSignal.PUMP_FLOW: 0.0}
     assert heat_delivered_w(snapshot_of(values)).value == 0.0
 
 
 def test_heat_delivered_is_zero_while_the_compressor_is_stopped() -> None:
+    """With the compressor stopped delivered heat is zero regardless of loop readings."""
     values: dict[str, Value] = {**LOOP, HeishaSignal.COMPRESSOR_FREQ: 0}
     result = heat_delivered_w(snapshot_of(values))
     assert result.value == 0.0
@@ -142,6 +156,7 @@ def test_heat_delivered_is_zero_while_the_compressor_is_stopped() -> None:
 
 
 def test_heat_delivered_has_no_value_during_dhw() -> None:
+    """During DHW the delivered heating power is not defined."""
     values: dict[str, Value] = {
         **LOOP,
         HeishaSignal.COMPRESSOR_FREQ: 40,
@@ -154,6 +169,7 @@ def test_heat_delivered_has_no_value_during_dhw() -> None:
 
 
 def test_heat_delivered_is_negative_during_defrost() -> None:
+    """Heat extracted from the loop during defrost shows as negative delivered heat."""
     values: dict[str, Value] = {
         **HEATING,
         **LOOP,
@@ -166,6 +182,7 @@ def test_heat_delivered_is_negative_during_defrost() -> None:
 
 
 def test_heat_delivered_needs_the_running_state() -> None:
+    """Without compressor and valve state delivered heat cannot be determined."""
     result = heat_delivered_w(snapshot_of(dict(LOOP)))
     assert result.value is None
     assert HeishaSignal.COMPRESSOR_FREQ in result.missing
@@ -173,6 +190,7 @@ def test_heat_delivered_needs_the_running_state() -> None:
 
 
 def test_invalidated_input_counts_as_missing_even_when_stale_is_allowed() -> None:
+    """A parse error invalidating an input makes it missing even if stale values are allowed."""
     store = StateStore()
     store.apply(Reading(HeishaSignal.COMPRESSOR_FREQ, 40, "Hz", at(0), SourceKind.HEISHAMON))
     store.apply(

@@ -49,6 +49,7 @@ def as_number(value: Value | None) -> float | None:
 
 
 def _actual(view: SignalView | None) -> ActualValue | None:
+    """Return ``view`` as an applied integer value, ``None`` when absent or not integral."""
     if view is None:
         return None
     number = as_number(view.value)
@@ -139,6 +140,7 @@ def control_inputs(
     override: Override | None = None,
     actual_signals: PumpActualSignals | None = None,
     room_profile: RoomSensorProfile | None = None,
+    room_override: Override | None = None,
 ) -> ControlInputs:
     """Assemble the inputs of one tick from a snapshot.
 
@@ -158,6 +160,8 @@ def control_inputs(
         Signal ids of the pump's applied settings.
     room_profile
         Profile of the room sensor.
+    room_override
+        Temporary room target (a manual boost, a cooler room or away).
 
     Returns
     -------
@@ -172,4 +176,5 @@ def control_inputs(
         mode=mode,
         override=override,
         actual=pump_actual(snapshot, actual_signals),
+        room_override=room_override,
     )

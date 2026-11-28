@@ -7,7 +7,6 @@ import pytest
 from ovenbird_sim.data.capture import load_capture
 from ovenbird_sim.data.dataset import assemble, load_datalake
 from ovenbird_sim.data.weather import load_weather
-from ovenbird_sim.identify.building import make_windows
 
 CAPTURES = Path(
     os.environ.get("CAPTURES_DIR") or Path(__file__).resolve().parents[3] / "capture" / "captures"
@@ -20,6 +19,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_local_capture_aligns_and_has_sane_physics() -> None:
+    """The local capture aligns with the datalake and weather and has plausible physics."""
     capture = load_capture(LIVE)
     start = float(capture["liveness"].t[-1]) - 3 * 86400.0
     ds = assemble(
@@ -38,5 +38,3 @@ def test_local_capture_aligns_and_has_sane_physics() -> None:
     assert np.nanmean(c["heat_w"][running]) > 1000.0
     assert np.all(np.nan_to_num(c["heat_w"][c["compressor_frac"] == 0.0]) == 0.0)
     assert ds.flags["gap"].mean() < 0.05
-    windows = make_windows(ds.coarsen(5))
-    assert windows.n >= 1

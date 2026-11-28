@@ -61,9 +61,11 @@ class StoveEvening(Scenario):
         """Enable wood-stove mode, light the stove, put it out, and disable the mode."""
 
         def light(r: FullRun, t: float) -> None:
+            """Start heating the room with the simulated stove."""
             r.board.extra_heat_w = self.heat_w
 
         def out(r: FullRun, t: float) -> None:
+            """Stop the simulated stove heating."""
             r.board.extra_heat_w = 0.0
 
         self.at(0.0, self._configure(True))
@@ -72,7 +74,10 @@ class StoveEvening(Scenario):
         self.at(self.window_s - 2 * TICK_S, self._configure(False))
 
     def _configure(self, enabled: bool) -> Callable[[FullRun, float], None]:
+        """Return an action that switches wood-stove mode on or off through the config store."""
+
         def apply(run: FullRun, t: float) -> None:
+            """Apply the stove-mode change; when enabling, note the version and integrator."""
             manager = run.system.config
             changes: dict[str, Any] = {"control_stove_enabled": True if enabled else None}
             warnings = [w.code for w in manager.validate(changes).warnings]
@@ -90,7 +95,18 @@ class StoveEvening(Scenario):
         return apply
 
     def checks(self, run: FullRun) -> list[Check]:
-        """Entry, back-off within the clamps, held integrator, no implausible, recovery."""
+        """Entry, back-off within the clamps, held integrator, no implausible, recovery.
+
+        Parameters
+        ----------
+        run
+            The finished full run.
+
+        Returns
+        -------
+        list[Check]
+            One verdict per checked behaviour.
+        """
         stove = run.system.loop.controller.config.stove or StoveConfig()
         comfort = run.settings.control_comfort_c
         enter, leave = stove.enter_c(comfort), stove.exit_c(comfort)
@@ -234,6 +250,7 @@ class StoveEvening(Scenario):
         ]
 
     def _integral_before(self, entry: Seen | None) -> float | None:
+        """Return the integrator (K) before the stove entry decision, or ``None`` if none."""
         if entry is None:
             return None
         prior = [d for d in self.decisions if d.ts < entry.ts and d.ladder in CONTROL]
@@ -244,6 +261,20 @@ class StoveEvening(Scenario):
 
     @staticmethod
     def _target(decision: Seen, backoff: float) -> float:
+        """Return the decision's safety term minus the backed-off curve clamped to the safety band.
+
+        Parameters
+        ----------
+        decision
+            A decision taken during the stove episode.
+        backoff
+            Stove back-off in K applied to the curve term.
+
+        Returns
+        -------
+        float
+            Deviation in K; zero when the target is the expected backed-off one.
+        """
         low = float(decision.state["safety_low_c"])
         high = float(decision.state.get("safety_high_c", math.inf))
         curve = decision.terms.get("curve", math.nan)
@@ -255,6 +286,7 @@ def _stove_mode(enabled: bool, comment: str) -> Callable[[FullRun, float], None]
     """Return an action that switches wood-stove mode on (defaults) or off."""
 
     def apply(run: FullRun, t: float) -> None:
+        """Apply the stove-mode change through the config store."""
         manager = run.system.config
         changes: dict[str, Any] = {"control_stove_enabled": True if enabled else None}
         warnings = [w.code for w in manager.validate(changes).warnings]

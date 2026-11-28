@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { settled } from './settle';
 import { mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,20 +22,6 @@ const topics = await loadTopics();
 
 /** Guides have no page of their own: they open from the help index. */
 const GUIDES = new Set(['start', 'switching']);
-
-/** Targets that sit on a tab of their page rather than on its first one. */
-const TARGET_TAB: Record<string, string> = {
-  'house.prediction': 'model',
-  'house.whatif': 'what-if',
-  'house.signature': 'model',
-  'house.bounds': 'model',
-  'house.learning': 'learning',
-  'house.quality': 'model',
-  'house.control': 'control',
-  'house.run': 'learning',
-  'house.timeline': 'learning',
-  'house.proposal': 'learning',
-};
 
 const VIEWPORTS = [
   { label: 'desktop', width: 1400, height: 1000 },
@@ -138,11 +125,11 @@ for (const viewport of VIEWPORTS) {
       let found = false;
       for (const hash of ['#/home', '#/setpoint', '#/pump', '#/weather', '#/settings/room']) {
         await boot(page, hash);
-        await page.waitForTimeout(300);
-        if ((await trigger.count()) > 0) {
-          found = true;
-          break;
-        }
+        found = await trigger
+          .waitFor({ state: 'visible', timeout: 3000 })
+          .then(() => true)
+          .catch(() => false);
+        if (found) break;
       }
       test.skip(!found, 'no why? inside a data-help element yet');
       const target = await trigger.evaluate(
@@ -208,8 +195,7 @@ for (const viewport of VIEWPORTS) {
         await expect(drawer(page)).toHaveAttribute('data-topic', topic.id);
         await expect(drawer(page).getByTestId('help-title')).toHaveText(topic.title);
         for (const section of targets) {
-          const tab = TARGET_TAB[section.target!];
-          const hash = `#/${topic.id}${tab ? `/${tab}` : ''}`;
+          const hash = `#/${topic.id}`;
           if ((await page.evaluate(() => window.location.hash)) !== hash) await goTo(page, hash);
           const element = page.locator(`[data-help="${section.target}"]`).first();
           await expect(element, `${section.target} on the page`).toBeAttached();
@@ -257,7 +243,7 @@ test.describe('help shadow top bar', () => {
       } else await chip.click();
       await expect(chip).toHaveAttribute('data-mode', 'paused');
       await page.keyboard.press('Escape');
-      await page.waitForTimeout(300);
+      await settled(page);
       await page.screenshot({
         path: join(process.env['HELP_SHOTS']!, `phone-shadow-${language}-topbar.png`),
         clip: { x: 0, y: 0, width: 400, height: 120 },
@@ -287,48 +273,48 @@ test.describe('help screenshots', () => {
             join(SHOTS!, `${viewport.label}-${scheme}-${language}-${what}.png`);
 
           await boot(page, '#/home');
-          await page.waitForTimeout(600);
+          await settled(page);
           await page.screenshot({
             path: name('0-topbar'),
             clip: { x: 0, y: 0, width: viewport.width, height: 120 },
           });
           await page.getByTestId('help-button').click();
           await expect(drawer(page)).toBeVisible();
-          await page.waitForTimeout(800);
+          await settled(page);
           await page.screenshot({ path: name('1-home') });
 
           const first = drawer(page).getByTestId('help-section-toggle').first();
           await first.click();
           const term = drawer(page).getByTestId('help-term').first();
           if ((await term.count()) > 0) await term.click();
-          await page.waitForTimeout(200);
+          await settled(page);
           await page.screenshot({ path: name('2-section') });
 
           const show = drawer(page).getByTestId('help-show-me').first();
           if ((await show.count()) > 0) {
             await show.click();
-            await page.waitForTimeout(700);
+            await settled(page);
             await page.screenshot({ path: name('3-showme') });
             if (viewport.width <= 640) await page.getByTestId('help-return').click();
           }
 
           await goTo(page, '#/settings/curve');
-          await page.waitForTimeout(800);
+          await settled(page);
           await page.screenshot({ path: name('4-curve') });
 
           await drawer(page)
             .getByTestId('help-search')
             .fill(language === 'nl' ? 'stooklijn' : 'curve');
-          await page.waitForTimeout(200);
+          await settled(page);
           await page.screenshot({ path: name('5-search') });
           await drawer(page).getByTestId('help-search').fill('');
 
           await drawer(page).getByTestId('help-all-topics').click();
-          await page.waitForTimeout(600);
+          await settled(page);
           await page.screenshot({ path: name('6-index') });
 
           await drawer(page).getByTestId('help-glossary-link').click();
-          await page.waitForTimeout(300);
+          await settled(page);
           await page.screenshot({ path: name('7-glossary') });
         });
       }

@@ -1,7 +1,6 @@
 """Configuration of :class:`~ovenbird_core.control.ovenbird.OvenbirdController`.
 
-Presets per emitter type
-------------------------
+**Presets per emitter type**
 The presets differ in how much thermal mass the emitters add to the loop:
 
 * ``screed_floor``: a screed floor stores many hours of heat and answers a
@@ -16,11 +15,9 @@ The presets differ in how much thermal mass the emitters add to the loop:
   ramp on, 30 min minimum run.
 
 PI gains are in K water per K room error (``kp``) and the integral time ``ti_s``
-(integrator gain ``kp / ti_s``). They are first estimates from the emitter type and
-are meant to be refined from the fitted house model.
+(integrator gain ``kp / ti_s``). They are first estimates from the emitter type.
 
-Room sensor profile
--------------------
+**Room sensor profile**
 :class:`RoomSensorProfile` says how the room sensor reports (``periodic`` or
 ``on_change``, see :class:`~ovenbird_core.control.types.RoomProfile`), its step,
 report interval, silence limit, liveness signals and an optional plausibility
@@ -35,8 +32,7 @@ to 12 h without a value change, zero at the silence limit, 24 h by default). A d
 that still reports its humidity keeps its authority for 12 h of an unchanged value;
 a device that went silent loses it within 8 h.
 
-Settings
---------
+**Settings**
 Every user-facing value is declared with :func:`~ovenbird_core.setting.setting`: its
 default, range, unit and description live on the field, ``__post_init__`` enforces the
 range (:func:`~ovenbird_core.setting.check_settings`) and the service derives its
@@ -85,18 +81,15 @@ __all__ = [
     "CROSSCHECK_TAU_S",
     "CROSSCHECK_THRESHOLD_K",
     "DECAY_START_S",
+    "DEFAULT_PLAN_RULE_MAX_K",
     "DIRECT_HEATING_MODE",
     "HEAT_OPERATING_MODE",
     "MAX_SILENCE_LIMIT_S",
     "MIN_DEADBAND_K",
-    "MODEL_PLAN_MAX_LOWER_WATER_K",
-    "MODEL_PLAN_MAX_PREHEAT_K",
-    "MODEL_PLAN_MAX_RAISE_WATER_K",
-    "MODEL_PLAN_MAX_SETBACK_K",
-    "MODEL_PLAN_MAX_SLICE_S",
     "ON_CHANGE_STEP_K",
     "PERIODIC_AGE_FACTOR",
     "PERIODIC_STEP_K",
+    "PLAN_RULE_MAX_K",
     "REPORT_INTERVAL_S",
     "SILENCE_LIMIT_S",
     "STOVE_MAX_BACKOFF_K",
@@ -111,16 +104,17 @@ __all__ = [
     "STOVE_MIN_RISE_WINDOW_S",
     "STOVE_REFERENCE_MISSING_SHARE",
     "CyclingConfig",
-    "ModelPlanConfig",
     "OvenbirdConfig",
     "PumpDutyConfig",
     "QuietModeConfig",
+    "QuietStartConfig",
     "QuietWindow",
     "RoomFeedbackConfig",
     "RoomSensorProfile",
     "SetpointStageConfig",
     "StartRampConfig",
     "StoveConfig",
+    "SummerConfig",
     "default_curve",
     "envelope_violations",
     "linear_ramp",
@@ -141,19 +135,16 @@ CROSSCHECK_THRESHOLD_K: Final = 1.5
 CROSSCHECK_SUSTAIN_S: Final = 2 * 3600.0
 CROSSCHECK_TAU_S: Final = 24 * 3600.0
 DIRECT_HEATING_MODE: Final = 1
+DEFAULT_PLAN_RULE_MAX_K: Final = 1.0
+PLAN_RULE_MAX_K: Final = 1.5
 HEAT_OPERATING_MODE: Final = 0
-MODEL_PLAN_MAX_SETBACK_K: Final = 1.0
-MODEL_PLAN_MAX_PREHEAT_K: Final = 0.5
-MODEL_PLAN_MAX_SLICE_S: Final = 3600.0
-MODEL_PLAN_MAX_LOWER_WATER_K: Final = 4.0
-MODEL_PLAN_MAX_RAISE_WATER_K: Final = 2.0
-AUTHORITY_DIGITS: Final = 6
 _WEEK_S: Final = 604_800.0
 _DAY_S: Final = 86_400.0
 _HOUR_S: Final = 3600.0
 
 
 def _check(condition: bool, message: str) -> None:
+    """Raise ``ValueError(message)`` unless ``condition`` holds."""
     if not condition:
         raise ValueError(message)
 
@@ -593,137 +584,72 @@ class QuietModeConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class ModelPlanConfig:
-    """Bounds of a plan slice from the learned house model (``PlanSource.MODEL``).
+class QuietStartConfig:
+    """Quiet mode for the first minutes after a compressor start (off unless configured).
 
-    The controller clamps every model slice to ``[-max_setback_k, +max_preheat_k]``
-    before it shifts the room target, whatever the planner sent, so a faulty planner
-    cannot move the target further. The ranges stop at the absolute ceilings
-    :data:`MODEL_PLAN_MAX_SETBACK_K` (1.0 K) and :data:`MODEL_PLAN_MAX_PREHEAT_K`
-    (0.5 K), which no configuration can exceed. Rule and optimiser slices are not
-    clamped here (their water mapping without a room sensor keeps
-    ``plan_max_water_k``). A model slice valid for longer than
-    :data:`MODEL_PLAN_MAX_SLICE_S` is ignored, so a plan cannot outlive its planner by
-    more than that. The settings are described on the fields.
-
-    Water slices
-    ------------
-    A model slice with a water offset (a feed-forward from the forecast sun) is
-    clamped to ``[-max_lower_water_k, +max_raise_water_k]`` (absolute ceilings
-    :data:`MODEL_PLAN_MAX_LOWER_WATER_K`, 4 K, and :data:`MODEL_PLAN_MAX_RAISE_WATER_K`,
-    2 K) and then scaled by the room authority (:meth:`authority`): full while the
-    trusted room value is no more than ``authority_full_k`` (at least one sensor
-    step) on the side the offset works against (below comfort for a lowering, above
-    it for a raise), none from ``authority_zero_k`` on, linear in between. The
-    room-target bounds above do not apply to water slices, and the fade does not apply
-    to room-target slices, so each path keeps its own settings.
+    Inside the window the requested quiet level is the quieter (higher) of this level and
+    the scheduled one; afterwards the schedule (level 0 outside its windows) applies again.
+    During a defrost the level is not changed. The settings are described on the fields.
     """
 
-    max_setback_k: float = setting(
-        0.5,
-        ge=0.0,
-        le=MODEL_PLAN_MAX_SETBACK_K,
-        unit="K",
-        doc="Largest room-target set-back a model plan may ask for.",
+    duration_s: float = setting(
+        600.0,
+        ge=60.0,
+        le=1800.0,
+        unit="s",
+        doc="How long after a compressor start quiet mode is requested.",
     )
-    max_preheat_k: float = setting(
-        0.3,
-        ge=0.0,
-        le=MODEL_PLAN_MAX_PREHEAT_K,
-        unit="K",
-        doc="Largest room-target pre-heat a model plan may ask for.",
-    )
+    level: int = setting(2, ge=1, le=3, doc="Quiet level requested after a compressor start.")
 
-    max_lower_water_k: float = setting(
-        3.0,
-        ge=0.0,
-        le=MODEL_PLAN_MAX_LOWER_WATER_K,
-        unit="K",
-        doc="Largest water-setpoint lowering a model water plan may apply.",
+    def __post_init__(self) -> None:
+        """Validate the window and the level."""
+        check_settings(self)
+
+
+@dataclass(frozen=True, slots=True)
+class SummerConfig:
+    """Summer switch: no space heating while the slow outside mean is warm (off unless set).
+
+    The mean is an exponential filter of the curve's outside temperature with time
+    constant ``mean_tau_s`` (24 h by default: a full day and night, so one warm afternoon
+    does not switch heating off while a warm spell does). The switch turns on once the
+    mean is above ``off_c`` and the filter has run for ``mean_tau_s`` (a fresh start
+    cannot switch off on its first sample), and off again below ``off_c -
+    hysteresis_k``. While on, the water setpoint is the safety minimum and the room
+    feedback is paused with its integrator held. The settings are described on the
+    fields.
+    """
+
+    off_c: float = setting(
+        18.0,
+        ge=10.0,
+        le=25.0,
+        unit="°C",
+        doc="Slow outside mean above which no space heating is requested.",
     )
-    max_raise_water_k: float = setting(
-        0.0,
-        ge=0.0,
-        le=MODEL_PLAN_MAX_RAISE_WATER_K,
+    hysteresis_k: float = setting(
+        2.0,
+        ge=0.5,
+        le=5.0,
         unit="K",
-        doc="Largest water-setpoint raise a model water plan may apply (0: never raises).",
+        doc="Heating resumes once the slow outside mean is this far below the limit.",
     )
-    authority_full_k: float = setting(
-        0.1,
-        ge=0.0,
-        le=1.0,
-        unit="K",
-        doc=(
-            "A model water plan keeps its full effect while the room is at most this far "
-            "below comfort (above it, for a raise)."
-        ),
-    )
-    authority_zero_k: float = setting(
-        0.4,
-        gt=0.0,
-        le=2.0,
-        unit="K",
-        doc=(
-            "A model water plan has no effect once the room is this far below comfort "
-            "(above it, for a raise); linear in between."
-        ),
+    mean_tau_s: float = setting(
+        _DAY_S,
+        ge=6 * _HOUR_S,
+        le=3 * _DAY_S,
+        unit="s",
+        doc="Time constant of the slow outside mean.",
     )
 
     def __post_init__(self) -> None:
-        """Validate the bounds and the authority fade."""
+        """Validate the limits."""
         check_settings(self)
-        _check(
-            self.authority_full_k < self.authority_zero_k,
-            "authority_full_k must be below authority_zero_k",
-        )
 
-    def clamp(self, room_offset_k: float) -> float:
-        """Return ``room_offset_k`` clamped to ``[-max_setback_k, +max_preheat_k]``."""
-        return min(max(room_offset_k, -self.max_setback_k), self.max_preheat_k)
-
-    def clamp_water(self, water_offset_k: float) -> float:
-        """Return ``water_offset_k`` clamped to ``[-max_lower_water_k, +max_raise_water_k]``."""
-        return min(max(water_offset_k, -self.max_lower_water_k), self.max_raise_water_k)
-
-    def authority(
-        self, room_c: float, comfort_c: float, sign: float, quantum_k: float = 0.0
-    ) -> float:
-        """Return the share in ``[0, 1]`` of a water offset of ``sign`` the room allows.
-
-        A lowering (``sign < 0``) fades with the room's shortfall below comfort, a
-        raise (``sign > 0``) with its excess above it: 1 up to the full edge, 0 from
-        ``authority_zero_k``, linear in between (a step at the full edge when that
-        lies at or beyond ``authority_zero_k``). The full edge is
-        ``authority_full_k``, but at least one sensor step ``quantum_k``: a value
-        one step off comfort is within what the sensor can tell, and the room PI's
-        integrator dead zone accepts it too, so the room's normal toggling between
-        comfort and one step below does not toggle the offset (and the setpoint)
-        with it. The distance is rounded to :data:`AUTHORITY_DIGITS` decimals, so a
-        sensor value on an edge (20.9 °C against 21.0 °C) lands on it exactly.
-        ``sign == 0`` gives 1.
-
-        Parameters
-        ----------
-        room_c
-            Trusted room value.
-        comfort_c
-            Comfort room temperature.
-        sign
-            Sign of the water offset.
-        quantum_k
-            The room sensor's step (``0``: unknown).
-
-        Returns
-        -------
-        float
-            The authority.
-        """
-        if sign == 0.0:
-            return 1.0
-        against = comfort_c - room_c if sign < 0.0 else room_c - comfort_c
-        distance = round(against, AUTHORITY_DIGITS)
-        full = round(max(self.authority_full_k, quantum_k), AUTHORITY_DIGITS)
-        return linear_ramp(distance, full, self.authority_zero_k)
+    @property
+    def on_c(self) -> float:
+        """Slow outside mean below which heating resumes."""
+        return self.off_c - self.hysteresis_k
 
 
 def default_curve(emitter: EmitterType) -> HeatingCurve:
@@ -838,6 +764,10 @@ class OvenbirdConfig:
         ``curve``; off, it is ``fixed_water_c`` at every outside temperature.
     comfort_room_c, outside_filter_tau_s, plan_max_water_k, compressor_min_hz
         Settings, described on the fields.
+    plan_rule_max_k
+        Largest room-target shift (±, K) a rule plan slice may apply, in
+        ``[0, PLAN_RULE_MAX_K]`` (default ``DEFAULT_PLAN_RULE_MAX_K``, 1 K); a larger
+        slice is clamped to it and the decision says so, 0 disables rule slices.
     feedback
         PI room feedback.
     ramp
@@ -860,8 +790,10 @@ class OvenbirdConfig:
         Optional wood-stove mode; ``None`` disables it (manual requests included).
     outside
         Optional outside thermometer for the curve; ``None`` uses the pump's sensor.
-    model_plan
-        Bounds of a plan slice from the learned house model.
+    summer
+        Optional summer switch; ``None`` disables it.
+    quiet_start
+        Optional quiet mode after a compressor start; ``None`` disables it.
     """
 
     emitter: EmitterType
@@ -894,6 +826,13 @@ class OvenbirdConfig:
         unit="K",
         doc="Clamp of the plan term when it maps to water directly (no room sensor).",
     )
+    plan_rule_max_k: float = setting(
+        DEFAULT_PLAN_RULE_MAX_K,
+        ge=0.0,
+        le=PLAN_RULE_MAX_K,
+        unit="K",
+        doc="Largest room-target shift a rule plan slice may apply; a larger one is clamped.",
+    )
     ramp: StartRampConfig = field(default_factory=StartRampConfig)
     cycling: CyclingConfig = field(default_factory=CyclingConfig)
     stages: SetpointStageConfig = field(default_factory=SetpointStageConfig)
@@ -907,7 +846,8 @@ class OvenbirdConfig:
     room: RoomSensorProfile = field(default_factory=RoomSensorProfile)
     stove: StoveConfig | None = None
     outside: OutsideSource | None = None
-    model_plan: ModelPlanConfig = field(default_factory=ModelPlanConfig)
+    summer: SummerConfig | None = None
+    quiet_start: QuietStartConfig | None = None
 
     def __post_init__(self) -> None:
         """Validate the settings and the cross-field constraints."""

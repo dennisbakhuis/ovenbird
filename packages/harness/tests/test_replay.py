@@ -18,6 +18,7 @@ pytestmark = pytest.mark.slow
 
 
 def test_exact_replay_of_the_real_service(tmp_path: Path) -> None:
+    """Replaying the recorded MQTT service run reproduces its rows exactly."""
     config = mqtt_config(REFERENCE_START, None, None, tmp_path)
     result = replay_check(config, 120.0, 6.0, tmp_path)
     assert result["passed"], result
@@ -26,6 +27,7 @@ def test_exact_replay_of_the_real_service(tmp_path: Path) -> None:
 
 
 def test_exact_replay_on_the_home_assistant_path(tmp_path: Path) -> None:
+    """Replaying the recorded Home Assistant path run reproduces its rows exactly."""
     config = ha_config(REFERENCE_START, None, None, tmp_path)
     result = replay_check(config, 120.0, 6.0, tmp_path, ha=True)
     assert result["passed"], result
@@ -34,9 +36,14 @@ def test_exact_replay_on_the_home_assistant_path(tmp_path: Path) -> None:
 
 
 def test_override_refuses_a_missing_method() -> None:
+    """Overriding a method the target lacks raises an error naming it."""
+
     class Target:
+        """A target with a single ``tick`` method."""
+
         def tick(self) -> None:
-            return None
+            """Do nothing."""
+            return
 
     target = Target()
     override(target, "tick", lambda: None)
@@ -45,14 +52,17 @@ def test_override_refuses_a_missing_method() -> None:
 
 
 def test_a_recording_without_ticks_is_refused() -> None:
+    """A recording without ticks, adapter events or messages is refused."""
     with pytest.raises(ValueError, match="adapter, message, tick"):
         Recording().check()
 
 
 def test_validate_does_not_write_into_the_captures(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The validate command writes its outputs outside the captures folder."""
     written: list[Path] = []
 
     def fake_compare(config: RunConfig, hours: float, speed: float) -> dict[str, object]:
+        """Record the output directory and report a pass."""
         written.append(config.out)
         return {"passed": True, "hours": hours}
 
@@ -64,6 +74,7 @@ def test_validate_does_not_write_into_the_captures(monkeypatch: pytest.MonkeyPat
 
 
 def test_replay_detects_a_changed_stream(tmp_path: Path) -> None:
+    """Replay passes on the same stream and fails when one input arrives 30 s later."""
     config = mqtt_config(REFERENCE_START, None, None, tmp_path)
     settings = harness_settings(
         tmp_path / "recorded", config.profile, clock_speed=120.0, clock_start=config.start
@@ -89,6 +100,26 @@ def test_replay_detects_a_changed_stream(tmp_path: Path) -> None:
 def kpis(
     starts: float, feedback: float, room: float, *, days: float = 2.0, defrosts: int = 3
 ) -> WindowKpis:
+    """Return window KPIs with the given start rate, feedback share, room mean and counts.
+
+    Parameters
+    ----------
+    starts
+        Compressor starts per day.
+    feedback
+        Share of decisions on the ``schedule_curve_feedback`` ladder; the rest are ``curve_only``.
+    room
+        Mean room temperature in °C.
+    days
+        Length of the window in days.
+    defrosts
+        Number of defrosts in the window.
+
+    Returns
+    -------
+    WindowKpis
+        The KPIs of one window.
+    """
     return WindowKpis(
         days,
         starts,
@@ -102,6 +133,7 @@ def kpis(
 
 
 def test_judge_uses_the_spread_of_the_repeats_and_floors() -> None:
+    """The verdict tolerates the spread of the repeats, with floors, and fails on far windows."""
     same = judge(kpis(5.0, 0.9, 21.0), kpis(5.0, 0.9, 21.0), kpis(5.0, 0.9, 21.0))
     assert same["passed"]
     far = judge(kpis(9.0, 0.5, 20.4), kpis(5.0, 0.9, 21.0), kpis(5.0, 0.9, 21.0))
@@ -120,6 +152,7 @@ def test_judge_uses_the_spread_of_the_repeats_and_floors() -> None:
 
 
 def test_judge_requires_a_window_that_exercises_the_plant() -> None:
+    """A window that is too short, has no defrost or has too few starts fails the coverage check."""
     short = judge(kpis(5.0, 0.9, 21.0, days=0.5), kpis(5.0, 0.9, 21.0), kpis(5.0, 0.9, 21.0))
     assert not short["passed"]
     assert "b1" in short["kpis"]["coverage"]["short"]

@@ -51,8 +51,10 @@ from ovenbird.config.values import SNAPSHOT_NAME, ConfigError
 from ovenbird.control.settings import (
     CommandSettings,
     ControlSettings,
-    ModelPlanSettings,
+    DayShiftSettings,
+    ManualTargetSettings,
     SafetySettings,
+    SummerSettings,
     TuningSettings,
     controller_config,
     room_profile,
@@ -80,11 +82,13 @@ class Settings(
     CommandSettings,
     NotifySettings,
     AccessSettings,
-    ModelPlanSettings,
     HouseSettings,
     WeatherSettings,
     TuningSettings,
+    SummerSettings,
+    ManualTargetSettings,
     StoveSettings,
+    DayShiftSettings,
     ControlSettings,
     HistorySettings,
     InstallationSettings,
@@ -244,7 +248,30 @@ class Settings(
     control_quiet_windows
         Up to four daily quiet-mode windows ``{start, end, level}`` (JSON list).
     control_timezone
-        IANA zone of the quiet windows.
+        IANA zone of the local times (quiet windows, day shift, local days).
+    control_dayshift_use
+        The sun day shift: ``off`` (default), ``shadow`` (computed and recorded, never
+        applied) or ``on`` (experimental: only with ``control_dayshift_experimental_ok``,
+        ``dayshift_on_needs_ack``).
+    control_dayshift_experimental_ok
+        The owner accepts that the day shift is experimental; ``on`` needs it.
+    control_dayshift_day_start, control_dayshift_day_end
+        Local day window of the boost (09:00 to 17:00).
+    control_dayshift_boost_k, control_dayshift_setback_k
+        Room-target boost on a sunny, mild day and set-back in the night after it (0 to
+        1 K, 0.5 K each).
+    control_dayshift_min_outside_c
+        Lowest outside temperature, now and forecast, for the shift (-10 to 15 °C, 5 °C).
+    control_dayshift_min_sun_wm2
+        Lowest forecast mean irradiance over the rest of the day window for a boost (0 to
+        600 W/m², 150 W/m²).
+    control_dayshift_night_start, control_dayshift_night_end
+        Local night window of the set-back (23:00 to 05:00).
+    control_dayshift_comfort_at, control_dayshift_recovery_s
+        When the room must be back at comfort (07:00) and how long before it a set-back
+        has ended at the latest (0 to 8 h, 4 h).
+    control_plan_rule_max_k
+        Largest room-target shift of a rule plan slice (0 to 1.5 K, 1 K).
     control_envelope_curve, control_envelope_below_k, control_envelope_above_k
         Safety envelope (expert, environment or options file only); unset takes the
         emitter preset's curve with 6 K below and 5 K above.
@@ -267,50 +294,19 @@ class Settings(
         Simulation mode only: the simulator's Open-Meteo cache the simulated
         forecast is derived from (a synthetic winter when unset); never stored.
     house_floor_area_m2
-        Heated floor area for the house model's indicative insulation score (W/m²
-        at design conditions); unset leaves the score without W/m² and band.
+        Heated floor area in m² (unset: unknown).
     house_volume_m3, house_build_period, house_window_area_m2
-        Facts about the house the learner starts from (weak priors the measurements may
-        overrule); unset leaves them out. ``house_build_period`` is one of ``before_1945``,
-        ``1945_1974``, ``1975_1991``, ``1992_2005``, ``2006_2014``, ``2015_later``. The
-        former ``house_floor_heating_share`` is gone (the model cannot use it); a stored
-        value of it is ignored with a logged warning.
+        Facts the owner states about the house, for a rough heat-loss estimate
+        (:mod:`ovenbird_core.housefacts`); unset leaves them out. ``house_build_period``
+        is one of ``before_1945``, ``1945_1974``, ``1975_1991``, ``1992_2005``,
+        ``2006_2014``, ``2015_later``.
     house_window_orientation, house_occupants
         Main window orientation (``north``, ``east``, ``south``, ``west``, ``mixed``) and
         the number of occupants (0 to 12).
-    house_ua_min_w_per_k, house_ua_max_w_per_k
-    house_time_constant_min_h, house_time_constant_max_h
-        Bounds on the learned heat loss and time constant; either side may be unset and
-        equal values pin the quantity. The minimum must not exceed the maximum.
-    house_solar_aperture_min_m2, house_solar_aperture_max_m2
-    house_internal_gain_min_w, house_internal_gain_max_w
-        The same for the learned solar aperture and internal gains.
-    house_learn_fit_days, house_learn_test_days
-        Days the learner fits on (21 to 90, 60 by default) and holds out to test (7 to 21,
-        14 by default); the fit window must exceed the test window by at least 8 days.
-    house_learn_tolerance_k
-        How much worse than the current model (in K, -0.1 to 0.2) a new model may test and
-        still be promoted; 0 by default.
-    house_learn_excluded_days
-        Days (``YYYY-MM-DD``, at most 60, sorted, none more than a day ahead) the learner
-        leaves out, such as a holiday or open windows.
-    house_learn_enabled
-        Whether the service refits the house model itself on a schedule (a
-        low-priority child process in the night window); off leaves only "run now".
-    house_learn_interval_h
-        Hours between scheduled refits (24 to 720; a weekly refit by default).
-    control_model_use
-        The learned house model as a bounded room-target offset: ``off`` (default),
-        ``shadow`` (computed and recorded, never applied) or ``on`` (refused until the
-        evaluation and a shadow period are done: ``model_use_on_locked``).
-    control_model_max_setback_k, control_model_max_preheat_k
-        Largest room-target set-back (0.1 to 1 K, 0.5 by default) and pre-heat (0 to
-        0.5 K, 0.3 by default) of a model plan.
-    control_model_horizon_h
-        How far ahead the model planner looks (2 to 12 h, 6 by default).
-    control_model_max_rmse_k
-        Largest held-out 24 h room error of the champion model that still allows the
-        plan (0.2 to 1.5 K, 0.6 by default).
+    house_basics_enabled
+        Compute the house basics (``GET api/v1/insight/basics``: the heat loss of the
+        house and the heat from the heat pump, :mod:`ovenbird.insight.basics`); on by
+        default.
     hot_water
         Whether the app shows hot water (DHW): ``auto`` (default) follows the pump's
         ``main/DHW_Installed`` and shows it while that is unknown, ``on`` or ``off``.
@@ -415,7 +411,21 @@ class Settings(
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Read keyword arguments, then the environment, then the options file."""
+        """Read keyword arguments, then the environment, then the options file.
+
+        Parameters
+        ----------
+        settings_cls
+            Settings class being built.
+        init_settings
+            Keyword-argument source.
+        env_settings
+            Environment source (replaced by the options-file source's ordering).
+        dotenv_settings
+            Dotenv source (unused).
+        file_secret_settings
+            Secrets-directory source (unused).
+        """
         return (
             init_settings,
             env_settings,
@@ -425,10 +435,12 @@ class Settings(
     @model_validator(mode="before")
     @classmethod
     def _apply_ingress_mode(cls, data: Any) -> Any:
+        """Fold the ingress mode into the raw values before validation."""
         return apply_ingress_mode(data)
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
+        """Check the combination of settings and raise every violated rule at once."""
         check_ha(self)
         check_notify(self)
         check_duty_range(self)
@@ -439,6 +451,7 @@ class Settings(
         return self
 
     def _signal_known(self, signal: str, *, heishamon: bool) -> bool:
+        """Return whether ``signal`` is receivable (HA entity, HeishaMon signal or MQTT input)."""
         if signal.startswith(HA_SIGNAL_PREFIX):
             return self.ha_enabled and valid_ha_signal(signal)
         if heishamon and signal in CATALOGUE:

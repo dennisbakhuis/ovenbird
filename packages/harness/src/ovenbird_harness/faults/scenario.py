@@ -32,9 +32,7 @@ TICK_S: Final = 60.0
 SLACK_S: Final = 2 * TICK_S
 WARMUP_S: Final = 86_400.0
 TAIL_S: Final = 2 * HOUR
-CONTROL: Final = frozenset(
-    {"optimiser_plan", "model_plan", "rule_plan", "schedule_curve_feedback", "curve_only"}
-)
+CONTROL: Final = frozenset({"optimiser_plan", "rule_plan", "schedule_curve_feedback", "curve_only"})
 TROUBLE: Final = frozenset({"foreign_writer", "verification_failed", "hold_latched"})
 EPSILON: Final = 1e-6
 COMFORT_FLOOR_K: Final = 1.5
@@ -44,6 +42,7 @@ TICK_CYCLES: Final = int(TICK_S // CYCLE_S)
 
 
 def _iso(ts: float) -> str:
+    """Format unix time as an ISO 8601 UTC timestamp ending in ``Z``."""
     return datetime.fromtimestamp(ts, UTC).isoformat().replace("+00:00", "Z")
 
 
@@ -211,21 +210,26 @@ class Scenario:
         run.on_cycle.append(lambda t: self._cycle(run, t))
 
     def _inside(self, ts: float) -> bool:
+        """Return whether ``ts`` lies in the running scenario window."""
         return self.begun and not self.done and ts >= self.start - EPSILON
 
     def _decision(self, row: DecisionRow) -> None:
+        """Collect the decision if it falls in the scenario window."""
         if self._inside(row.ts):
             self.decisions.append(seen(row))
 
     def _command(self, row: CommandRow) -> None:
+        """Collect the command row if it falls in the scenario window."""
         if self._inside(row.ts):
             self.commands.append(row)
 
     def _alarm(self, row: AlarmRow) -> None:
+        """Collect the alarm row if it falls in the scenario window."""
         if self._inside(row.ts):
             self.alarms.append(row)
 
     def _cycle(self, run: FullRun, t: float) -> None:
+        """Record the room and outside temperature of this cycle while the window runs."""
         observation = run.board.observation
         if self._inside(t) and observation is not None:
             self.rooms.append((t, observation.room_temp))
@@ -280,6 +284,7 @@ class Scenario:
 
 
 def _spread(values: list[float]) -> dict[str, float] | None:
+    """Return min, mean and max of ``values`` (rounded), or ``None`` if empty."""
     if not values:
         return None
     return {
@@ -290,6 +295,7 @@ def _spread(values: list[float]) -> dict[str, float] | None:
 
 
 def _resumes(scenario: Scenario, after: float, within: float) -> Check:
+    """Check that a control decision follows within ``within`` s after ``after``."""
     first = next((d for d in scenario.decisions if d.ts > after and d.ladder in CONTROL), None)
     late = None if first is None else first.ts - after
     return verdict(
@@ -300,6 +306,7 @@ def _resumes(scenario: Scenario, after: float, within: float) -> Check:
 
 
 def _refuses_dead(scenario: Scenario, a: float, b: float) -> Check:
+    """Check that every decision between ``a`` and ``b`` refuses with ``heishamon_dead``."""
     during = scenario.between(a, b)
     bad = [d for d in during if not (d.ladder == "refuse" and d.reason == "heishamon_dead")]
     return verdict(
@@ -311,6 +318,7 @@ def _refuses_dead(scenario: Scenario, a: float, b: float) -> Check:
 
 
 def _no_trouble(scenario: Scenario, after: float) -> Check:
+    """Check that no trouble alarm was raised and no command hold started after ``after``."""
     found = scenario.trouble(after)
     holds = [a for a in scenario.alarms if a.code == "command_hold" and a.ts >= after]
     return verdict(
@@ -321,6 +329,7 @@ def _no_trouble(scenario: Scenario, after: float) -> Check:
 
 
 def _sent_between(scenario: Scenario, a: float, b: float) -> list[CommandRow]:
+    """Return commands sent between ``a`` and ``b`` that are not safety corrections."""
     return [
         c
         for c in scenario.commands

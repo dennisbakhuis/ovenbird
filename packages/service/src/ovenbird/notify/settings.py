@@ -37,6 +37,7 @@ class NotifySettings(FeatureSettings):
     )
     @classmethod
     def _empty_notify_secret_is_unset(cls, value: Any) -> Any:
+        """Treat an empty secret as unset."""
         if isinstance(value, str) and not value.strip():
             return None
         return value
@@ -44,14 +45,17 @@ class NotifySettings(FeatureSettings):
     @field_validator("notify_ntfy_url")
     @classmethod
     def _valid_ntfy_url(cls, value: str | None) -> str | None:
+        """Check the ntfy server URL."""
         return check_ntfy_url(value)
 
     @field_validator("notify_ntfy_topic")
     @classmethod
     def _valid_ntfy_topic(cls, value: SecretStr | None) -> SecretStr | None:
+        """Check the ntfy topic."""
         return check_ntfy_topic(value)
 
     @field_validator("notify_deadman_url")
     @classmethod
     def _valid_deadman_url(cls, value: SecretStr | None) -> SecretStr | None:
+        """Check the dead-man ping URL."""
         return check_deadman_url(value)

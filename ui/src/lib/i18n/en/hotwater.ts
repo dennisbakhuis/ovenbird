@@ -3,6 +3,7 @@
  * replaces `<key>`, so a hot-water run still shows without naming hot water.
  */
 export const hotwater = {
+  busy_houseHeatHotWater: 'busy elsewhere',
   busy_statusDhw: 'Pump busy elsewhere',
   busy_pumpStateDhw: 'Pump busy elsewhere',
   busy_homeLaneHotWater: 'Busy elsewhere',

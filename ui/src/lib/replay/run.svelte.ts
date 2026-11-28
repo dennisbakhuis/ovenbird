@@ -1,4 +1,5 @@
 import { ApiError, failureKind } from '$lib/core/api';
+import { poll } from '$lib/core/poll.svelte';
 import {
   cancelReplay,
   fetchReplayJob,
@@ -20,7 +21,7 @@ export class ReplayRun {
   problem = $state<RunProblem | null>(null);
   detail = $state<string | null>(null);
   starting = $state(false);
-  #timer: ReturnType<typeof setTimeout> | null = null;
+  #stopPoll: (() => void) | null = null;
   #cancelAsked = false;
   #poll: (id: string) => Promise<ReplayJob>;
   #start: (body: ReplayBody) => Promise<ReplayJob>;
@@ -78,7 +79,7 @@ export class ReplayRun {
 
   /** Poll again after a return to the page (polling stops while nothing shows the job). */
   resume(): void {
-    if (this.job?.state === 'running' && this.#timer === null) this.#schedule();
+    if (this.job?.state === 'running' && this.#stopPoll === null) this.#schedule();
   }
 
   /** Stop polling (the job keeps running on the service). */
@@ -89,25 +90,24 @@ export class ReplayRun {
   #schedule(): void {
     this.#stop();
     if (this.job?.state !== 'running') return;
-    this.#timer = setTimeout(() => void this.#tick(), POLL_MS);
+    this.#stopPoll = poll(() => this.#tick(), { intervalMs: POLL_MS, immediate: false });
   }
 
-  async #tick(): Promise<void> {
-    this.#timer = null;
+  async #tick(): Promise<'stop' | undefined> {
     const job = this.job;
-    if (!job) return;
+    if (!job) return 'stop';
     try {
       const next = await this.#poll(job.id);
-      if (this.job?.id !== job.id) return;
+      if (this.job?.id !== job.id) return 'stop';
       this.job = next;
-      this.#schedule();
+      return next.state === 'running' ? undefined : 'stop';
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
         this.problem = 'expired';
         this.job = null;
-        return;
+        return 'stop';
       }
-      this.#schedule();
+      return undefined;
     }
   }
 
@@ -126,8 +126,8 @@ export class ReplayRun {
   }
 
   #stop(): void {
-    if (this.#timer !== null) clearTimeout(this.#timer);
-    this.#timer = null;
+    this.#stopPoll?.();
+    this.#stopPoll = null;
   }
 }
 

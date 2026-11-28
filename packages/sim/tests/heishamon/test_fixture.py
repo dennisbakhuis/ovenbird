@@ -10,6 +10,7 @@ COMMITTED = (
 
 
 def test_committed_slice_is_reproducible(tmp_path: Path) -> None:
+    """The committed fixture slice equals a freshly generated one."""
     fresh = tmp_path / COMMITTED.name
     write(fresh)
     assert fresh.read_bytes() == COMMITTED.read_bytes(), (

@@ -68,6 +68,7 @@ class CommandAdapter(SettingsMixin):
     """
 
     def _refuse(self, at: Instant, intent: CommandIntent, detail: str) -> CommandEvent:
+        """Record, log and return a refused intent (nothing is queued)."""
         self.counters.refused += 1
         value = intent.value if type(intent.value) is int else 0
         event = CommandEvent(at, intent.kind, value, CommandStatus.REFUSED, 0, detail)
@@ -235,6 +236,7 @@ class CommandAdapter(SettingsMixin):
         self.config = replace(self.config, setpoint_range=(low, high))
 
     def _roll_day(self, now: Instant) -> None:
+        """Reset the daily write counter and its budget alarm when the wall-clock day changes."""
         today = now.wall.date()
         if self._day != today:
             self._day = today
@@ -247,6 +249,15 @@ class CommandAdapter(SettingsMixin):
         self._drop_queue(now, why)
 
     def _verify(self, now: Instant, read: Reader) -> None:
+        """Check that the in-flight command took effect, else retry it or raise the failure.
+
+        Parameters
+        ----------
+        now
+            Current time.
+        read
+            Signal reader.
+        """
         flying = self._in_flight
         if flying is None:
             return
@@ -336,6 +347,7 @@ class CommandAdapter(SettingsMixin):
         self._start_hold(now, "verification failed")
 
     def _safe_setpoint(self) -> int:
+        """Return the water setpoint (°C) to correct to: the wanted or own value within limits."""
         low, high = self.config.setpoint_range
         for source in (self._wanted, self._own):
             value = source.get(IntentKind.WATER_SETPOINT)
@@ -344,12 +356,14 @@ class CommandAdapter(SettingsMixin):
         return low
 
     def _spaced(self, now: Instant) -> bool:
+        """Return whether the minimum spacing since the last write has passed."""
         return (
             self._last_sent_at is None
             or now.monotonic - self._last_sent_at >= self.config.min_spacing_s
         )
 
     def _release(self, now: Instant, command: Command, attempt: int) -> Command:
+        """Mark ``command`` as in flight and count the write; return it for publishing."""
         self._in_flight = _InFlight(command, attempt, now)
         self._last_sent_at = now.monotonic
         self._sent_today += 1
@@ -357,6 +371,17 @@ class CommandAdapter(SettingsMixin):
         return command
 
     def _correct(self, now: Instant, read: Reader) -> Command | None:
+        """Return a safety correction when the pump reports a setpoint above the limit.
+
+        Returns ``None`` when no correction is needed or possible.
+
+        Parameters
+        ----------
+        now
+            Current time.
+        read
+            Signal reader.
+        """
         excess = setpoint_excess(read, self.config.setpoint_range[1])
         if excess is None:
             self.alarms.clear(
@@ -445,6 +470,7 @@ class CommandAdapter(SettingsMixin):
         return self._release(now, command, 1)
 
     def _drop_duty_in_defrost(self, now: Instant, read: Reader) -> None:
+        """Drop a queued maximum-duty command while the pump defrosts and sets its own duty."""
         pending = self._queue.get(IntentKind.MAX_PUMP_DUTY)
         if pending is None or reported_int(read(HeishaSignal.DEFROSTING_STATE)) != 1:
             return
@@ -459,6 +485,10 @@ class CommandAdapter(SettingsMixin):
         )
 
     def _next(self, read: Reader) -> CommandKind | None:
+        """Return the kind of the next queued command that may be sent now.
+
+        During a safety hold only a lowered water setpoint may go out.
+        """
         held = self.safety_hold
         for kind, pending in self._queue.items():
             if not held:

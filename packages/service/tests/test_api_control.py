@@ -29,21 +29,25 @@ MARK = {"X-Ovenbird-Request": "1"}
 
 
 def basic(user: str, password: str) -> dict[str, str]:
+    """Return Basic-auth headers for the given user and password."""
     token = base64.b64encode(f"{user}:{password}".encode()).decode()
     return {"Authorization": f"Basic {token}"}
 
 
 async def no_sleep(_: float) -> None:
-    return None
+    """Replace the asyncio sleep so the adapter does not wait during tests."""
+    return
 
 
 def control(settings: Settings, clock: FakeClock) -> tuple[Runtime, ControlLoop]:
+    """Build a runtime and a control loop from the settings without waiting on sleeps."""
     runtime = Runtime(clock=clock)
     loop, _ = build_control(settings, runtime, None, sleep=no_sleep)
     return runtime, loop
 
 
 def latch(loop: ControlLoop, clock: FakeClock) -> None:
+    """Latch a command hold on the adapter by starting it three times for a foreign writer."""
     adapter = loop.adapter
     assert adapter is not None
     for _ in range(3):
@@ -54,10 +58,12 @@ def latch(loop: ControlLoop, clock: FakeClock) -> None:
 
 @pytest.fixture
 def secured(make_settings: Callable[..., Settings]) -> Settings:
+    """Provide settings with command publishing enabled and an admin password."""
     return make_settings(**PUBLISH, http_host="0.0.0.0", admin_password="pw-123")
 
 
 def test_release_hold_needs_admin_json_and_a_hold(secured: Settings) -> None:
+    """Releasing a hold needs admin, a JSON body and a marked same-origin request, and a hold."""
     clock = FakeClock()
     runtime, loop = control(secured, clock)
     with TestClient(create_app(runtime, secured, control=loop)) as client:
@@ -97,6 +103,7 @@ def test_release_hold_needs_admin_json_and_a_hold(secured: Settings) -> None:
 
 
 def test_release_hold_refuses_without_a_password(make_settings: Callable[..., Settings]) -> None:
+    """Releasing a hold is refused when no admin password is configured."""
     settings = make_settings(**PUBLISH)
     clock = FakeClock()
     runtime, loop = control(settings, clock)
@@ -110,6 +117,7 @@ def test_release_hold_refuses_without_a_password(make_settings: Callable[..., Se
 
 
 def test_release_hold_through_ingress(make_settings: Callable[..., Settings]) -> None:
+    """Releasing a hold through Home Assistant ingress is allowed with the request mark."""
     settings = make_settings(**PUBLISH, ingress=True)
     clock = FakeClock()
     runtime, loop = control(settings, clock)
@@ -125,6 +133,7 @@ def test_release_hold_through_ingress(make_settings: Callable[..., Settings]) ->
 def test_release_hold_without_publishing_is_a_conflict(
     secured: Settings, make_settings: Callable[..., Settings]
 ) -> None:
+    """Releasing a hold while only shadowing is a conflict."""
     shadow = make_settings(http_host="0.0.0.0", admin_password="pw-123")
     runtime, loop = control(shadow, FakeClock())
     with TestClient(create_app(runtime, shadow, control=loop)) as client:
@@ -136,6 +145,7 @@ def test_release_hold_without_publishing_is_a_conflict(
 def test_alarms_endpoint_lists_active_alarms_and_history(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """The alarms endpoint lists active alarms and the history of hold events."""
     settings = make_settings(**PUBLISH)
     clock = FakeClock()
     writer = HistoryWriter(settings.history_path, Retention(), flush_interval=0.01)

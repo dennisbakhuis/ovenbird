@@ -1,3 +1,4 @@
+import ui from '../package.json' with { type: 'json' };
 import type { DefrostState, Health, History, Signal, Snapshot } from '../src/lib/core/types';
 import { outsideAt, roomAt, roomFacts } from './decisions.ts';
 import type { PumpPhase, Scenario } from './scenario.ts';
@@ -5,7 +6,7 @@ import type { PumpPhase, Scenario } from './scenario.ts';
 export const health: Health = {
   live: true,
   ready: true,
-  version: '0.5.0',
+  version: ui.version,
   api_version: 1,
   checks: {
     mqtt: 'connected',

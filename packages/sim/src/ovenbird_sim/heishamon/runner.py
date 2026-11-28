@@ -150,6 +150,7 @@ class RegisterSaver:
 
 
 async def _receive(client: aiomqtt.Client, board: SimulatedHeishaMon) -> None:
+    """Feed the board with the broker's messages and log accepted commands and injections."""
     async for message in client.messages:
         payload = message.payload
         raw = payload if isinstance(payload, bytes | bytearray) else str(payload).encode()
@@ -164,6 +165,7 @@ async def _receive(client: aiomqtt.Client, board: SimulatedHeishaMon) -> None:
 
 
 async def _publish(client: aiomqtt.Client, publications: list[Publication]) -> None:
+    """Publish ``publications`` on the broker."""
     for item in publications:
         await client.publish(item.topic, item.payload, qos=0, retain=item.retain)
 
@@ -175,6 +177,7 @@ def weather_ended(board: SimulatedHeishaMon) -> bool:
 
 
 async def _stop_at_end(client: aiomqtt.Client, board: SimulatedHeishaMon) -> None:
+    """Log that the recorded weather has ended and publish the last-will (offline) message."""
     end = weather_end(board.weather) or 0.0
     LOGGER.error(
         "recorded weather ends at %s (simulated %s): the simulated HeishaMon stops "

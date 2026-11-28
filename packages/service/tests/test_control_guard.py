@@ -26,6 +26,7 @@ ALL_THREE = {
 
 
 def test_defaults_never_publish(make_settings: Callable[..., Settings]) -> None:
+    """By default nothing is permitted and all three conditions are reported as refused."""
     settings = make_settings()
     assert settings.control_mode == "shadow"
     assert settings.allow_commands is False
@@ -36,6 +37,7 @@ def test_defaults_never_publish(make_settings: Callable[..., Settings]) -> None:
 
 
 def test_all_three_conditions_permit(make_settings: Callable[..., Settings]) -> None:
+    """Auto mode, allowed commands and a listed broker together permit publishing."""
     guard = PublishGuard.from_settings(make_settings(**ALL_THREE))
     assert guard.permits
     assert guard.refusals() == ()
@@ -55,6 +57,7 @@ def test_all_three_conditions_permit(make_settings: Callable[..., Settings]) -> 
 def test_each_condition_is_required(
     make_settings: Callable[..., Settings], missing: str, value: object, fragment: str
 ) -> None:
+    """Removing any one of the three conditions refuses publishing with its own reason."""
     guard = PublishGuard.from_settings(make_settings(**{**ALL_THREE, missing: value}))
     assert not guard.permits
     (reason,) = guard.refusals()
@@ -78,10 +81,12 @@ def test_each_condition_is_required(
     ],
 )
 def test_broker_allowlist_is_exact(host: str, port: int, entries: set[str], listed: bool) -> None:
+    """A broker is listed only on an exact host, or host and port, match ignoring case."""
     assert broker_listed(host, port, frozenset(entries)) is listed
 
 
 def test_guard_ignores_mode_spelling() -> None:
+    """The guard permits only auto mode, not manual."""
     guard = PublishGuard(Mode.MANUAL, True, "mosquitto", 1883, frozenset({"mosquitto"}))
     assert not guard.permits
 
@@ -89,6 +94,7 @@ def test_guard_ignores_mode_spelling() -> None:
 def test_command_settings_come_from_the_environment_only(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Command permissions are ignored in the options file and only read from the environment."""
     options = tmp_path / "options.json"
     options.write_text(
         json.dumps(
@@ -116,6 +122,7 @@ def test_command_settings_come_from_the_environment_only(
 
 @pytest.mark.parametrize("entry", ["mqtt://broker", "*", "a/b", "user@broker", "x:0", "x:http"])
 def test_invalid_broker_entries(entry: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Malformed broker entries are rejected by normalisation and by settings loading."""
     with pytest.raises(ValueError, match="command broker"):
         normalise_broker(entry)
     monkeypatch.setenv("OVENBIRD_COMMAND_BROKERS", entry)
@@ -124,6 +131,7 @@ def test_invalid_broker_entries(entry: str, monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_control_settings_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unknown control mode and an inverted pump duty range are config errors."""
     monkeypatch.setenv("OVENBIRD_CONTROL_MODE", "manual")
     with pytest.raises(ConfigError, match="control_mode"):
         load_settings()
@@ -135,6 +143,7 @@ def test_control_settings_validation(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_clock_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clock speed and start are parsed, and a zero speed is rejected."""
     monkeypatch.setenv("OVENBIRD_CLOCK_SPEED", "60")
     monkeypatch.setenv("OVENBIRD_CLOCK_START", "2026-11-07T00:00:00")
     settings = load_settings()
@@ -158,6 +167,7 @@ SIM_BASE: dict[str, Any] = {
 def test_a_scaled_clock_refuses_publishing_without_simulation(
     make_settings: Callable[..., Settings], clock: dict[str, Any]
 ) -> None:
+    """A scaled or shifted clock refuses publishing unless simulation is on."""
     guard = PublishGuard.from_settings(make_settings(**SIM_BASE, **clock))
     assert not guard.permits
     assert any("OVENBIRD_SIMULATION" in reason for reason in guard.refusals())
@@ -166,6 +176,7 @@ def test_a_scaled_clock_refuses_publishing_without_simulation(
 def test_simulation_permits_a_scaled_clock_on_the_dev_broker(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """Simulation allows a scaled clock on the dev broker, also a local one on another port."""
     settings = make_settings(**SIM_BASE, clock_speed=60.0, simulation=True)
     assert PublishGuard.from_settings(settings).permits
     local = make_settings(
@@ -178,6 +189,7 @@ def test_simulation_permits_a_scaled_clock_on_the_dev_broker(
 
 
 def test_a_real_clock_needs_no_simulation(make_settings: Callable[..., Settings]) -> None:
+    """A real clock permits publishing without simulation."""
     assert PublishGuard.from_settings(make_settings(**SIM_BASE)).permits
 
 
@@ -193,6 +205,7 @@ def test_a_real_clock_needs_no_simulation(make_settings: Callable[..., Settings]
 def test_simulation_refuses_anything_but_a_dev_broker(
     make_settings: Callable[..., Settings], overrides: dict[str, Any]
 ) -> None:
+    """Simulation is a config error on any broker other than the dev broker or under ingress."""
     with pytest.raises(ConfigError, match="SIMULATION"):
         make_settings(**{**SIM_BASE, **overrides}, simulation=True)
 
@@ -200,6 +213,7 @@ def test_simulation_refuses_anything_but_a_dev_broker(
 def test_simulation_is_environment_only(
     make_settings: Callable[..., Settings], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Simulation is not read from the options file, only from the environment."""
     options = tmp_path / "options.json"
     options.write_text(json.dumps({"simulation": True, "clock_speed": 60.0}), encoding="utf-8")
     monkeypatch.setenv("OVENBIRD_OPTIONS_FILE", str(options))
@@ -212,6 +226,7 @@ def test_simulation_is_environment_only(
 
 
 def test_guard_rechecks_the_simulation_broker() -> None:
+    """The guard re-checks the broker when simulation is on and refuses a non-dev broker."""
     guard = PublishGuard(
         Mode.AUTO, True, "broker.lan", 1883, frozenset({"broker.lan"}), False, True
     )

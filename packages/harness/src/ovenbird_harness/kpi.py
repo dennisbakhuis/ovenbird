@@ -20,10 +20,12 @@ HOLD_CODE: Final = "command_hold"
 
 
 def _day(ts: float) -> str:
+    """Return the UTC calendar day (ISO date) of unix time ``ts``."""
     return datetime.fromtimestamp(ts, UTC).date().isoformat()
 
 
 def _share(counter: Counter[str]) -> dict[str, float]:
+    """Return the counter as shares summing to one (empty if the counter is empty)."""
     total = sum(counter.values())
     return {key: value / total for key, value in sorted(counter.items())} if total else {}
 
@@ -97,7 +99,13 @@ class Kpis:
     starts: int = 0
 
     def decision(self, row: DecisionRow) -> None:
-        """Count one decision."""
+        """Count one decision.
+
+        Parameters
+        ----------
+        row
+            Decision row from the history database.
+        """
         self.decisions += 1
         self.ladder[row.ladder] += 1
         self.reasons[row.reason] += 1
@@ -147,7 +155,13 @@ class Kpis:
             )
 
     def plant(self, sample: PlantSample) -> None:
-        """Account one plant cycle."""
+        """Account one plant cycle.
+
+        Parameters
+        ----------
+        sample
+            Plant state over the cycle just completed.
+        """
         if self.first_ts is None:
             self.first_ts = sample.ts - sample.dt
         self.last_ts = sample.ts
@@ -176,13 +190,8 @@ class Kpis:
         return (self.last_ts - self.first_ts) / 86400.0
 
     def room_feedback_decisions(self) -> int:
-        """Return the decisions made with the room feedback active on the schedule's target.
-
-        ``model_plan`` counts like ``schedule_curve_feedback``: the controller applies a
-        model plan only as a shift of the room target of an active room feedback (no
-        water term, ignored without a trusted room value), so the PI runs in both.
-        """
-        return self.ladder["schedule_curve_feedback"] + self.ladder["model_plan"]
+        """Return the decisions made with the room feedback active on the schedule's target."""
+        return self.ladder["schedule_curve_feedback"]
 
     def run_histogram(self) -> dict[str, int]:
         """Completed compressor runs per length bin (minutes)."""

@@ -213,7 +213,19 @@ class PublishingClient(Protocol):
         ...
 
     async def publish(self, topic: str, payload: str, qos: int, retain: bool) -> Any:
-        """Publish one message."""
+        """Publish one message.
+
+        Parameters
+        ----------
+        topic
+            MQTT topic to publish to.
+        payload
+            Message body.
+        qos
+            MQTT quality of service level.
+        retain
+            Whether the broker keeps the message.
+        """
         ...
 
 
