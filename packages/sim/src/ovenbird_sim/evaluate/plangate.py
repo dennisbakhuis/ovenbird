@@ -1,7 +1,6 @@
 """KPIs of a run, paired differences over replicas and the three-valued gate of a planner.
 
-KPIs (:func:`run_result`)
--------------------------
+**KPIs (:func:`run_result`)**
 Every KPI of a run is per kept day (the first simulated day is dropped as warm-up):
 degree-hours below comfort minus :data:`BAND_K`, below comfort and above comfort plus
 :data:`BAND_K`; compressor starts and short runs; electricity and heat; COP; setpoint
@@ -9,16 +8,14 @@ writes (setpoint changes actually sent to the pump); the largest setpoint step; 
 share of ticks with a plan applied and the mean and largest absolute offset. The
 comfort reference is always the owner's comfort target :data:`COMFORT_C`.
 
-Statistics
-----------
+**Statistics**
 A cell's statistic is the mean over its weather replicas of the paired difference
 (with minus without) per day; replicas are independent, the days within a run are
 not, so the interval is a bootstrap over replicas (:func:`bootstrap`). With few
 replicas the plain percentile bootstrap is too narrow; the expanded percentile
 interval widens its quantiles to the coverage of a t interval (:func:`expanded_alpha`).
 
-Gate (:func:`judge_cell`)
--------------------------
+**Gate (:func:`judge_cell`)**
 Per criterion and cell, on the interval of the difference against its margin:
 ``PASS`` when the upper bound is within the margin, ``FAIL`` when the lower bound is
 beyond it, ``INCONCLUSIVE`` otherwise. Margins are per day: :data:`CRITERIA`.
@@ -468,6 +465,17 @@ def pooled_check(
     Per replica the KPI is averaged over the cells without and with the planner, and
     the criterion's statistic and interval are taken on those means (replicas are
     resampled jointly, so the cells that share a baseline stay paired).
+
+    Parameters
+    ----------
+    criterion
+        Criterion to judge.
+    cells
+        Per cell the result rows without and with the planner.
+    n
+        Number of replicas used.
+    label
+        Label of the check, for messages.
     """
     if not cells:
         empty = Interval(math.nan, math.nan, math.nan, 0, ALPHA)
@@ -629,6 +637,7 @@ def combine(
     """
 
     def text(verdict: CellVerdict, outcome_: Outcome, cost: bool | None = None) -> str:
+        """Return the names of the checks of ``verdict`` with outcome ``outcome_``."""
         names = [
             c.criterion
             for c in verdict.checks
@@ -637,6 +646,7 @@ def combine(
         return ", ".join(names)
 
     def listed(credible: bool, outcome_: Outcome, cost: bool | None = None) -> tuple[str, ...]:
+        """Return the cells of one credibility with ``outcome_`` checks as ``label [names]``."""
         found = [(lb, text(v, outcome_, cost)) for lb, c, v in verdicts if c is credible]
         return tuple(f"{lb} [{names}]" for lb, names in found if names)
 

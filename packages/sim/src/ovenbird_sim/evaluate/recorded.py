@@ -7,8 +7,7 @@ the mirrored room temperature are decoded. Home Assistant states from the Datala
 become readings at their ``last_updated`` time and are merged into the same
 time-ordered stream.
 
-Room temperature freshness
---------------------------
+**Room temperature freshness**
 The recording holds the room sensor's state *changes* only (the mirror automation
 and the Datalake both store ``last_updated``, not ``last_reported``), and the living
 room sensor changes in small steps every few hours. A open-loop run judges it by the
@@ -124,12 +123,14 @@ def setcurves_target(payload: str) -> int | None:
 
 
 def _open(path: Path) -> IO[str]:
+    """Open a capture file for text reading, decompressing it when it ends in ``.gz``."""
     if path.suffix == ".gz":
         return gzip.open(path, "rt", encoding="utf-8")
     return path.open("r", encoding="utf-8")
 
 
 def _day(path: Path) -> date | None:
+    """Return the date in a capture file name (``YYYY-MM-DD.jsonl``), or ``None``."""
     try:
         return date.fromisoformat(path.name.split(".", 1)[0])
     except ValueError:
@@ -290,6 +291,7 @@ class RoomResolver:
 
 
 def _room(snapshot: Snapshot, signal: SignalId) -> RoomInput | None:
+    """Return the finite numeric reading of ``signal`` as a room input, or ``None``."""
     view = snapshot.get(signal)
     if view is None:
         return None

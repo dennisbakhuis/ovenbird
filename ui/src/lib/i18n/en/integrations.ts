@@ -98,7 +98,7 @@ export const integrations = {
   check_ca_file_missing: 'The CA certificate file does not exist on the ovenbird server.',
   curveOutsideTitle: 'Outside temperature',
   curveOutsideOnly:
-    "Only the heating curve uses this sensor. The safety envelope, the safety monitors and the house model keep the pump's own sensor.",
+    "Only the heating curve uses this sensor. The safety envelope and the safety monitors keep the pump's own sensor.",
   curveOutsidePump: "No sensor chosen: the curve uses the pump's own outside sensor.",
   curveOutsideFallback:
     "The chosen sensor has no fresh, plausible value, so the curve uses the pump's sensor now.",

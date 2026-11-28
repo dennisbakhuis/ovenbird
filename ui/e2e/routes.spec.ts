@@ -1,4 +1,5 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test';
+import { settled } from './settle';
 import { allowedHeight } from './budget';
 import { mkdirSync } from 'node:fs';
 
@@ -57,6 +58,11 @@ const ROUTES: RouteSpec[] = [
   },
   { name: 'weather', hash: '#/weather', landmarks: ['weather-now', 'weather-chart'] },
   { name: 'settings', hash: '#/settings', landmarks: ['settings-overview'] },
+  {
+    name: 'settings-features',
+    hash: '#/settings/features',
+    landmarks: ['settings-features', 'feature-dayshift'],
+  },
   { name: 'settings-curve', hash: '#/settings/curve', landmarks: ['curve-editor', 'curve-table'] },
   {
     name: 'settings-room',
@@ -94,22 +100,7 @@ const ROUTES: RouteSpec[] = [
   {
     name: 'house',
     hash: '#/house',
-    landmarks: ['house-page', 'house-status', 'house-schematic', 'house-score', 'house-facts'],
-  },
-  {
-    name: 'house-model',
-    hash: '#/house/model',
-    landmarks: ['house-page', 'house-signature', 'house-prediction', 'house-quality'],
-  },
-  {
-    name: 'house-learning',
-    hash: '#/house/learning',
-    landmarks: ['house-page', 'house-run', 'house-timeline', 'house-proposal'],
-  },
-  {
-    name: 'house-what-if',
-    hash: '#/house/what-if',
-    landmarks: ['house-page', 'house-whatif', 'whatif-inputs', 'whatif-results'],
+    landmarks: ['house-page', 'house-loss-now', 'house-facts-input'],
   },
   { name: 'settings-house', hash: '#/settings/house', landmarks: ['house-section'] },
   { name: 'settings-ha', hash: '#/settings/ha', landmarks: ['ha-card', 'ha-sensors'] },
@@ -134,6 +125,7 @@ const PHONE_BUDGET: Record<string, number> = {
   'activity-commands': 2000,
   'system-signals': 1600,
   'settings-room': 1600,
+  'settings-features': 4000,
   'settings-emitter': 1800,
   'system-data': 3600,
 };
@@ -233,7 +225,7 @@ for (const viewport of VIEWPORTS) {
             expect(strip?.height ?? 0, 'status strip is one row').toBeLessThanOrEqual(60);
           }
 
-          await page.waitForTimeout(400);
+          await settled(page);
           const overflow = await page.evaluate(() => ({
             scroll: document.documentElement.scrollWidth,
             inner: window.innerWidth,
@@ -271,7 +263,7 @@ test.describe('Dutch phone heights', () => {
       await expect(
         page.getByTestId(name === 'home' ? 'home-chart' : 'pump-settings'),
       ).toBeVisible();
-      await page.waitForTimeout(1200);
+      await settled(page);
       const height = await page.evaluate(() => document.documentElement.scrollHeight);
       expect(height, `Dutch phone height of ${name}`).toBeLessThanOrEqual(
         allowedHeight(PHONE_BUDGET[name] ?? 0),
@@ -448,7 +440,7 @@ test.describe('shell', () => {
         await expect(frame.getByTestId('room-hero')).toBeVisible();
         await expect(frame.locator('html')).toHaveAttribute('data-framed', '');
         await expect(frame.locator('.brand')).toBeHidden();
-        await page.waitForTimeout(400);
+        await settled(page);
         await page.screenshot({ path: `${SHOTS}/framed-${viewport.label}-${scheme}.png` });
       });
     }

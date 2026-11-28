@@ -60,6 +60,7 @@ class OvenbirdRestart(Scenario):
         self.at(self.down_s, self._start)
 
     def _stop(self, run: FullRun, t: float) -> None:
+        """Record the budget, verified values and persisted state, then stop the service."""
         status = run.system.adapter.status(run.clock())
         self.notes["budget_used_before"] = status["budget"]["used"]
         self.notes["budget_day_before"] = status["budget"]["day"]
@@ -71,6 +72,7 @@ class OvenbirdRestart(Scenario):
         self.notes["saved_setpoint"] = state.get("setpoint")
 
     def _start(self, run: FullRun, t: float) -> None:
+        """Start the service again and record what the loop and the adapter restored."""
         run.start_service()
         loop = run.system.loop
         self.notes["restored"] = loop.restored
@@ -159,6 +161,15 @@ class ConfigApply(Scenario):
         self.at(self.revert_s, self._revert)
 
     def _apply(self, run: FullRun, t: float) -> None:
+        """Apply comfort and the 0 °C curve point changes through the configuration store.
+
+        Parameters
+        ----------
+        run
+            The full run.
+        t
+            Simulation time of the call in unix seconds.
+        """
         manager = run.system.config
         settings = manager.settings
         points = [[p.outside_c, p.water_c] for p in settings.controller_config().curve.points]
@@ -188,6 +199,7 @@ class ConfigApply(Scenario):
         self.notes["warnings"] = warnings
 
     def _revert(self, run: FullRun, t: float) -> None:
+        """Revert comfort and curve to the configured values and count the audit rows."""
         manager = run.system.config
         changes = {"control_comfort_c": None, "control_curve": None}
         warnings = [w.code for w in manager.validate(changes).warnings]
@@ -204,7 +216,18 @@ class ConfigApply(Scenario):
         self.notes["audit_applies"] = sum(1 for e in events if e.action == "config_apply")
 
     def checks(self, run: FullRun) -> list[Check]:
-        """Next-tick swap, version on every decision, state carried, new terms, audit."""
+        """State and budget restored, no trouble, nothing re-sent after the restart.
+
+        Parameters
+        ----------
+        run
+            The full run whose settings, board and checker the verdicts read.
+
+        Returns
+        -------
+        list[Check]
+            The verdicts.
+        """
         if self.version is None or self.applied_at is None:
             return [Check("configuration applied", "fail", "the apply did not happen")]
         applied = self.applied_at
@@ -305,12 +328,14 @@ class PumpSettingWrite(Scenario):
         self._write(run, self.start)
 
     def _reported(self, run: FullRun) -> int | None:
+        """Return the pump's fresh reported value of the setting, or None."""
         view = run.system.runtime.store.view(PUMP_SETTINGS[self.setting].signal, run.clock())
         if view is None or not view.fresh or type(view.value) is not int:
             return None
         return view.value
 
     def _request(self, run: FullRun, value: int, expect: int) -> SettingRefusedError | None:
+        """Request a write of ``value`` over ``expect``; return the refusal, or None if queued."""
         try:
             result = run.system.pumps.write(
                 self.setting.value, {"value": value, "expect": expect}, Actor(HARNESS_ADMIN)
@@ -321,9 +346,19 @@ class PumpSettingWrite(Scenario):
         return None
 
     def _retry(self, t: float, action: Callable[[FullRun, float], None]) -> None:
+        """Run ``action`` again at the next cycle."""
         self.at(t - self.start + CYCLE_S, action)
 
     def _write(self, run: FullRun, t: float) -> None:
+        """Write the setting once no command is in flight, retrying while it is busy or refused.
+
+        Parameters
+        ----------
+        run
+            The full run.
+        t
+            Simulation time of the call in unix seconds.
+        """
         reported = self._reported(run)
         spec = PUMP_SETTINGS[self.setting]
         status = run.system.adapter.status(run.clock())
@@ -347,6 +382,7 @@ class PumpSettingWrite(Scenario):
         self._watch(run, t)
 
     def _command(self, row: CommandRow) -> None:
+        """Record the budget when the setting's write is first sent."""
         super()._command(row)
         run = self.run
         first_sent = (
@@ -358,6 +394,7 @@ class PumpSettingWrite(Scenario):
             self.notes["budget_day_after"] = budget["day"]
 
     def _watch(self, run: FullRun, t: float) -> None:
+        """Wait for the write to be verified, collect board and audit, then try during a defrost."""
         verified = [
             c for c in self.commands if c.kind == self.setting.value and c.status == "verified"
         ]
@@ -375,6 +412,15 @@ class PumpSettingWrite(Scenario):
             self._retry(t, self._watch)
 
     def _in_defrost(self, run: FullRun, t: float) -> None:
+        """Try the write during a defrost (refused), waiting for or reporting one, then restore.
+
+        Parameters
+        ----------
+        run
+            The full run.
+        t
+            Simulation time of the call in unix seconds.
+        """
         view = run.system.runtime.store.view(HeishaSignal.DEFROSTING_STATE, run.clock())
         defrosting = view is not None and view.fresh and view.value == 1
         if not defrosting:
@@ -414,6 +460,7 @@ class PumpSettingWrite(Scenario):
         self._retry(t, self._in_defrost)
 
     def _restore(self, run: FullRun, t: float) -> None:
+        """Restore the original value, retrying until it is accepted."""
         reported = self._reported(run)
         if self.original is None or reported is None:
             return
@@ -426,7 +473,18 @@ class PumpSettingWrite(Scenario):
             self.at(t - self.start + 60.0, self._restore)
 
     def checks(self, run: FullRun) -> list[Check]:
-        """Check verification, journal, audit, budget, the defrost refusal and the restore."""
+        """Check verification, journal, audit, budget, the defrost refusal and the restore.
+
+        Parameters
+        ----------
+        run
+            The full run whose settings, board and checker the verdicts read.
+
+        Returns
+        -------
+        list[Check]
+            The verdicts.
+        """
         if self.written_at is None or self.target is None:
             return [
                 Check(

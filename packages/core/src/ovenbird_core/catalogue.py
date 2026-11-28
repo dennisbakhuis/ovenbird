@@ -147,23 +147,70 @@ MODEL_PATTERN: Final = r"(?:[0-9A-F]{2} ){9}[0-9A-F]{2}"
 def _temp(
     name: str, description: str, low: float, high: float, *, fractional: bool = False
 ) -> TopicSpec:
+    """Return a temperature topic spec in °C (whole degrees unless ``fractional``).
+
+    Parameters
+    ----------
+    name
+        HeishaMon topic name.
+    description
+        What the topic reports.
+    low
+        Lowest plausible value in °C.
+    high
+        Highest plausible value in °C.
+    fractional
+        Whether the topic carries decimals instead of whole degrees.
+    """
     kind = ValueKind.FLOAT if fractional else ValueKind.INT
     return TopicSpec(name, kind, description, CELSIUS, low, high)
 
 
 def _int(name: str, description: str, unit: str | None, low: float, high: float) -> TopicSpec:
+    """Return an integer topic spec with the plausible range ``low`` to ``high``.
+
+    Parameters
+    ----------
+    name
+        HeishaMon topic name.
+    description
+        What the topic reports.
+    unit
+        Unit of the value, ``None`` for a dimensionless topic.
+    low
+        Lowest plausible value, in ``unit``.
+    high
+        Highest plausible value, in ``unit``.
+    """
     return TopicSpec(name, ValueKind.INT, description, unit, low, high)
 
 
 def _float(name: str, description: str, unit: str | None, low: float, high: float) -> TopicSpec:
+    """Return a decimal topic spec with the plausible range ``low`` to ``high``.
+
+    Parameters
+    ----------
+    name
+        HeishaMon topic name.
+    description
+        What the topic reports.
+    unit
+        Unit of the value, ``None`` for a dimensionless topic.
+    low
+        Lowest plausible value, in ``unit``.
+    high
+        Highest plausible value, in ``unit``.
+    """
     return TopicSpec(name, ValueKind.FLOAT, description, unit, low, high)
 
 
 def _enum(name: str, description: str, meanings: tuple[str, ...]) -> TopicSpec:
+    """Return an enumerated topic spec described by its ``meanings``."""
     return TopicSpec(name, ValueKind.ENUM, description, meanings=meanings)
 
 
 def _text(name: str, description: str, pattern: str) -> TopicSpec:
+    """Return a text topic spec whose payload must match the regex ``pattern``."""
     return TopicSpec(name, ValueKind.TEXT, description, pattern=pattern)
 
 

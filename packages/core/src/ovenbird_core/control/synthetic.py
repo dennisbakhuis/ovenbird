@@ -71,6 +71,21 @@ class PlantView:
 def _view(
     now: Instant, signal: SignalId, value: Value, source: SourceKind, stale: bool
 ) -> SignalView:
+    """Return a signal view that is fresh or aged beyond its source's freshness limit.
+
+    Parameters
+    ----------
+    now
+        Time of the snapshot.
+    signal
+        Signal the view belongs to.
+    value
+        Value of the view.
+    source
+        Source the value came from.
+    stale
+        Whether the view is aged past the freshness limit.
+    """
     max_age = HA_MAX_AGE_S if source is SourceKind.HA else HEISHAMON_MAX_AGE_S
     age = max_age + 60.0 if stale else FRESH_AGE_S
     return SignalView(
@@ -149,6 +164,7 @@ def synthetic_inputs(
     plan: PlanSlice | None = None,
     override: Override | None = None,
     room_signal: SignalId | None = ROOM_SIGNAL,
+    room_override: Override | None = None,
 ) -> ControlInputs:
     """Build the controller inputs of one tick from ``plant``.
 
@@ -162,6 +178,8 @@ def synthetic_inputs(
         Passed through to :class:`~ovenbird_core.control.types.ControlInputs`.
     room_signal
         Room sensor signal id; ``None`` for an install without room sensor.
+    room_override
+        A temporary room target (``room_target`` or ``away``).
 
     Returns
     -------
@@ -170,5 +188,10 @@ def synthetic_inputs(
     """
     snapshot = synthetic_snapshot(now, plant, room_signal=room_signal or ROOM_SIGNAL)
     return control_inputs(
-        snapshot, room_signal=room_signal, mode=mode, plan=plan, override=override
+        snapshot,
+        room_signal=room_signal,
+        mode=mode,
+        plan=plan,
+        override=override,
+        room_override=room_override,
     )

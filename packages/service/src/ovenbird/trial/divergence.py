@@ -94,6 +94,7 @@ def divergence_step(start: float, end: float) -> int:
 
 
 def _has_table(conn: sqlite3.Connection, table: str) -> bool:
+    """Return whether the database has the table."""
     found = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
     ).fetchone()
@@ -103,6 +104,21 @@ def _has_table(conn: sqlite3.Connection, table: str) -> bool:
 def _decisions(
     conn: sqlite3.Connection, start: float, end: float, carry_s: float
 ) -> list[tuple[float, str, str, float | None]]:
+    """Return the decisions in the window plus the last one before it.
+
+    Each is a ``(ts, mode, reason, setpoint)`` tuple.
+
+    Parameters
+    ----------
+    conn
+        Open history database connection.
+    start
+        Start of the window, Unix time.
+    end
+        End of the window, Unix time.
+    carry_s
+        How far before the window the last decision may be carried in, in seconds.
+    """
     if not _has_table(conn, "decision"):
         return []
     rows = conn.execute(
@@ -116,6 +132,7 @@ def _decisions(
 
 
 def _pump(conn: sqlite3.Connection, start: int, end: float) -> dict[int, float]:
+    """Return the pump's setpoint per minute from the rollups."""
     if not _has_table(conn, "rollup") or not _has_table(conn, "signal"):
         return {}
     row = conn.execute("SELECT id FROM signal WHERE name = ?", (PUMP_SIGNAL,)).fetchone()
@@ -130,6 +147,7 @@ def _pump(conn: sqlite3.Connection, start: int, end: float) -> dict[int, float]:
 
 
 def _verified(conn: sqlite3.Connection, end: float) -> list[tuple[float, int]]:
+    """Return the verified water setpoint commands before ``end`` as ``(ts, value)``."""
     if not _has_table(conn, "command"):
         return []
     rows = conn.execute(
@@ -267,6 +285,8 @@ def minutes(path: Path, start: float, end: float, *, interval_s: float = 60.0) -
 
 @dataclass(slots=True)
 class _Episode:
+    """A run of minutes in which ovenbird and the pump disagree."""
+
     start: int
     end: int
     max_abs: float
@@ -276,6 +296,7 @@ class _Episode:
     ended_by: str = "open"
 
     def to_json(self) -> dict[str, Any]:
+        """Return the episode for the API."""
         return {
             "start": iso_from_unix(self.start),
             "end": iso_from_unix(self.end),
@@ -293,7 +314,15 @@ class _Episode:
 
 
 def episodes(rows: Sequence[Minute], threshold_k: float) -> list[_Episode]:
-    """Return the runs of minutes with ``|diff|`` above ``threshold_k``, oldest first."""
+    """Return the runs of minutes with ``|diff|`` above ``threshold_k``, oldest first.
+
+    Parameters
+    ----------
+    rows
+        Per-minute comparison rows, oldest first.
+    threshold_k
+        Difference, in kelvin, above which a minute counts.
+    """
     found: list[_Episode] = []
     open_: _Episode | None = None
     for row in rows:
@@ -333,6 +362,15 @@ def summarise(rows: Sequence[Minute], threshold_k: float) -> dict[str, Any]:
 
 
 def _series(rows: Sequence[Minute], step: int) -> dict[str, list[Any]]:
+    """Return the comparison columns, one point per ``step`` seconds.
+
+    Parameters
+    ----------
+    rows
+        Per-minute comparison rows.
+    step
+        Seconds per point.
+    """
     columns: dict[str, list[Any]] = {
         name: [] for name in ("at", "ovenbird", "pump", "diff", "max_abs", "writer", "mode")
     }

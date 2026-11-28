@@ -1,12 +1,16 @@
 <script lang="ts">
+  import { poll } from '$lib/core/poll.svelte';
   import { fetchHistory, fetchSeries, fetchWeather } from '$lib/core/api';
+  import AwayControl from '$components/home/AwayControl.svelte';
+  import BoostControl from '$components/home/BoostControl.svelte';
   import ComfortSheet from '$components/home/ComfortSheet.svelte';
   import DayStrip from '$components/home/DayStrip.svelte';
   import HomeTiles from '$components/home/HomeTiles.svelte';
   import WeekCard from '$components/insight/WeekCard.svelte';
-  import { createInsight } from '$components/insight/useInsight.svelte';
+  import { createInsight } from '$lib/house/useInsight.svelte';
   import PumpCard from '$components/home/PumpCard.svelte';
   import RoomCard from '$components/home/RoomCard.svelte';
+  import SummerNote from '$components/home/SummerNote.svelte';
   import VerdictCard from '$components/home/VerdictCard.svelte';
   import StoveBanner from '$components/stove/StoveBanner.svelte';
   import StoveStart from '$components/stove/StoveStart.svelte';
@@ -127,31 +131,27 @@
     void ready;
     const midnightOf = () =>
       serviceMidnight(daily.state.data) ?? startOfLocalDay(live.serviceNow());
-    const controller = new AbortController();
-    const load = async () => {
-      const to = live.serviceNow() - 24 * 3_600_000;
-      const from = midnightOf() - 24 * 3_600_000;
-      if (to - from < 15 * 60_000) {
-        yesterdayKwh = null;
-        return;
-      }
-      try {
-        const history = await fetchHistory([SIGNAL.electric, SIGNAL.heat], controller.signal, {
-          from: new Date(from),
-          to: new Date(to),
-          step: 900,
-        });
-        yesterdayKwh = yesterdaySoFar(history, from, to);
-      } catch {
-        if (!controller.signal.aborted) yesterdayKwh = null;
-      }
-    };
-    void load();
-    const timer = window.setInterval(load, 600_000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
+    return poll(
+      async (signal) => {
+        const to = live.serviceNow() - 24 * 3_600_000;
+        const from = midnightOf() - 24 * 3_600_000;
+        if (to - from < 15 * 60_000) {
+          yesterdayKwh = null;
+          return;
+        }
+        try {
+          const history = await fetchHistory([SIGNAL.electric, SIGNAL.heat], signal, {
+            from: new Date(from),
+            to: new Date(to),
+            step: 900,
+          });
+          yesterdayKwh = yesterdaySoFar(history, from, to);
+        } catch {
+          if (!signal.aborted) yesterdayKwh = null;
+        }
+      },
+      { intervalMs: 600_000 },
+    );
   });
   const chartHistory = $derived(range === '7d' ? week : day);
   const heatingOffC = $derived(
@@ -171,94 +171,75 @@
   $effect(() => {
     void ready;
     const ids = [...DAY_SIGNALS, ...(roomId ? [roomId] : [])];
-    const controller = new AbortController();
-    const load = async () => {
-      const to = new Date(live.serviceNow());
-      const from = new Date(to.getTime() - RANGE_MS['24h']);
-      try {
-        day = await fetchHistory(ids, controller.signal, { from, to, step: 60 });
-        dayFailed = false;
-      } catch {
-        if (!controller.signal.aborted) dayFailed = true;
-      }
-    };
-    void load();
-    const timer = window.setInterval(load, 120_000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
+    return poll(
+      async (signal) => {
+        const to = new Date(live.serviceNow());
+        const from = new Date(to.getTime() - RANGE_MS['24h']);
+        try {
+          day = await fetchHistory(ids, signal, { from, to, step: 60 });
+          dayFailed = false;
+        } catch {
+          if (!signal.aborted) dayFailed = true;
+        }
+      },
+      { intervalMs: 120_000 },
+    );
   });
 
   $effect(() => {
     if (range !== '7d') return;
     void ready;
     const ids = [SIGNAL.outside, SIGNAL.outlet, SIGNAL.inlet, ...(roomId ? [roomId] : [])];
-    const controller = new AbortController();
-    const load = async () => {
-      const to = new Date(live.serviceNow());
-      const from = new Date(to.getTime() - RANGE_MS['7d']);
-      try {
-        week = await fetchHistory(ids, controller.signal, { from, to, step: 900 });
-        weekFailed = false;
-      } catch {
-        if (!controller.signal.aborted) weekFailed = true;
-      }
-    };
-    void load();
-    const timer = window.setInterval(load, 600_000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
+    return poll(
+      async (signal) => {
+        const to = new Date(live.serviceNow());
+        const from = new Date(to.getTime() - RANGE_MS['7d']);
+        try {
+          week = await fetchHistory(ids, signal, { from, to, step: 900 });
+          weekFailed = false;
+        } catch {
+          if (!signal.aborted) weekFailed = true;
+        }
+      },
+      { intervalMs: 600_000 },
+    );
   });
 
   $effect(() => {
     void ready;
-    const controller = new AbortController();
     const span = RANGE_MS[range];
-    const load = async () => {
-      const to = new Date(live.serviceNow());
-      const from = new Date(to.getTime() - span);
-      try {
-        const series = await fetchSeries(
-          { from, to, step: range === '7d' ? 3600 : 900 },
-          controller.signal,
-        );
-        setpoint = series.at.flatMap((at, i): Point[] => {
-          const value = series.setpoint[i];
-          return typeof value === 'number' ? [[Date.parse(at), value]] : [];
-        });
-      } catch {
-        if (!controller.signal.aborted) setpoint = [];
-      }
-    };
-    void load();
-    const timer = window.setInterval(load, 300_000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
+    return poll(
+      async (signal) => {
+        const to = new Date(live.serviceNow());
+        const from = new Date(to.getTime() - span);
+        try {
+          const series = await fetchSeries({ from, to, step: range === '7d' ? 3600 : 900 }, signal);
+          setpoint = series.at.flatMap((at, i): Point[] => {
+            const value = series.setpoint[i];
+            return typeof value === 'number' ? [[Date.parse(at), value]] : [];
+          });
+        } catch {
+          if (!signal.aborted) setpoint = [];
+        }
+      },
+      { intervalMs: 300_000 },
+    );
   });
 
   $effect(() => {
-    const controller = new AbortController();
-    const load = async () => {
-      try {
-        const weather = await fetchWeather(1, 26, controller.signal);
-        forecastOff = !weather.enabled;
-        forecast = weather.enabled ? (weather.forecast?.points ?? []) : null;
-      } catch {
-        forecast = null;
-        forecastOff = false;
-      }
-    };
-    void load();
-    const timer = window.setInterval(load, 600_000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
+    return poll(
+      async (signal) => {
+        try {
+          const weather = await fetchWeather(1, 26, signal);
+          forecastOff = !weather.enabled;
+          forecast = weather.enabled ? (weather.forecast?.points ?? []) : null;
+        } catch {
+          forecast = null;
+          forecastOff = false;
+        }
+      },
+      { intervalMs: 600_000 },
+    );
   });
 </script>
 
@@ -267,6 +248,7 @@
 <div class="stack">
   <VerdictCard {verdict} {tonight} clock={live.clock} />
   <StoveBanner {ctl} {live} />
+  <SummerNote {ctl} />
 
   <div class="grid top">
     <RoomCard
@@ -300,6 +282,13 @@
     />
   </div>
 
+  {#if ctl.control?.boost?.enabled || ctl.control?.away?.enabled}
+    <div class="manual">
+      <BoostControl {ctl} {live} />
+      <AwayControl {ctl} {live} />
+    </div>
+  {/if}
+
   <DayStrip {lanes} from={dayStart} to={dayEnd} loading={day === null} failed={dayFailed} />
 
   <TodayChart
@@ -324,11 +313,21 @@
 {/if}
 
 <style>
+  .manual {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+    gap: var(--space-3);
+    align-items: start;
+  }
   .top {
     align-items: stretch;
   }
   @media (--narrow) {
+    .manual:has(:global(.panel)) {
+      grid-template-columns: minmax(0, 1fr);
+    }
     .stack,
+    .manual,
     .top {
       gap: var(--space-3);
     }

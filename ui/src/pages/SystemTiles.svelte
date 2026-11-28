@@ -5,6 +5,7 @@
   An older service without these endpoints gets a calm "not offered yet" line per tile.
 -->
 <script lang="ts">
+  import { poll } from '$lib/core/poll.svelte';
   import AboutCard from '$components/system/AboutCard.svelte';
   import NotificationsCard from '$components/system/NotificationsCard.svelte';
   import SafetyNetCard from '$components/system/SafetyNetCard.svelte';
@@ -34,33 +35,28 @@
 
   $effect(() => {
     void live.configVersion;
-    const controller = new AbortController();
-    let timer: number | undefined;
-    const load = async () => {
-      const [aboutResult, notifyResult, pumpResult] = await Promise.allSettled([
-        fetchAbout(controller.signal),
-        fetchNotifications(controller.signal),
-        fetchPumpSettings(controller.signal),
-      ]);
-      if (controller.signal.aborted) return;
-      if (aboutResult.status === 'fulfilled') {
-        about = aboutResult.value;
-        aboutFailed = false;
-      } else aboutFailed = true;
-      if (pumpResult.status === 'fulfilled')
-        pump = { model: pumpResult.value.model, profile: pumpResult.value.profile };
-      if (notifyResult.status === 'fulfilled') {
-        notifications = notifyResult.value;
-        notifyHealth.set(notifyResult.value);
-        notifyFailed = false;
-      } else notifyFailed = true;
-      timer = window.setTimeout(load, REFRESH_MS);
-    };
-    void load();
-    return () => {
-      controller.abort();
-      window.clearTimeout(timer);
-    };
+    return poll(
+      async (signal) => {
+        const [aboutResult, notifyResult, pumpResult] = await Promise.allSettled([
+          fetchAbout(signal),
+          fetchNotifications(signal),
+          fetchPumpSettings(signal),
+        ]);
+        if (signal.aborted) return;
+        if (aboutResult.status === 'fulfilled') {
+          about = aboutResult.value;
+          aboutFailed = false;
+        } else aboutFailed = true;
+        if (pumpResult.status === 'fulfilled')
+          pump = { model: pumpResult.value.model, profile: pumpResult.value.profile };
+        if (notifyResult.status === 'fulfilled') {
+          notifications = notifyResult.value;
+          notifyHealth.set(notifyResult.value);
+          notifyFailed = false;
+        } else notifyFailed = true;
+      },
+      { intervalMs: REFRESH_MS },
+    );
   });
 
   async function test(): Promise<TestFailure | null> {

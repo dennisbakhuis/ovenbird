@@ -22,4 +22,5 @@ class WeatherSettings(FeatureSettings):
     @field_validator("weather_latitude", "weather_longitude")
     @classmethod
     def _round_location(cls, value: float | None) -> float | None:
+        """Round a coordinate to the stored precision."""
         return None if value is None else round(value, LOCATION_DECIMALS)

@@ -214,13 +214,4 @@ export const glossary: GlossaryEntry[] = [
     related: ['divergence', 'shadow', 'auto-mode'],
     aliases: ['hand back', 'rollback', 'release', 'teruggeven', 'fallback'],
   },
-  {
-    id: 'model-plan',
-    term: 'Model plan',
-    short:
-      'A small shift of the room target, worked out from the house model, the sun and the weather forecast.',
-    body: 'Every 15 minutes the planner predicts how the room will move in the next hours. It sets the target back a little before free heat from the sun arrives, and raises it a little before colder weather, within fixed bounds (by default at most 0.5 K down and 0.3 K up). The switch has three positions: **Off**, **Shadow** (it computes and records what it would do, and changes nothing) and **On** (the shift is applied; locked for now). See [House → Control](#/house).',
-    related: ['forecast', 'shadow', 'room-feedback'],
-    aliases: ['shadow', 'model use', 'planner', 'set-back', 'pre-heat'],
-  },
 ];

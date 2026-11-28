@@ -41,12 +41,14 @@ def build_pump_router(settings: Settings, pumps: PumpSettings, audit: RefusalAud
 
     @router.get("/pump/settings", **returns(PumpSettingsPage))
     async def read() -> Json:
+        """Return the pump settings payload."""
         return pumps.payload()
 
     @router.post(
         "/pump/settings/{setting_id}", status_code=202, **returns(PumpWriteResult, encoder=True)
     )
     async def write(setting_id: str, request: Request) -> JSONResponse:
+        """Write one pump setting as an operator, or answer why it was refused."""
         who = require_role(request, settings, Role.ADMIN, audit)
         body = await read_json(request)
         try:

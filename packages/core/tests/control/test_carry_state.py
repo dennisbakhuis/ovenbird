@@ -42,6 +42,7 @@ STATE = OvenbirdState(
     kp=st.floats(0.0, 6.0),
 )
 def test_integrator_lands_inside_the_new_clamp(integral: float, limit: float, kp: float) -> None:
+    """A tighter integral limit clamps the carried integrator and keeps setpoint and dwell timer."""
     new = replace(
         MIXED, feedback=RoomFeedbackConfig(kp=kp, output_limit_k=3.0, integral_limit_k=limit)
     )
@@ -52,17 +53,20 @@ def test_integrator_lands_inside_the_new_clamp(integral: float, limit: float, kp
 
 
 def test_setpoint_dwell_timer_filter_and_run_survive() -> None:
+    """Changing comfort target and curve leaves the whole controller state untouched."""
     new = replace(MIXED, comfort_room_c=22.4, curve=HeatingCurve.of((-10, 40), (15, 26)))
     carried = carry_state(STATE, MIXED, new)
     assert carried == STATE
 
 
 def test_no_integral_part_resets_the_integrator() -> None:
+    """A new feedback config without an integral part resets the integrator to zero."""
     new = replace(MIXED, feedback=RoomFeedbackConfig(kp=0.0, ti_s=0.0))
     assert carry_state(STATE, MIXED, new).integral_k == 0.0
 
 
 def test_disabled_ramp_ends_a_running_ramp() -> None:
+    """Disabling the start ramp returns a running ramp to idle but keeps the run start time."""
     new = replace(MIXED, ramp=StartRampConfig(enabled=False))
     carried = carry_state(STATE, MIXED, new)
     assert (carried.ramp_phase, carried.ramp_elapsed_s, carried.ramp_cap) == (
@@ -74,6 +78,7 @@ def test_disabled_ramp_ends_a_running_ramp() -> None:
 
 
 def test_changed_crosscheck_forgets_the_learned_offset() -> None:
+    """Switching the cross-check signal drops the learned offset, an unchanged one keeps it."""
     old = replace(MIXED, room=RoomSensorProfile(crosscheck="main/Room_Thermostat_Temp"))
     new = replace(MIXED, room=RoomSensorProfile(crosscheck="ha/sensor.other"))
     carried = carry_state(STATE, old, new)
@@ -83,6 +88,7 @@ def test_changed_crosscheck_forgets_the_learned_offset() -> None:
 
 
 def test_envelope_violations_checks_every_break_point() -> None:
+    """Curve break points above or below the safety envelope are reported by outside temperature."""
     safety = MIXED.safety
     assert envelope_violations(MIXED.curve, safety) == []
     inside = HeatingCurve.of((-10, 44), (0, 39), (15, 19))

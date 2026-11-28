@@ -55,31 +55,37 @@ class InstallationSettings(FeatureSettings):
     @field_validator("heishamon_base")
     @classmethod
     def _valid_base(cls, value: str) -> str:
+        """Check the HeishaMon base topic."""
         return check_topic(value, "heishamon_base")
 
     @field_validator("ha_entities", mode="before")
     @classmethod
     def _split_entities(cls, value: Any) -> Any:
+        """Split a delimited entity list into items; an unset value is empty."""
         return () if value is None else split_list(value)
 
     @field_validator("ha_entities")
     @classmethod
     def _valid_entities(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Check the Home Assistant entity ids."""
         return check_entities(value)
 
     @field_validator("http_allowed_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: Any) -> Any:
+        """Split a delimited origin list into items; an unset value is empty."""
         return () if value is None else split_list(value)
 
     @field_validator("http_allowed_origins")
     @classmethod
     def _valid_origins(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Normalise the allowed origins and drop duplicates."""
         return tuple(dict.fromkeys(normalise_origin(origin) for origin in value))
 
     @field_validator("mqtt_username", mode="before")
     @classmethod
     def _empty_username_is_unset(cls, value: Any) -> Any:
+        """Treat a blank MQTT username as unset."""
         if isinstance(value, str) and not value.strip():
             return None
         return value
@@ -87,11 +93,13 @@ class InstallationSettings(FeatureSettings):
     @field_validator("ha_url")
     @classmethod
     def _valid_ha_url(cls, value: str | None) -> str | None:
+        """Check the Home Assistant URL."""
         return check_ha_url(value)
 
     @field_validator("log_level", mode="before")
     @classmethod
     def _upper_level(cls, value: Any) -> Any:
+        """Upper-case the log level."""
         return value.strip().upper() if isinstance(value, str) else value
 
     @field_validator(
@@ -102,6 +110,7 @@ class InstallationSettings(FeatureSettings):
     )
     @classmethod
     def _empty_secret_is_unset(cls, value: Any) -> Any:
+        """Treat a blank secret as unset."""
         if isinstance(value, str) and not value.strip():
             return None
         return value
@@ -116,6 +125,7 @@ class AccessSettings(FeatureSettings):
     @field_validator("operate_token", mode="before")
     @classmethod
     def _empty_token_is_unset(cls, value: Any) -> Any:
+        """Treat an empty operate token as unset."""
         if isinstance(value, str) and not value:
             return None
         return value
@@ -123,6 +133,7 @@ class AccessSettings(FeatureSettings):
     @field_validator("operate_token")
     @classmethod
     def _long_token(cls, value: SecretStr | None) -> SecretStr | None:
+        """Check the operate token is long enough."""
         return check_operate_token(value)
 
 
@@ -136,6 +147,7 @@ class SimulationSettings(FeatureSettings):
     @field_validator("clock_start")
     @classmethod
     def _aware_start(cls, value: datetime | None) -> datetime | None:
+        """Make the clock start timezone-aware, as UTC."""
         if value is None:
             return None
         return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)

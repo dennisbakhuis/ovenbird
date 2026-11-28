@@ -69,6 +69,22 @@ describe('LiveStore', () => {
     store.stop();
   });
 
+  it('reports a lost stream only after a connection ended, not while the first one opens', () => {
+    const { store, sockets, timers } = setup();
+    store.start();
+    expect(store.connected).toBe(false);
+    expect(store.lost).toBe(false);
+    sockets[0]!.onopen?.({});
+    expect(store.lost).toBe(false);
+    sockets[0]!.onclose?.({});
+    expect(store.lost).toBe(true);
+    timers.find((t) => t.ms !== 1000)!.fn();
+    expect(store.lost).toBe(true);
+    sockets[1]!.onopen?.({});
+    expect(store.lost).toBe(false);
+    store.stop();
+  });
+
   it('does not reconnect after stop', () => {
     const { store, sockets } = setup();
     const spy = vi.fn();

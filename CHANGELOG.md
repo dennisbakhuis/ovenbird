@@ -4,7 +4,109 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.6.0] - 2026-11-28
+
+The house model of 0.5.0 is removed and replaced by a simple heat-loss estimate; the sun
+day shift, boost, away, a summer switch and a few smaller features arrive, each with its
+own switch. Upgrade notes: [docs/deploy.md](docs/deploy.md#upgrading-from-050).
+
+### Added
+
+- House basics (`GET api/v1/insight/basics`, setting `house_basics_enabled`, on by
+  default): the heat loss of the house in W/K with its band, the outside temperature at
+  which no heating is needed, the loss now, tonight and on the design day, the heat the
+  heat pump delivers now and over 24 h, and the heat the floor can give at each water
+  temperature. Pure Python from the 15 min rollups, with no learning step; it shows no
+  number until about 10 qualifying heating days are in the history. Days with a
+  wood-stove episode or an away period are left out.
+- Sun day shift (`control_dayshift_*`, off by default): on a sunny, mild day the room
+  target rises a little inside a day window (0.5 K, 09:00 to 17:00) and in the night
+  after it drops a little (0.5 K from 23:00), ending 4 h before the comfort time (07:00)
+  so the floor heating has the room back by then. The rule needs the sun to be there now
+  and not only forecast, needs 2 h at the full boost before a night may set back, ends
+  the boost for the day once the room reaches the boosted target (reason `room_warm`)
+  and starts a set-back only while the room is at least 0.5 K above comfort. `shadow`
+  records what it would do (`derived/dayshift_shadow_k`, journal `dayshift`) without
+  changing any decision. `on` applies it, but is experimental: no setting passed the
+  simulator evaluation (a house with large sun-facing windows overheats;
+  [docs/evaluation/dayshift.md](docs/evaluation/dayshift.md);
+  `python -m ovenbird_sim.evaluate dayshift`), so `on` is valid only together with the new
+  setting `control_dayshift_experimental_ok` (off by default; `dayshift_on_needs_ack`
+  otherwise, also when the acknowledgement is taken back while `on` is set). In
+  Settings → Features a checkbox under the switch states the risk, `On` is offered only
+  once it is ticked, and an "Experimental" pill marks the feature while it is on.
+  `GET api/v1/control/dayshift` and `GET api/v1/control/features` say `experimental` and
+  `on_available`. Replay rebuilds the shift of a recorded `on` tick. State in `GET api/v1/control/dayshift`. The bound of every rule plan slice is
+  now a setting, `control_plan_rule_max_k`, and a set-back lowers the comfort-floor alarm
+  with it.
+- Boost (`POST`/`GET`/`DELETE api/v1/control/boost`, operate): a temporary room target,
+  -3 to +2 K from comfort or an absolute target, for 15 min to 12 h (defaults
+  `control_boost_default_k` 1 K, `control_boost_default_s` 2 h). It replaces a plan slice,
+  survives a restart, is journalled (`boost`) and audited; a wood-stove episode or the
+  summer switch pauses it, a manual stove start ends it.
+- Away (`PUT`/`GET`/`DELETE api/v1/control/away`, operate): the room held at
+  `control_away_target_c` (16 °C) until an end time, back to comfort
+  `control_away_comfort_lead_s` (6 h) before it. While set, the comfort-floor alarm
+  follows the away target, the day shift pauses (guard `away`) and the house basics leave
+  the days out (`excluded.away`). Setting away ends a boost; a boost is refused while away.
+- Boost and away on the Home page: the controls to start and end them, and a note when
+  one is paused.
+- Summer switch (`control_summer_*`, off by default): above 18 °C of a 24 h outside mean
+  the controller asks for the safety minimum setpoint with the room feedback frozen
+  (reason `summer`, journal `summer_mode`); heating resumes 2 K below the limit.
+- Quiet mode after a compressor start (`control_quiet_start_*`, off by default, 10 min at
+  level 2), and `control_quiet_enabled` to ignore the quiet windows.
+- `compressor_starts` warning: more than 4 starts in each of two consecutive hours or
+  more than 30 in 24 h (`safety_starts_*`); a defrost's restart is not counted.
+- `GET api/v1/control/features`: every switchable feature with `off`, `shadow`, `on` or
+  `active_now`. The settings schema gives each field its `feature` and a `read_only` flag
+  for the expert tier.
+- Settings has a Features section: one switch per feature and a pill that shows what it
+  is doing right now; Overview counts the features that are on.
+- Retired journal and audit codes of 0.5.0 (`model_plan`, `house_learn_run`) show a
+  neutral "Retired" text in the app instead of the raw code.
+- The service version is shown next to the logo in the top bar ("v0.6.0") and, on the
+  phone, at the top of the More page; both link to System, where the About card is.
+
+### Removed
+
+- The house model of 0.5.0: the three-node model with its eight parameters, the nightly
+  learner (a child process of the service, `make learn`, the separate learner container
+  and its `Dockerfile` target) and its trust gates, champion and challenger, pins and
+  bounds, the insulation score and the curve proposal. What was tried and why it stopped:
+  [docs/notes/house-model-attempt.md](docs/notes/house-model-attempt.md) and
+  [docs/decisions/2026-11-28-house-model-removed.md](docs/decisions/2026-11-28-house-model-removed.md).
+  The code is kept at the git tag `v0.5.0`.
+- The planners built on it: the model plan (`control_model_use` and the
+  `control_model_*` settings, `derived/model_plan_*`) and the experimental water planner
+  in the core package. The generic plan hook stays.
+- The endpoints `GET api/v1/insight/house`, `.../house/history`, `.../house/run` (`GET`
+  and `POST`), `.../house/whatif`, `.../house/balance`, `.../house/series`,
+  `.../house/control` and `POST .../house/proposal/draft`.
+- The settings groups of the learner and the model: `house_learn_*`, the pins and limits
+  of the heat loss, the time constant, the solar aperture and the internal gains, the
+  learning days, tolerance and left-out days. They are ignored on load; the facts about
+  the house stay. Model files in `<data_dir>/models` are no longer read.
+- The House tabs Model, Control, Learning and What if, the what-if and the model plan
+  card. The scientific libraries numpy and scipy left the image.
+
+### Changed
+
+- The House page shows the house basics instead of the model: the heat loss with its
+  band, the loss now, tonight and on the design day, the heat from the heat pump and
+  what each water temperature gives, the days left out and the heat by outside
+  temperature.
+- The image is smaller again, from about 356 MB to about 146 MB.
+- `control_cycling_max_raise_k` is an advanced setting (was expert).
+- Internal: the version has one source, the installed package metadata, and
+  `make bump VERSION=x.y.z` sets the remaining places ([docs/releasing.md](docs/releasing.md));
+  a check in `make lint` requires numpy docstrings; one polling helper serves the UI;
+  several refactors; far fewer sleeps in the tests.
+
+### Fixed
+
+- The "Live connection lost" banner no longer shows on every page load: it waits for the
+  first connection attempt to finish.
 
 ## [0.5.0] - 2026-11-27
 

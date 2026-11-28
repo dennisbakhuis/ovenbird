@@ -33,7 +33,5 @@ export const insight: Record<keyof typeof en, string> = {
   insightWeekCop: 'COP',
   insightWeekStarts: 'Starts',
   insightWeekBelow: 'Te koud',
-  insightWeekHeatNote: '{kwh} kWh warmte',
   insightWeekDays: 'laatste {n} dagen',
-  insightWeekNoData: 'Geen data',
 };

@@ -59,7 +59,6 @@ from ovenbird_sim.data.dataset import (
 )
 from ovenbird_sim.data.grid import TimeGrid
 from ovenbird_sim.data.series import BoolArray, FloatArray, Series
-from ovenbird_sim.identify.switching import BaseSignals
 
 MINUTE: Final = 60
 QUARTER: Final = 900
@@ -116,7 +115,7 @@ def effective_config(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Return the flat ``field: value`` mapping of a configuration document.
 
     Accepts the body of ``GET api/v1/config`` (``fields.<name>.value``), the export
-    and learner files (``effective``), a seed file (``values``) or a flat mapping.
+    file (``effective``), a seed file (``values``) or a flat mapping.
     """
     fields = payload.get("fields")
     if isinstance(fields, Mapping):
@@ -199,12 +198,28 @@ class Rollup:
 
 
 def _empty(n: int) -> Rollup:
+    """Return a rollup of ``n`` empty (NaN, zero coverage) buckets."""
     nan = np.full(n, np.nan)
     return Rollup(nan, nan.copy(), nan.copy(), nan.copy(), np.zeros(n))
 
 
 def read_rollup(conn: sqlite3.Connection, signal_id: int | None, grid: TimeGrid) -> Rollup:
-    """Read one signal's rollups of step ``grid.step`` onto ``grid``."""
+    """Read one signal's rollups of step ``grid.step`` onto ``grid``.
+
+    Parameters
+    ----------
+    conn
+        Open connection to the history database.
+    signal_id
+        Row id of the signal; ``None`` (signal not recorded) gives an empty rollup.
+    grid
+        Time grid whose step selects the rollup resolution and whose span is read.
+
+    Returns
+    -------
+    Rollup
+        Mean, minimum, maximum, last value and coverage per grid bucket; NaN where unrecorded.
+    """
     n = grid.n
     if signal_id is None:
         return _empty(n)
@@ -312,6 +327,7 @@ def read_stove_journal(
     began: float | None = None
 
     def close_open(opened: float, limit: float, final: bool = False) -> None:
+        """Close the stove-mode episode opened at ``opened``, capped at the maximum length."""
         stop = min(limit, opened + OPEN_EPISODE_MAX_S)
         if capped is not None and (stop < limit or not final):
             capped.append(opened)
@@ -342,8 +358,6 @@ class HistoryData:
     ----------
     dataset
         The aligned dataset.
-    base
-        Switching signals on the same grid (bucket ``last`` values).
     step
         Rollup step used.
     notes
@@ -351,7 +365,6 @@ class HistoryData:
     """
 
     dataset: Dataset
-    base: BaseSignals
     step: int
     notes: dict[str, Any] = field(default_factory=dict)
 
@@ -455,6 +468,7 @@ def history_dataset(
 
 
 def _running_share(hz: Rollup) -> FloatArray:
+    """Return per bucket the share (0 to 1) of time the compressor ran."""
     with np.errstate(invalid="ignore", divide="ignore"):
         share = np.where(hz.maximum > 0, hz.mean / hz.maximum, 0.0)
     share = np.where(hz.minimum > 0, 1.0, share)
@@ -476,6 +490,40 @@ def _assemble(
     notes: dict[str, Any],
     excluded: tuple[ev.Event, ...] = (),
 ) -> HistoryData:
+    """Assemble the history rollups, weather and journal into a ``HistoryData`` on ``grid``.
+
+    Parameters
+    ----------
+    grid
+        Time grid of the result.
+    rollups
+        Rollups of the loop signals (inlet, outlet, flow, compressor frequency, ...) by name.
+    defrost
+        Rollup of the defrost state.
+    valve
+        Rollup of the three-way (hot water) valve state.
+    heat_stored
+        Rollup of the heat the pump itself reports (W); unused when it has no coverage.
+    room
+        Rollup of the living-room temperature (degC).
+    refs
+        Rollups of the reference room sensors (degC).
+    weather
+        Weather series by name.
+    journal
+        Journalled events (e.g. stove mode) added to the detected ones.
+    roles
+        Which signals play which role, and the time zone.
+    notes
+        Provenance notes, updated in place with how heat, outside and events were derived.
+    excluded
+        Events that are kept in the data but excluded from fitting.
+
+    Returns
+    -------
+    HistoryData
+        The assembled dataset.
+    """
     columns: dict[str, FloatArray] = {}
     flags: dict[str, BoolArray] = {}
     loop_cov = np.vstack([rollups[name].coverage for name in LOOP])
@@ -540,20 +588,11 @@ def _assemble(
             "no weather: idle pump sensor (1 h mean) interpolated over runs up to "
             f"{OUTSIDE_FILL_S / 3600:.0f} h, the raw sensor beyond"
         )
-    base = BaseSignals(
-        grid.mids,
-        _last(rollups["inlet"]),
-        _last(rollups["outlet"]),
-        _last(rollups["hz"]),
-        _last(rollups["target"]),
-        np.nan_to_num(defrost.last) >= 1,
-        grid.step,
-    )
     notes["events"] = [event.to_json(roles.timezone) for event in dataset.events]
     notes["stove_detection"] = (
         "detector and journal" if roles.references else "journal only (no reference room)"
     )
-    return HistoryData(dataset, base, round(grid.step), notes)
+    return HistoryData(dataset, round(grid.step), notes)
 
 
 def fill_outside(outside: FloatArray, sensor: FloatArray, step: float) -> FloatArray:
@@ -577,7 +616,3 @@ def fill_outside(outside: FloatArray, sensor: FloatArray, step: float) -> FloatA
     short = (after > 0) & (after < known.size) & (span_s <= OUTSIDE_FILL_S)
     out = np.where(ok, outside, np.where(short, filled, sensor))
     return np.asarray(out, dtype=np.float64)
-
-
-def _last(rollup: Rollup) -> FloatArray:
-    return np.where(rollup.coverage > 0, rollup.last, np.nan)

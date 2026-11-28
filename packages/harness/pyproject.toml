@@ -1,6 +1,6 @@
 [project]
 name = "ovenbird-harness"
-version = "0.5.0"
+version = "0.6.0"
 description = "Fast closed-loop runs of the whole ovenbird service against the simulated plant."
 readme = "README.md"
 requires-python = ">=3.14"

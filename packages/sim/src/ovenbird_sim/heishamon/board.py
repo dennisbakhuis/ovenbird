@@ -300,6 +300,7 @@ class SimulatedHeishaMon:
         return self.state.t_air + self.stove_zone_k
 
     def _stove_zone(self, dt: float) -> None:
+        """Relax the stove-driven zone offset (K) towards its target."""
         wanted = self.config.stove_zone_k_per_kw * self.extra_heat_w / 1000.0
         tau = self.config.stove_zone_tau_s
         share = 1.0 if tau <= 0.0 else 1.0 - math.exp(-dt / tau)
@@ -313,9 +314,11 @@ class SimulatedHeishaMon:
         return self._target
 
     def _hour(self, unix_s: float) -> float:
+        """Return the local hour of day at Unix time ``unix_s``."""
         return local_hour(unix_s, self.config.utc_offset_h)
 
     def _topic(self, suffix: str) -> str:
+        """Return the full topic for ``suffix`` under the configured base topic."""
         return f"{self.config.base}/{suffix}"
 
     def reboot(self) -> None:
@@ -431,6 +434,7 @@ class SimulatedHeishaMon:
         return True
 
     def _execute_queue(self) -> None:
+        """Apply the queued commands to the registers and count them."""
         while self._queue:
             command, payload = self._queue.popleft()
             self.registers = self.registers.apply(command, payload)
@@ -438,6 +442,7 @@ class SimulatedHeishaMon:
             self.stats.applied[command.value] = self.stats.applied.get(command.value, 0) + 1
 
     def _advance_target(self, outside_sensor: float) -> None:
+        """Advance the delayed water target: queue a change and release those whose lag passed."""
         wanted = self.registers.water_target(outside_sensor)
         lag = max(self.config.target_lag_cycles, 0)
         latest = self._pending[-1][1] if self._pending else self._target
@@ -481,6 +486,7 @@ class SimulatedHeishaMon:
         return out
 
     def _main_topics(self, observation: Observation) -> dict[str, str]:
+        """Return the main topics as published: static, observed, register-derived, overrides."""
         topics = dict(STATIC_TOPICS)
         topics.update(observation.main_topics())
         topics.update(self.registers.topics())
@@ -495,6 +501,7 @@ class SimulatedHeishaMon:
         return topics
 
     def _pump_duty(self) -> int:
+        """Return the pump duty reported: zero when idle, the defrost duty when defrosting."""
         if not self.state.running:
             return 0
         if self.state.defrosting:
@@ -502,6 +509,7 @@ class SimulatedHeishaMon:
         return self.registers.max_pump_duty
 
     def _room_thermostat(self) -> int | None:
+        """Return the thermostat reading (whole degrees) or ``None`` when not configured."""
         offset = self.config.thermostat_offset_k
         if offset is None:
             return None
@@ -514,6 +522,7 @@ class SimulatedHeishaMon:
         return self._thermostat
 
     def _room(self) -> list[Publication]:
+        """Return the room sensor publications due now (temperature, humidity), if any."""
         topic = self.config.room_topic
         if topic is None:
             return []
@@ -588,6 +597,7 @@ def preroll(
 
 
 def _watts(text: str) -> float | None:
+    """Parse ``text`` as extra heat in W, or ``None`` when not finite or out of range."""
     try:
         value = float(text)
     except ValueError:

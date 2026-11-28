@@ -63,6 +63,7 @@ def staleness_limit(signal: str, policy: StalenessPolicy) -> float:
 
 
 def _round(value: float) -> float:
+    """Round a value to the stored decimals."""
     return round(value, DECIMALS)
 
 
@@ -144,6 +145,21 @@ def query_series(
 def _raw(
     conn: sqlite3.Connection, signal_id: int, start: float, end: float, max_age: float
 ) -> tuple[Point, ...]:
+    """Return the raw samples of a signal in the window, with a carried value at the start.
+
+    Parameters
+    ----------
+    conn
+        Open history database connection.
+    signal_id
+        Signal to read.
+    start
+        Start of the window, Unix time.
+    end
+        End of the window, Unix time.
+    max_age
+        Longest age, in seconds, a value before the window may be carried in.
+    """
     rows = conn.execute(
         "SELECT ts, value FROM sample WHERE signal_id = ? AND ts >= ? AND ts < ? "
         "ORDER BY ts LIMIT ?",
@@ -169,6 +185,23 @@ def _rollup(
     end: float,
     step: int,
 ) -> tuple[Point, ...]:
+    """Return the rollup points of a signal in the window on the step grid.
+
+    Parameters
+    ----------
+    conn
+        Open history database connection.
+    signal_id
+        Signal to read.
+    kind
+        Sample kind, which decides how a bucket becomes a value.
+    first_bucket
+        First bucket of the grid, Unix time.
+    end
+        End of the window, Unix time.
+    step
+        Grid resolution, in seconds.
+    """
     rows = conn.execute(
         "SELECT bucket, weighted_sum, duration, last FROM rollup "
         "WHERE step = ? AND signal_id = ? AND bucket >= ? AND bucket < ? ORDER BY bucket",
@@ -184,6 +217,19 @@ def _rollup(
 
 
 def _grid(values: dict[int, float], first_bucket: int, end: float, step: int) -> tuple[Point, ...]:
+    """Return the values on the step grid, ``None`` where a bucket has none.
+
+    Parameters
+    ----------
+    values
+        Value per bucket start.
+    first_bucket
+        First bucket of the grid, Unix time.
+    end
+        End of the window, Unix time.
+    step
+        Grid resolution, in seconds.
+    """
     return tuple(
         (float(bucket), values.get(bucket)) for bucket in range(first_bucket, math.ceil(end), step)
     )

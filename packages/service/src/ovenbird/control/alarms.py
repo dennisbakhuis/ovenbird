@@ -75,6 +75,7 @@ class AlarmCode(StrEnum):
     NOTIFY_FAILING = "notify_failing"
     ARCHIVE_FAILING = "archive_failing"
     ARCHIVE_REBUILT = "archive_rebuilt"
+    COMPRESSOR_STARTS = "compressor_starts"
 
 
 SEVERITY: Final[dict[AlarmCode, Severity]] = {
@@ -113,11 +114,11 @@ SEVERITY: Final[dict[AlarmCode, Severity]] = {
     AlarmCode.NOTIFY_FAILING: Severity.WARNING,
     AlarmCode.ARCHIVE_FAILING: Severity.WARNING,
     AlarmCode.ARCHIVE_REBUILT: Severity.WARNING,
+    AlarmCode.COMPRESSOR_STARTS: Severity.WARNING,
 }
 
 HOLD_JOURNAL_CODE: Final = "command_hold"
 ENVELOPE_JOURNAL_CODE: Final = "envelope_correction"
-MODEL_PLAN_JOURNAL_CODE: Final = "model_plan"
 
 
 class AlarmEventKind(StrEnum):
@@ -251,9 +252,9 @@ class AlarmBoard:
     def journal_only(self, event: AlarmEvent) -> None:
         """Keep and journal one informational event without telling the listeners.
 
-        For notices that must be reviewable but never notify (the model plan's guard
-        verdicts); the alarm board's active alarms and its bounded in-memory history are
-        not touched, so a chatty notice cannot push real alarms out of it.
+        For notices that must be reviewable but never notify (closing an orphaned
+        wood-stove episode); the alarm board's active alarms and its bounded in-memory
+        history are not touched, so a chatty notice cannot push real alarms out of it.
         """
         if self.journal is not None:
             self.journal(event)
@@ -265,7 +266,19 @@ class AlarmBoard:
         now: Instant,
         detail: dict[str, Any] | None = None,
     ) -> bool:
-        """Raise ``code`` (with optional structured ``detail``); ``True`` when it was not active."""
+        """Raise ``code`` (with optional structured ``detail``); ``True`` when it was not active.
+
+        Parameters
+        ----------
+        code
+            Alarm to raise.
+        message
+            Alarm text.
+        now
+            Time of the event.
+        detail
+            Structured detail stored with the alarm.
+        """
         if code in self._active:
             return False
         extras = dict(detail or {})

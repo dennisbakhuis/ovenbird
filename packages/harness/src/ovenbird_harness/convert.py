@@ -307,6 +307,7 @@ def build_settings(config: Path | None) -> tuple[Settings, dict[str, Any]]:
 
 
 def _named_signals(values: dict[str, Any]) -> list[str]:
+    """Return the distinct signal names the seed refers to, in order of first use."""
     names: list[str] = []
     room = values.get("control_room_signal")
     if isinstance(room, str):
@@ -350,16 +351,19 @@ def check_output(out: Path, *, force: bool) -> Path:
 
 
 def _env_data_dir() -> Path | None:
+    """Return the data directory named by the environment, or ``None`` if it is not set."""
     raw = os.environ.get(DATA_DIR_ENV)
     return Path(raw) if raw else None
 
 
 def _remove_database(path: Path) -> None:
+    """Delete the database file together with its WAL and shared-memory side files."""
     for suffix in ("", "-wal", "-shm"):
         path.with_name(path.name + suffix).unlink(missing_ok=True)
 
 
 def _span(options: ConvertOptions) -> tuple[float, float]:
+    """Return the first and last tick (unix seconds) of the converted days, inclusive."""
     start = datetime(options.start.year, options.start.month, options.start.day, tzinfo=UTC)
     end = datetime(options.end.year, options.end.month, options.end.day, tzinfo=UTC)
     return start.timestamp(), end.timestamp() + DAY_S - TICK_S
@@ -373,6 +377,17 @@ class _Sampler:
     """
 
     def __init__(self, options: OpenLoopOptions, settings: Settings, room: RoomSource) -> None:
+        """Create the sampler for one conversion.
+
+        Parameters
+        ----------
+        options
+            Open-loop options; the room staleness limit and stove reference shape the state store.
+        settings
+            Effective settings; the configured room signal is the target of the relabelling.
+        room
+            Which room source the stream carries, deciding which signals are relabelled.
+        """
         self.policy = staleness_policy(options.room_max_age_s, stove_reference(options))
         self.store = StateStore(self.policy)
         self.router = InputRouter(
@@ -407,6 +422,7 @@ class _Sampler:
             self._gap(parsed)
 
     def _reading(self, reading: Reading) -> None:
+        """Collect the sample for a reading, plus a heat sample at each non-retained heat input."""
         sample = sample_from_reading(reading, self.policy)
         if sample is not None:
             self._add(sample)
@@ -415,17 +431,20 @@ class _Sampler:
             self.samples.append(heat_sample(snapshot, self.policy))
 
     def _gap(self, error: ParseError) -> None:
+        """Collect the sample marking a gap, if the parse error implies one."""
         sample = gap_sample(error)
         if sample is not None:
             self._add(sample)
 
     def _add(self, sample: Sample) -> None:
+        """Collect a sample, relabelled to the configured room signal where needed."""
         target = self.relabel.get(sample.signal)
         self.samples.append(
             sample if target is None else dataclasses.replace(sample, signal=target)
         )
 
     def _command(self, record: CaptureRecord) -> None:
+        """Collect a recorded (non-retained) curve or duty command as a command row."""
         if record.retained:
             return
         if record.topic == SETCURVES_TOPIC:
@@ -449,6 +468,7 @@ class _Sampler:
 
 
 def _integer(payload: str) -> int | None:
+    """Parse a payload as an integer, returning ``None`` if it is not one."""
     try:
         return int(payload.strip())
     except ValueError:
@@ -456,6 +476,7 @@ def _integer(payload: str) -> int | None:
 
 
 def _utc_day(t: float) -> date:
+    """Return the UTC calendar day of unix time ``t``."""
     return datetime.fromtimestamp(t, UTC).date()
 
 
@@ -463,6 +484,15 @@ class _Writer:
     """Writes samples, decisions and commands in batches through the service's own code."""
 
     def __init__(self, conn: sqlite3.Connection, version: int | None) -> None:
+        """Create the writer on an open history connection.
+
+        Parameters
+        ----------
+        conn
+            Open connection to the history database.
+        version
+            Configuration version stored with each decision, or ``None``.
+        """
         self.conn = conn
         self.db = HistoryDatabase(conn)
         self.packer = DecisionPacker()
@@ -471,6 +501,7 @@ class _Writer:
         self.result = ConvertResult(Path(), Path())
 
     def decision(self, tick: Tick) -> None:
+        """Queue the tick's decision as a history row."""
         record = tick.result.decision
         self.decisions.append(
             DecisionRow(
@@ -557,6 +588,7 @@ def convert(options: ConvertOptions, settings: Settings, values: dict[str, Any])
     counted = 0
 
     def close_day(stats: DayStats) -> None:
+        """Flush a finished day, record its statistics and print a progress line."""
         nonlocal counted
         decisions, commands, total = writer.flush(sampler)
         stats.ticks, stats.commands, stats.samples = decisions, commands, total - counted
@@ -570,6 +602,7 @@ def convert(options: ConvertOptions, settings: Settings, values: dict[str, Any])
         )
 
     def tee() -> Iterator[StreamItem]:
+        """Pass the stream through, feeding the sampler and flushing samples in batches."""
         for item in stream:
             sampler.feed(item)
             if len(sampler.samples) >= FLUSH_SAMPLES:
@@ -577,6 +610,7 @@ def convert(options: ConvertOptions, settings: Settings, values: dict[str, Any])
             yield item
 
     def on_tick(tick: Tick) -> None:
+        """Start a new day's statistics at a UTC day boundary and queue the tick's decision."""
         nonlocal current, mark
         day = _utc_day(tick.t)
         if current is None or current.day != day:
@@ -601,6 +635,7 @@ def convert(options: ConvertOptions, settings: Settings, values: dict[str, Any])
 
 
 def _seed_document(values: dict[str, Any]) -> str:
+    """Return the effective seed as the JSON document written to ``config-seed.json``."""
     document = {
         "ovenbird_config": 1,
         "exported_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -636,7 +671,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the conversion from the command line; exit code 1 when it cannot run."""
+    """Run the conversion from the command line.
+
+    Parameters
+    ----------
+    argv
+        Command-line arguments; ``None`` reads ``sys.argv``.
+
+    Returns
+    -------
+    int
+        Exit code, 1 when the conversion cannot run.
+    """
     args = build_parser().parse_args(argv)
     if args.end < args.start:
         print("--to is before --from", file=sys.stderr)

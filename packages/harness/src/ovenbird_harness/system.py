@@ -60,6 +60,7 @@ def run_sync[T](coroutine: Coroutine[Any, Any, T]) -> T:
 
 
 async def _never_sleep(_: float) -> None:
+    """Refuse to sleep: the stepped harness drives time itself."""
     raise SuspendedError("the stepped harness drives time itself")
 
 
@@ -71,6 +72,7 @@ class HarnessWriter(HistoryWriter):
     """
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Create the writer from the history writer's arguments, with empty listener lists."""
         super().__init__(*args, **kwargs)
         self.on_decision: list[Callable[[DecisionRow], None]] = []
         self.on_command: list[Callable[[CommandRow], None]] = []
@@ -160,7 +162,19 @@ class CallbackClient:
         return
 
     async def publish(self, topic: str, payload: str, qos: int, retain: bool) -> None:
-        """Hand the publish to the sink."""
+        """Hand the publish to the sink.
+
+        Parameters
+        ----------
+        topic
+            Topic published to.
+        payload
+            Message body.
+        qos
+            Quality of service requested.
+        retain
+            Whether the message is retained.
+        """
         self.sink(topic, payload, qos, retain)
 
 
@@ -219,6 +233,7 @@ class System:
         self._sender: CommandSender | None = None
 
     def _link(self) -> CommandSender:
+        """Return the command link whose publishes go to the run instead of a broker."""
         return CommandLink(
             self.settings,
             self.loop.guard,

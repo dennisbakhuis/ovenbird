@@ -10,6 +10,7 @@ T0 = 1_793_232_000.0
 
 
 def test_change_statistics_skip_excluded_periods() -> None:
+    """Excluded periods are left out of the change rate and reversal share."""
     t = T0 + 3600.0 * np.arange(49, dtype=np.float64)
     v = np.where(np.arange(49) % 2 == 0, 21.5, 21.7).astype(np.float64)
     v[24:] = 21.5 + 0.2 * np.minimum(np.arange(25), 3)

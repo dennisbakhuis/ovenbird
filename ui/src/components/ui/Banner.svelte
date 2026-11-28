@@ -93,7 +93,7 @@
 </script>
 
 <div class="banners" role="status" aria-live="polite">
-  {#if !live.connected}
+  {#if live.lost}
     <p class="banner bad" data-testid="banner-disconnected">
       <Icon name="critical" size={18} />{t('bannerDisconnected')}
     </p>

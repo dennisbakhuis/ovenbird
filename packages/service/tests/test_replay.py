@@ -40,6 +40,7 @@ DAY = 1440
 
 @pytest.fixture
 def settings(make_settings: Callable[..., Settings]) -> Settings:
+    """Settings with the recorded room input, a 21.5 degC comfort target and an operate token."""
     return make_settings(
         mqtt_inputs=INPUTS,
         control_room_signal=RECORD_ROOM,
@@ -50,6 +51,7 @@ def settings(make_settings: Callable[..., Settings]) -> Settings:
 
 
 def write_pump(path: Path, minutes: int, value: Callable[[int], float]) -> None:
+    """Write one pump target sample per minute, valued by a function of the minute."""
     database = HistoryDatabase(open_history(path))
     try:
         database.write_batch(
@@ -65,6 +67,24 @@ def write_pump(path: Path, minutes: int, value: Callable[[int], float]) -> None:
 def request(
     settings: Settings, minutes: int, candidate: Settings | None = None, **extra: Any
 ) -> ReplayRequest:
+    """Build a replay request over the first minutes of the recording.
+
+    Parameters
+    ----------
+    settings
+        Settings the recording was made with, used as reference.
+    minutes
+        Length of the replay window in minutes.
+    candidate
+        Settings to replay with; defaults to ``settings``.
+    **extra
+        Further ``ReplayRequest`` fields such as ``step`` or ``threshold_k``.
+
+    Returns
+    -------
+    ReplayRequest
+        The request starting at the recording start.
+    """
     config = settings.controller_config()
     return ReplayRequest(
         start=T0,
@@ -80,6 +100,7 @@ def request(
 
 
 def test_the_active_configuration_replays_exactly(tmp_path: Path, settings: Settings) -> None:
+    """Replaying with the active settings reproduces every recorded setpoint and reports summary."""
     path = tmp_path / "history.db"
     records = record_decisions(path, settings, DAY)
     write_pump(path, DAY, lambda m: 32.0 if m < 600 else 45.0)
@@ -117,6 +138,7 @@ def test_the_active_configuration_replays_exactly(tmp_path: Path, settings: Sett
 
 
 def test_each_version_is_checked_with_its_own_settings(tmp_path: Path, settings: Settings) -> None:
+    """Each config version in the recording is identity-checked against its own settings."""
     path = tmp_path / "history.db"
     record_decisions(path, settings, 600, version_at=300, restart_at=450)
     result = run_replay(path, request(settings, 600))
@@ -127,6 +149,7 @@ def test_each_version_is_checked_with_its_own_settings(tmp_path: Path, settings:
 
 
 def test_a_version_without_settings_is_not_compared(tmp_path: Path, settings: Settings) -> None:
+    """Versions whose settings are unknown are counted as unknown instead of compared."""
     path = tmp_path / "history.db"
     record_decisions(path, settings, 120)
     base = request(settings, 120)
@@ -138,6 +161,7 @@ def test_a_version_without_settings_is_not_compared(tmp_path: Path, settings: Se
 def test_a_warmer_draft_differs_from_the_recording(
     tmp_path: Path, settings: Settings, make_settings: Callable[..., Settings]
 ) -> None:
+    """A warmer draft config replays above the recording and reports the difference."""
     path = tmp_path / "history.db"
     record_decisions(path, settings, DAY)
     write_pump(path, DAY, lambda _m: 32.0)
@@ -159,6 +183,7 @@ def test_a_warmer_draft_differs_from_the_recording(
 def test_the_replay_compares_the_issued_whole_degree_setpoints(
     tmp_path: Path, settings: Settings, make_settings: Callable[..., Settings]
 ) -> None:
+    """Recorded, replayed and pump series and episodes use whole-degree setpoints."""
     path = tmp_path / "history.db"
     record_decisions(path, settings, DAY)
     write_pump(path, DAY, lambda _m: 31.0)
@@ -181,6 +206,7 @@ def test_the_replay_compares_the_issued_whole_degree_setpoints(
 
 
 def test_ovenbird_commands_sent_are_counted(tmp_path: Path, settings: Settings) -> None:
+    """Only commands with status sent are counted as ovenbird writes."""
     path = tmp_path / "history.db"
     record_decisions(path, settings, 120)
     conn = open_history(path)
@@ -200,6 +226,7 @@ def test_ovenbird_commands_sent_are_counted(tmp_path: Path, settings: Settings) 
 
 
 def test_a_cancelled_replay_stops(tmp_path: Path, settings: Settings) -> None:
+    """A replay raises as cancelled once the cancel check returns true."""
     path = tmp_path / "history.db"
     record_decisions(path, settings, 1200)
     with pytest.raises(ReplayCancelledError):
@@ -207,6 +234,7 @@ def test_a_cancelled_replay_stops(tmp_path: Path, settings: Settings) -> None:
 
 
 def test_an_empty_history_replays_nothing(tmp_path: Path, settings: Settings) -> None:
+    """Replaying a missing database yields zero ticks and no identity verdict."""
     result = run_replay(tmp_path / "missing.db", request(settings, 60))
     assert result["ticks"] == 0
     assert result["identity"]["ok"] is None
@@ -215,6 +243,7 @@ def test_an_empty_history_replays_nothing(tmp_path: Path, settings: Settings) ->
 
 
 def test_coverage_counts_decisions_per_day_and_version(tmp_path: Path, settings: Settings) -> None:
+    """Coverage reports decisions per day and the config versions present."""
     path = tmp_path / "history.db"
     record_decisions(path, settings, 2 * DAY, version_at=DAY)
     body = coverage_payload(
@@ -236,11 +265,13 @@ def test_coverage_counts_decisions_per_day_and_version(tmp_path: Path, settings:
 
 @pytest.mark.parametrize(("days", "limit"), [(30.0, 31), (0.0, MAX_DAYS), (400.0, MAX_DAYS)])
 def test_the_longest_period_follows_the_retention(days: float, limit: int) -> None:
+    """The longest replay period follows the decision retention, capped at the maximum."""
     assert max_days(days) == limit
 
 
 @pytest.mark.slow
 def test_thirty_days_replay_in_reasonable_time(tmp_path: Path, settings: Settings) -> None:
+    """A 30-day replay finishes within two minutes with a passing identity check."""
     path = tmp_path / "history.db"
     record_decisions(path, settings, 30 * DAY)
     started = time.perf_counter()
@@ -251,6 +282,7 @@ def test_thirty_days_replay_in_reasonable_time(tmp_path: Path, settings: Setting
 
 
 def wait(client: TestClient, job: dict[str, Any]) -> dict[str, Any]:
+    """Poll a replay job until it stops running or 30 seconds pass, and return its last state."""
     deadline = time.monotonic() + 30.0
     while job["state"] == "running" and time.monotonic() < deadline:
         time.sleep(0.05)
@@ -259,12 +291,14 @@ def wait(client: TestClient, job: dict[str, Any]) -> dict[str, Any]:
 
 
 def app(settings: Settings) -> tuple[TestClient, ConfigManager]:
+    """Build a test client and config manager with a clock two days past the recording."""
     clock = FakeClock(T0 + 2 * 86_400.0)
     manager = ConfigManager.open(settings, clock, locked={})
     return TestClient(create_app(Runtime(clock=clock), manager.settings, config=manager)), manager
 
 
 def test_the_api_runs_a_draft_and_reports_progress(settings: Settings) -> None:
+    """The API runs a draft replay as a job that ends done with the draft in the result."""
     client, manager = app(settings)
     record_decisions(manager.settings.history_path, manager.settings, DAY)
     with client:
@@ -335,6 +369,7 @@ def test_the_api_runs_a_draft_and_reports_progress(settings: Settings) -> None:
 def test_the_api_refuses_bad_requests(
     settings: Settings, body: dict[str, Any], status: int
 ) -> None:
+    """Invalid replay requests are refused with 400, or 404 for an unknown version."""
     client, _ = app(settings)
     with client:
         response = client.post(
@@ -346,6 +381,7 @@ def test_the_api_refuses_bad_requests(
 
 
 def test_a_new_replay_cancels_the_running_one(settings: Settings) -> None:
+    """Starting a replay cancels the running one; cancelling and unknown ids answer correctly."""
     client, manager = app(settings)
     record_decisions(manager.settings.history_path, manager.settings, 3 * DAY)
     headers = {**BEARER, **MARK, "Content-Type": "application/json"}

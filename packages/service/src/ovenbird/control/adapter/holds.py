@@ -97,6 +97,21 @@ class HoldsMixin(EnvelopeMixin):
         now: Instant,
         detail: dict[str, Any] | None = None,
     ) -> None:
+        """Raise ``code`` and remember that ``kind`` waits for its clearing.
+
+        Parameters
+        ----------
+        code
+            Alarm to raise.
+        kind
+            Setting or intent the alarm is about.
+        message
+            Alarm text.
+        now
+            Time of the event.
+        detail
+            Structured alarm detail.
+        """
         self._awaiting.setdefault(code, set()).add(kind)
         self.alarms.raise_alarm(code, message, now, detail)
 
@@ -119,11 +134,16 @@ class HoldsMixin(EnvelopeMixin):
             self.alarms.clear(code, now, why)
 
     def _window_incidents(self, now: Instant) -> list[float]:
+        """Return the times (Unix s) of the hold incidents inside the escalation window."""
         stamp = now.wall.timestamp()
         cutoff = stamp - self.config.escalation_window_s
         return [t for t in self._incidents if cutoff <= t <= stamp]
 
     def _plan_hold(self, now: Instant, reason: str) -> tuple[HoldRecord, float | None]:
+        """Return the hold record for a new incident and its end (monotonic s).
+
+        The end is ``None`` when the hold latches.
+        """
         incident = len(self._window_incidents(now)) + 1
         if incident >= self.config.latch_after:
             return HoldRecord(reason, None, True, incident), None
@@ -134,7 +154,21 @@ class HoldsMixin(EnvelopeMixin):
     def _foreign_detail(
         self, kind: IntentKind, own: int | None, seen: int, view: SignalView | None, now: Instant
     ) -> dict[str, Any]:
-        """Return the structured ``detail`` of a foreign-writer alarm (hold forensics)."""
+        """Return the structured ``detail`` of a foreign-writer alarm (hold forensics).
+
+        Parameters
+        ----------
+        kind
+            Setting the foreign write concerns.
+        own
+            Value ovenbird last sent, if any.
+        seen
+            Value the pump reports.
+        view
+            Reading of the verify signal, for how long it has been held.
+        now
+            Current time.
+        """
         record, _ = self._plan_hold(now, "foreign writer")
         held = view.held if view is not None else None
         since = now.wall - timedelta(seconds=held) if held is not None else now.wall
@@ -157,6 +191,15 @@ class HoldsMixin(EnvelopeMixin):
         }
 
     def _start_hold(self, now: Instant, reason: str) -> None:
+        """Start a hold, escalating to a latch when incidents pile up, and journal it.
+
+        Parameters
+        ----------
+        now
+            Current time.
+        reason
+            Why the hold starts.
+        """
         record, until = self._plan_hold(now, reason)
         self._incidents = [*self._window_incidents(now), now.wall.timestamp()]
         incident = record.incident
@@ -185,6 +228,7 @@ class HoldsMixin(EnvelopeMixin):
         self._drop_queue(now, f"hold: {reason}")
 
     def _expire_hold(self, now: Instant) -> None:
+        """End a timed hold whose time has passed and journal it."""
         hold = self._hold
         if hold is None or hold.until is None or now.monotonic < hold.until:
             return
@@ -278,6 +322,19 @@ class HoldsMixin(EnvelopeMixin):
         )
 
     def _detect_foreign(self, now: Instant, read: Reader, board: HeishaMonStatus | None) -> None:
+        """Raise on a foreign writer or board restart seen in what the pump reports.
+
+        The pump values are compared with the last verified ones.
+
+        Parameters
+        ----------
+        now
+            Current time.
+        read
+            Signal reader.
+        board
+            HeishaMon board status, ``None`` when unknown.
+        """
         if (board is not None and not board.alive) or self._mode_problem is not None:
             return
         flying = self._in_flight.command.kind if self._in_flight is not None else None

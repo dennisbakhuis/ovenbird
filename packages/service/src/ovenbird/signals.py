@@ -52,6 +52,7 @@ type PumpValues = tuple[tuple[float, ...], tuple[str, ...]]
 
 
 def _number(text: str) -> float | None:
+    """Return ``text`` as a finite float, or ``None``."""
     try:
         value = float(text)
     except ValueError:
@@ -60,6 +61,7 @@ def _number(text: str) -> float | None:
 
 
 def _is_temperature(state: EntityState) -> bool:
+    """Return whether an HA entity is a temperature by device class or unit."""
     return (
         state.attributes.get("device_class") == TEMPERATURE_CLASS or state.unit in TEMPERATURE_UNITS
     )
@@ -72,6 +74,21 @@ def _ha_entry(
     ha: HaInput | None,
     mirrors: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
+    """Return the signal-picker entry of an HA entity.
+
+    Parameters
+    ----------
+    entity_id
+        HA entity id.
+    state
+        Its current state.
+    now
+        Current time.
+    ha
+        HA input for the device and area lookups, ``None`` without one.
+    mirrors
+        Entities that the pump mirrors.
+    """
     name = state.attributes.get("friendly_name")
     changed = state.last_changed
     entry: dict[str, Any] = {
@@ -98,6 +115,21 @@ def _ha_entry(
 def _climate_entry(
     entity_id: str, state: EntityState, now: Instant, ha: HaInput, mirrors: frozenset[str]
 ) -> dict[str, Any] | None:
+    """Return the entry of the current temperature of a climate entity, or ``None`` without one.
+
+    Parameters
+    ----------
+    entity_id
+        Climate entity id.
+    state
+        Its current state.
+    now
+        Current time.
+    ha
+        HA input, for the unit and the device and area lookups.
+    mirrors
+        Entities that the pump mirrors.
+    """
     raw = state.attributes.get(CURRENT_TEMPERATURE)
     if isinstance(raw, bool) or not isinstance(raw, int | float):
         return None
@@ -222,6 +254,23 @@ def pump_mirror_devices(
 def _store_entry(
     runtime: Runtime, signal: str, name: str | None, unit: str | None, source: str, now: Instant
 ) -> dict[str, Any]:
+    """Return the signal-picker entry of a signal read from the store.
+
+    Parameters
+    ----------
+    runtime
+        Runtime holding the store.
+    signal
+        Signal id.
+    name
+        Display name.
+    unit
+        Unit; the reading's own unit when ``None``.
+    source
+        Origin of the signal (``mqtt``, ``main`` ...).
+    now
+        Current time.
+    """
     view = runtime.store.view(signal, now)
     value = view.value if view is not None and view.reason is None else None
     number = value if isinstance(value, int | float) and not isinstance(value, bool) else None

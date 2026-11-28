@@ -5,15 +5,18 @@ a controller setting, the unit comes from core (:mod:`ovenbird.config.fromcore`)
 neither is duplicated here; this module adds what the model cannot say: the tier
 (``basic`` and ``advanced`` are editable, ``expert`` is displayed only), the UI group,
 the unit of a service-only field, the display unit, the input step, the soft range (a
-warning that must be acknowledged on apply) and whether the default comes from the
-emitter preset. :func:`schema_payload` turns it into ``GET api/v1/config/schema``.
+warning that must be acknowledged on apply), whether the default comes from the
+emitter preset and the feature the field belongs to (:class:`Feature`, also the ids of
+``GET api/v1/control/features``). :func:`schema_payload` turns it into
+``GET api/v1/config/schema``; every entry says ``read_only`` for a field the API does
+not change (the expert tier), so a UI can show the expert values without offering them.
 """
 
 from __future__ import annotations
 
 import types
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final, Literal, Union, get_args, get_origin
@@ -34,12 +37,56 @@ from ovenbird.config import (
     Settings,
 )
 from ovenbird.config.fromcore import core_source
-from ovenbird.config.validation.house import MAX_EXCLUDED_DAYS
 from ovenbird_core.control import EmitterType, HeatingCurve, OvenbirdConfig, RoomSensorProfile
 from ovenbird_core.control.safety import DEFAULT_MAX_SUPPLY_C
 
 SCHEMA_VERSION: Final = 1
 KP_SOFT_FACTORS: Final = (0.5, 2.0)
+
+
+class Feature(StrEnum):
+    """A switchable controller or service feature; settings fields name the one they tune."""
+
+    WEATHER_COMPENSATION = "weather_compensation"
+    ROOM_FEEDBACK = "room_feedback"
+    SLOW_START = "slow_start"
+    MINIMUM_RUN = "minimum_run"
+    PUMP_DUTY = "pump_duty"
+    QUIET = "quiet"
+    STOVE = "stove"
+    DAYSHIFT = "dayshift"
+    SUMMER = "summer"
+    AWAY = "away"
+    BOOST = "boost"
+    HOUSE_BASICS = "house_basics"
+    STARTS_ALARM = "starts_alarm"
+
+
+FEATURE_PREFIXES: Final[tuple[tuple[str, Feature], ...]] = (
+    ("control_curve", Feature.WEATHER_COMPENSATION),
+    ("control_weather_compensation", Feature.WEATHER_COMPENSATION),
+    ("control_fixed_water_c", Feature.WEATHER_COMPENSATION),
+    ("control_outside_", Feature.WEATHER_COMPENSATION),
+    ("control_feedback_", Feature.ROOM_FEEDBACK),
+    ("control_ramp_", Feature.SLOW_START),
+    ("control_cycling_", Feature.MINIMUM_RUN),
+    ("control_pump_duty", Feature.PUMP_DUTY),
+    ("control_quiet_", Feature.QUIET),
+    ("control_stove_", Feature.STOVE),
+    ("control_dayshift_", Feature.DAYSHIFT),
+    ("control_plan_rule_max_k", Feature.DAYSHIFT),
+    ("control_summer_", Feature.SUMMER),
+    ("control_away_", Feature.AWAY),
+    ("control_boost_", Feature.BOOST),
+    ("house_basics_enabled", Feature.HOUSE_BASICS),
+    ("safety_starts_", Feature.STARTS_ALARM),
+)
+"""Which feature a field tunes, by name prefix (first match wins)."""
+
+
+def feature_of(name: str) -> Feature | None:
+    """Return the feature field ``name`` tunes (``None`` for a general field)."""
+    return next((feature for prefix, feature in FEATURE_PREFIXES if name.startswith(prefix)), None)
 
 
 class Tier(StrEnum):
@@ -73,8 +120,9 @@ class FieldMeta:
         The default (``None``) means "the emitter preset's value".
     kind
         Value type when it is not a plain scalar (``curve``, ``signal``,
-        ``signal_list``, ``windows``, ``dates``: ISO days, ``retention``: days where ``0`` keeps
-        data forever).
+        ``signal_list``, ``windows``, ``retention``: days where ``0`` keeps data forever).
+    feature
+        The feature the field tunes (filled from :data:`FEATURE_PREFIXES`).
     """
 
     group: str
@@ -86,6 +134,7 @@ class FieldMeta:
     soft_max: float | None = None
     preset: bool = False
     kind: str | None = None
+    feature: Feature | None = None
 
 
 B: Final = Tier.BASIC
@@ -153,12 +202,46 @@ FIELDS: Final[dict[str, FieldMeta]] = {
     "control_stove_max_active_s": FieldMeta("stove", A, display="h", step=1800.0),
     "control_stove_reentry_hold_s": FieldMeta("stove", A, display="min", step=300.0),
     "control_stove_reference_band_k": FieldMeta("stove", A, step=0.1),
+    "control_dayshift_use": FieldMeta("dayshift", B),
+    "control_dayshift_experimental_ok": FieldMeta("dayshift", B),
+    "control_dayshift_day_start": FieldMeta("dayshift", B),
+    "control_dayshift_day_end": FieldMeta("dayshift", B),
+    "control_dayshift_boost_k": FieldMeta("dayshift", B, "K", step=0.05, soft_max=0.75),
+    "control_dayshift_setback_k": FieldMeta("dayshift", B, "K", step=0.05, soft_max=0.75),
+    "control_dayshift_min_outside_c": FieldMeta("dayshift", A, "°C", step=0.5, soft_min=0.0),
+    "control_dayshift_min_sun_wm2": FieldMeta(
+        "dayshift", A, "W/m²", step=10.0, soft_min=80.0, soft_max=300.0
+    ),
+    "control_dayshift_night_start": FieldMeta("dayshift", A),
+    "control_dayshift_night_end": FieldMeta("dayshift", A),
+    "control_dayshift_comfort_at": FieldMeta("dayshift", A),
+    "control_dayshift_recovery_s": FieldMeta(
+        "dayshift", A, "s", "h", step=1800.0, soft_min=10_800.0
+    ),
+    "control_plan_rule_max_k": FieldMeta("dayshift", A, step=0.1),
+    "control_quiet_enabled": FieldMeta("quiet", B),
     "control_quiet_windows": FieldMeta("quiet", B, kind="windows"),
+    "control_quiet_start_enabled": FieldMeta("quiet", B),
+    "control_quiet_start_minutes": FieldMeta("quiet", A, "min", step=1.0),
+    "control_quiet_start_level": FieldMeta("quiet", A, step=1.0),
+    "control_summer_enabled": FieldMeta("summer", B),
+    "control_summer_off_c": FieldMeta("summer", B, step=0.5, soft_min=14.0, soft_max=22.0),
+    "control_summer_hysteresis_k": FieldMeta("summer", A, step=0.5),
+    "control_summer_mean_s": FieldMeta("summer", A, display="h", step=3600.0),
+    "control_boost_enabled": FieldMeta("manual", B),
+    "control_boost_default_s": FieldMeta("manual", B, "s", "h", step=900.0),
+    "control_boost_default_k": FieldMeta("manual", B, "K", step=0.5),
+    "control_away_enabled": FieldMeta("manual", B),
+    "control_away_target_c": FieldMeta("manual", B, "°C", step=0.5),
+    "control_away_comfort_lead_s": FieldMeta("manual", A, "s", "h", step=1800.0),
     "control_timezone": FieldMeta("quiet", B),
     "control_emitter": FieldMeta("emitter", B),
     "safety_room_floor_k": FieldMeta("monitors", A, "K", step=0.1),
     "safety_room_floor_sustain_s": FieldMeta("monitors", A, "s", "min", step=60.0),
     "safety_defrost_low_flow": FieldMeta("monitors", A),
+    "safety_starts_alarm_enabled": FieldMeta("monitors", A),
+    "safety_starts_per_hour_max": FieldMeta("monitors", A, "starts", step=1.0),
+    "safety_starts_per_day_max": FieldMeta("monitors", A, "starts", step=1.0),
     "weather_enabled": FieldMeta("weather", B),
     "weather_latitude": FieldMeta("weather", B, "°", step=0.01),
     "weather_longitude": FieldMeta("weather", B, "°", step=0.01),
@@ -169,27 +252,7 @@ FIELDS: Final[dict[str, FieldMeta]] = {
     "house_window_area_m2": FieldMeta("house", A, "m²", step=1.0),
     "house_window_orientation": FieldMeta("house", A),
     "house_occupants": FieldMeta("house", B, step=1.0),
-    "house_ua_min_w_per_k": FieldMeta("house_bounds", A, "W/K", step=5.0),
-    "house_ua_max_w_per_k": FieldMeta("house_bounds", A, "W/K", step=5.0),
-    "house_time_constant_min_h": FieldMeta("house_bounds", A, "h", step=1.0),
-    "house_time_constant_max_h": FieldMeta("house_bounds", A, "h", step=1.0),
-    "house_solar_aperture_min_m2": FieldMeta("house_bounds", A, "m²", step=0.5),
-    "house_solar_aperture_max_m2": FieldMeta("house_bounds", A, "m²", step=0.5),
-    "house_internal_gain_min_w": FieldMeta("house_bounds", A, "W", step=10.0),
-    "house_internal_gain_max_w": FieldMeta("house_bounds", A, "W", step=10.0),
-    "house_learn_enabled": FieldMeta("house_learning", B),
-    "house_learn_interval_h": FieldMeta(
-        "house_learning", A, "h", step=24.0, soft_min=24.0, soft_max=336.0
-    ),
-    "house_learn_fit_days": FieldMeta("house_learning", A, "d", step=1.0),
-    "house_learn_test_days": FieldMeta("house_learning", A, "d", step=1.0),
-    "house_learn_tolerance_k": FieldMeta("house_learning", A, "K", step=0.01),
-    "house_learn_excluded_days": FieldMeta("house_learning", A, kind="dates"),
-    "control_model_use": FieldMeta("model_plan", B),
-    "control_model_max_setback_k": FieldMeta("model_plan", A, step=0.1),
-    "control_model_max_preheat_k": FieldMeta("model_plan", A, step=0.1),
-    "control_model_horizon_h": FieldMeta("model_plan", A, step=1.0),
-    "control_model_max_rmse_k": FieldMeta("model_plan", A, "K", step=0.05),
+    "house_basics_enabled": FieldMeta("house", B),
     "history_raw_days": FieldMeta(
         "history", A, "d", step=1.0, soft_min=1.0, soft_max=90.0, kind="retention"
     ),
@@ -221,7 +284,7 @@ FIELDS: Final[dict[str, FieldMeta]] = {
     "control_ramp_below_outlet_k": FieldMeta("controller", X, preset=True),
     "control_cycling_stop_delta_k": FieldMeta("controller", X, preset=True),
     "control_cycling_margin_k": FieldMeta("controller", X, preset=True),
-    "control_cycling_max_raise_k": FieldMeta("controller", X, preset=True),
+    "control_cycling_max_raise_k": FieldMeta("cycling", A, step=0.5, preset=True),
     "control_cycling_decrease_headroom_k": FieldMeta("controller", X, preset=True),
     "control_feedback_max_integration_step_s": FieldMeta("controller", X, preset=True),
     "control_room_decay_start_s": FieldMeta("controller", X, display="h", preset=True),
@@ -233,6 +296,7 @@ FIELDS: Final[dict[str, FieldMeta]] = {
     "control_interval_s": FieldMeta("controller", X, "s"),
     "control_state_max_age_s": FieldMeta("controller", X, "s", "min"),
 }
+FIELDS.update({name: replace(item, feature=feature_of(name)) for name, item in FIELDS.items()})
 
 EXPERT_GROUPS: Final[dict[str, str]] = {
     "command_": "commands",
@@ -316,14 +380,14 @@ GROUP_ORDER: Final = (
     "pump_duty",
     "pump",
     "stove",
+    "dayshift",
+    "summer",
+    "manual",
     "quiet",
     "emitter",
     "monitors",
     "weather",
     "house",
-    "house_bounds",
-    "house_learning",
-    "model_plan",
     "ha",
     "mqtt",
     "controller",
@@ -335,6 +399,7 @@ GROUP_ORDER: Final = (
 
 
 def _pairs(curve: HeatingCurve) -> list[list[float]]:
+    """Return the curve as ``[outside, water]`` pairs in degrees Celsius."""
     return [[point.outside_c, point.water_c] for point in curve.points]
 
 
@@ -384,7 +449,7 @@ def meta(name: str) -> FieldMeta:
         (group for prefix, group in EXPERT_GROUPS.items() if name.startswith(prefix)),
         "installation",
     )
-    return FieldMeta(group, X)
+    return FieldMeta(group, X, feature=feature_of(name))
 
 
 def unit_of(name: str) -> str | None:
@@ -454,6 +519,7 @@ def default_value(settings: Settings, name: str) -> Any:
 
 
 def _bound(info: FieldInfo, kinds: tuple[type, ...]) -> float | None:
+    """Return the first numeric bound of a field's metadata, if it has one."""
     for item in info.metadata:
         if isinstance(item, kinds):
             raw = next(
@@ -464,6 +530,7 @@ def _bound(info: FieldInfo, kinds: tuple[type, ...]) -> float | None:
 
 
 def _strip_optional(annotation: Any) -> tuple[Any, bool]:
+    """Return the annotation without ``None`` and whether it was optional."""
     origin = get_origin(annotation)
     if origin in (Union, types.UnionType):
         args = [arg for arg in get_args(annotation) if arg is not type(None)]
@@ -472,6 +539,15 @@ def _strip_optional(annotation: Any) -> tuple[Any, bool]:
 
 
 def _value_type(name: str, annotation: Any) -> tuple[str, list[str] | None]:
+    """Return the UI value kind of a field and its enum choices, if it is an enum.
+
+    Parameters
+    ----------
+    name
+        Settings field name.
+    annotation
+        Type annotation of the field.
+    """
     kind = meta(name).kind
     if kind is not None:
         return kind, None
@@ -492,6 +568,7 @@ def _value_type(name: str, annotation: Any) -> tuple[str, list[str] | None]:
 
 
 def _dynamic(settings: Settings, name: str, entry: dict[str, Any]) -> None:
+    """Narrow the limits of a field entry to the emitter and the safety limits in force."""
     emitter = settings.emitter
     preset = OvenbirdConfig.preset(emitter)
     safety = settings.safety_limits()
@@ -518,8 +595,6 @@ def _dynamic(settings: Settings, name: str, entry: dict[str, Any]) -> None:
             }
         case "control_quiet_windows":
             entry |= {"max_items": MAX_QUIET_WINDOWS, "level_min": 1, "level_max": 3}
-        case "house_learn_excluded_days":
-            entry["max_items"] = MAX_EXCLUDED_DAYS
         case "mqtt_inputs":
             entry["max_items"] = MAX_MQTT_INPUTS
 
@@ -546,6 +621,8 @@ def field_schema(settings: Settings, name: str) -> dict[str, Any]:
         "tier": info_meta.tier.value,
         "group": info_meta.group,
         "editable": name in EDITABLE or name in STORED_CONNECTION,
+        "read_only": name not in EDITABLE and name not in STORED_CONNECTION,
+        "feature": None if info_meta.feature is None else info_meta.feature.value,
         "env": f"OVENBIRD_{name.upper()}",
         "preset_default": info_meta.preset,
     }

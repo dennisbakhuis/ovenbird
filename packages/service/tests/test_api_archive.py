@@ -39,15 +39,18 @@ FIELD_DAYS = re.compile(r"(history_\w+): (\d+)")
 
 
 def basic() -> dict[str, str]:
+    """Return Basic-auth headers for the admin user."""
     token = base64.b64encode(f"admin:{PASSWORD}".encode()).decode()
     return {"Authorization": f"Basic {token}"}
 
 
 def bearer() -> dict[str, str]:
+    """Return Bearer-auth headers carrying the operate token."""
     return {"Authorization": f"Bearer {TOKEN}"}
 
 
 def fill(settings: Settings, start: float, end: float) -> None:
+    """Write numeric samples every five minutes and hourly decisions into the history database."""
     conn = open_history(settings.history_path)
     db = HistoryDatabase(conn)
     db.write_batch(
@@ -69,6 +72,7 @@ def fill(settings: Settings, start: float, end: float) -> None:
 
 @pytest.fixture
 def settings(make_settings: Callable[..., Settings]) -> Settings:
+    """Provide settings with admin password, operate token and Home Assistant credentials set."""
     return make_settings(
         admin_password=PASSWORD,
         operate_token=TOKEN,
@@ -81,12 +85,14 @@ def settings(make_settings: Callable[..., Settings]) -> Settings:
 
 @pytest.fixture
 def manager(settings: Settings) -> ConfigManager:
+    """Open a ConfigManager on the test settings at the fixed clock time."""
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     return ConfigManager.open(settings, FakeClock(NOW), locked={})
 
 
 @pytest.fixture
 def writer(settings: Settings, manager: ConfigManager) -> Iterator[HistoryWriter]:
+    """Provide a history writer with a month archiver, after one pass over the filled data."""
     fill(settings, JAN + 5 * DAY, NOW)
     archiver = MonthArchiver(
         settings.history_path,
@@ -110,12 +116,14 @@ def writer(settings: Settings, manager: ConfigManager) -> Iterator[HistoryWriter
 
 @pytest.fixture
 def client(manager: ConfigManager, writer: HistoryWriter) -> Iterator[TestClient]:
+    """Provide a test client for an app wired to the manager and the archiving writer."""
     app = create_app(Runtime(clock=FakeClock(NOW)), manager.settings, config=manager, writer=writer)
     with TestClient(app) as test_client:
         yield test_client
 
 
 def test_status_lists_months_years_and_seasons(client: TestClient) -> None:
+    """The archive status lists months, years and seasons with their state and completeness."""
     body = client.get("/api/v1/archive", headers=bearer()).json()
     assert body["enabled"] is True
     assert body["timezone"] == "UTC"
@@ -136,11 +144,13 @@ def test_status_lists_months_years_and_seasons(client: TestClient) -> None:
 
 
 def test_downloads_need_admin(client: TestClient) -> None:
+    """Archive downloads are refused for the operate token."""
     for path in ("months/2027-01", "years/2027", "seasons/2026-27"):
         assert client.get(f"/api/v1/archive/{path}", headers=bearer()).status_code == 403
 
 
 def test_a_frozen_month_downloads_as_its_file(client: TestClient) -> None:
+    """A frozen month downloads as a zip of its files without leaking any secret."""
     response = client.get("/api/v1/archive/months/2027-02", headers=basic())
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/zip"
@@ -159,6 +169,7 @@ def test_a_frozen_month_downloads_as_its_file(client: TestClient) -> None:
 
 
 def test_the_open_month_downloads_as_it_stands(client: TestClient, settings: Settings) -> None:
+    """The open month downloads as a partial archive and leaves no temporary files behind."""
     response = client.get("/api/v1/archive/months/2027-03", headers=basic())
     assert response.status_code == 200
     assert "2027-03-partial" in response.headers["content-disposition"]
@@ -170,6 +181,7 @@ def test_the_open_month_downloads_as_it_stands(client: TestClient, settings: Set
 
 
 def test_year_and_season_bundles(client: TestClient) -> None:
+    """Year and season downloads are bundles of monthly archives with a coverage manifest."""
     response = client.get("/api/v1/archive/years/2027", headers=basic())
     assert response.status_code == 200
     assert "ovenbird-archive-2027.zip" in response.headers["content-disposition"]
@@ -200,10 +212,12 @@ def test_year_and_season_bundles(client: TestClient) -> None:
     ],
 )
 def test_bad_or_unknown_periods(client: TestClient, path: str, status: int) -> None:
+    """Malformed periods give 400 and periods without data give 404."""
     assert client.get(f"/api/v1/archive/{path}", headers=basic()).status_code == status
 
 
 def test_delete_a_month_and_a_year(client: TestClient) -> None:
+    """Deleting needs admin, refuses the open month and removes a month or year, audited."""
     headers = {**basic(), **MARK}
     refused = client.post(
         "/api/v1/archive/delete", json={"period": "2027-01"}, headers={**bearer(), **MARK}
@@ -240,6 +254,7 @@ def test_delete_a_month_and_a_year(client: TestClient) -> None:
 
 
 def test_deleted_months_stay_deleted(client: TestClient, writer: HistoryWriter) -> None:
+    """A month deleted by the user is not archived again by later archiver steps."""
     headers = {**basic(), **MARK}
     client.post("/api/v1/archive/delete", json={"period": "2027-02"}, headers=headers)
     assert writer.archiver is not None
@@ -249,6 +264,7 @@ def test_deleted_months_stay_deleted(client: TestClient, writer: HistoryWriter) 
 
 
 def test_switching_the_archive_off(client: TestClient, writer: HistoryWriter) -> None:
+    """Switching the archive off through the config API is reflected in the status."""
     version = client.get("/api/v1/config", headers=basic()).json()["version"]
     response = client.put(
         "/api/v1/config",
@@ -260,6 +276,7 @@ def test_switching_the_archive_off(client: TestClient, writer: HistoryWriter) ->
 
 
 def test_storage_report_projects_every_preset(client: TestClient) -> None:
+    """The storage report projects size for each retention preset."""
     body = client.get("/api/v1/history/storage", headers=bearer()).json()
     assert body["preset"] == "standard"
     presets = {item["id"]: item for item in body["presets"]}
@@ -272,6 +289,7 @@ def test_storage_report_projects_every_preset(client: TestClient) -> None:
 
 @pytest.mark.parametrize("preset", ["short", "standard", "long", "unlimited"])
 def test_every_preset_validates_without_warnings(client: TestClient, preset: str) -> None:
+    """Every retention preset validates without errors or warnings."""
     body = client.post(
         "/api/v1/config/validate",
         json={"changes": dict(RETENTION_PRESETS[preset])},
@@ -284,6 +302,7 @@ def test_every_preset_validates_without_warnings(client: TestClient, preset: str
 def test_a_retention_below_one_day_is_refused(
     make_settings: Callable[..., Settings], field: str
 ) -> None:
+    """Retention periods below one day are refused, while zero and one day are accepted."""
     with pytest.raises(ConfigError, match="at least"):
         make_settings(**{field: 0.5})
     assert getattr(make_settings(**{field: 0}), field) == 0
@@ -291,6 +310,7 @@ def test_a_retention_below_one_day_is_refused(
 
 
 def test_validation_names_the_retention_minimum(client: TestClient) -> None:
+    """Validating a retention below one day reports a retention_min error with the minimum."""
     response = client.post(
         "/api/v1/config/validate",
         json={"changes": {"history_1m_days": 0.25}},
@@ -305,6 +325,7 @@ def test_validation_names_the_retention_minimum(client: TestClient) -> None:
 
 
 def test_the_ui_knows_the_presets() -> None:
+    """The retention presets in the UI source match the ones defined in the backend."""
     text = (ROOT / "ui" / "src" / "lib" / "system" / "retention.ts").read_text(encoding="utf-8")
     for name, values in RETENTION_PRESETS.items():
         block = re.search(rf"\n  {name}: \{{(.*?)\}}", text, re.S)

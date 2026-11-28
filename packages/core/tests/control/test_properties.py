@@ -1,3 +1,5 @@
+"""Property-based tests of the ovenbird controller over random plant sequences."""
+
 from __future__ import annotations
 
 import json
@@ -82,11 +84,13 @@ plants = st.builds(
 
 @dataclass(frozen=True)
 class Tick:
+    """One simulated control tick: elapsed time, plant readings, mode, override and plan."""
+
     dt: float
     plant: PlantView
     mode: Mode
     override: Override | None
-    plan_offset: float | None
+    plan_room_k: float | None
     plan_source: PlanSource = PlanSource.RULE
 
 
@@ -104,7 +108,7 @@ ticks = st.builds(
             value=st.integers(-30, 80).map(float),
         ),
     ),
-    plan_offset=st.one_of(st.none(), st.floats(-3.0, 3.0, allow_nan=False)),
+    plan_room_k=st.one_of(st.none(), st.floats(-3.0, 3.0, allow_nan=False)),
 )
 
 
@@ -135,17 +139,32 @@ def steady(draw: st.DrawFn) -> list[Tick]:
 
 
 def inputs_for(t: float, tick: Tick) -> ControlInputs:
+    """Build the control inputs for ``tick`` at ``t`` seconds after the test epoch."""
     now = Instant.from_unix(T0 + t)
     plan = None
-    if tick.plan_offset is not None:
-        reason = ReasonCode.PLAN_PREHEAT if tick.plan_offset > 0 else ReasonCode.PLAN_SETBACK
-        plan = PlanSlice(tick.plan_offset, reason, now, now.shifted(900), tick.plan_source)
+    if tick.plan_room_k is not None:
+        reason = ReasonCode.PLAN_PREHEAT if tick.plan_room_k > 0 else ReasonCode.PLAN_SETBACK
+        plan = PlanSlice(tick.plan_room_k, reason, now, now.shifted(900), tick.plan_source)
     return synthetic_inputs(now, tick.plant, mode=tick.mode, override=tick.override, plan=plan)
 
 
 def drive(
     controller: OvenbirdController, sequence: list[Tick]
 ) -> list[tuple[OvenbirdState, ControlInputs, StepResult[OvenbirdState]]]:
+    """Step the controller through a tick sequence.
+
+    Parameters
+    ----------
+    controller
+        Controller under test.
+    sequence
+        Ticks to apply in order.
+
+    Returns
+    -------
+    list[tuple[OvenbirdState, ControlInputs, StepResult]]
+        For each step the state before it, its inputs and its result.
+    """
     state = controller.initial_state()
     t = 0.0
     out = []
@@ -163,6 +182,7 @@ def drive(
 def test_setpoint_always_within_safety_limits(
     controller: OvenbirdController, sequence: list[Tick]
 ) -> None:
+    """Every sent or decided setpoint stays within the safety bounds, also when holding."""
     safety = controller.config.safety
     for _, inputs, result in drive(controller, sequence):
         decision = result.decision
@@ -191,6 +211,7 @@ def test_setpoint_always_within_safety_limits(
 @settings(max_examples=150, deadline=None)
 @given(controller=st.sampled_from(CONTROLLERS), sequence=st.lists(ticks, min_size=1, max_size=40))
 def test_refusal_and_hold_semantics(controller: OvenbirdController, sequence: list[Tick]) -> None:
+    """Refusals send nothing, hold repeats the clamped last setpoint, feedback stays limited."""
     for before, inputs, result in drive(controller, sequence):
         decision = result.decision
         if decision.ladder is LadderLevel.REFUSE:
@@ -228,6 +249,7 @@ def test_refusal_and_hold_semantics(controller: OvenbirdController, sequence: li
 def test_stove_episode_holds_the_integrator(
     controller: OvenbirdController, sequence: list[Tick]
 ) -> None:
+    """During a stove episode the integrators hold and the stove term never raises the setpoint."""
     for before, _, result in drive(controller, sequence):
         state = result.state
         if before.stove_active and state.stove_active:
@@ -248,10 +270,12 @@ def test_stove_episode_holds_the_integrator(
 def test_changes_respect_dwell_and_deadband(
     controller: OvenbirdController, sequence: list[Tick]
 ) -> None:
+    """Soft setpoint changes respect the deadband and dwell time on slowly drifting plants."""
     assert_dwell_and_deadband(controller, sequence)
 
 
 def test_dwell_after_a_ramp_that_releases_at_once() -> None:
+    """A recorded sequence whose start ramp releases at once respects dwell and deadband."""
     data = json.loads((FIXTURES / "dwell_ramp_release.json").read_text())
     fields = {f.name for f in dataclass_fields(PlantView)}
     sequence = [
@@ -291,70 +315,10 @@ def assert_dwell_and_deadband(controller: OvenbirdController, sequence: list[Tic
                 assert inputs.now.monotonic - before.last_change_at >= stages.dwell_s
 
 
-MODEL_OFFSETS = st.sampled_from([None, -2.0, -1.0, -0.5, -0.2, 0.3, 0.5, 2.0])
-model_ticks = st.builds(
-    lambda tick, offset: replace(tick, plan_offset=offset, plan_source=PlanSource.MODEL),
-    ticks,
-    MODEL_OFFSETS,
-)
-
-
-@st.composite
-def steady_with_model_plan(draw: st.DrawFn) -> list[Tick]:
-    """A steady plant with a model plan that comes, goes and jumps to its bounds."""
-    sequence = draw(steady())
-    offsets = draw(st.lists(MODEL_OFFSETS, min_size=len(sequence), max_size=len(sequence)))
-    return [
-        replace(tick, plan_offset=offset, plan_source=PlanSource.MODEL)
-        for tick, offset in zip(sequence, offsets, strict=True)
-    ]
-
-
-@settings(max_examples=150, deadline=None)
-@given(
-    controller=st.sampled_from(CONTROLLERS), sequence=st.lists(model_ticks, min_size=1, max_size=40)
-)
-def test_a_model_plan_keeps_the_safety_envelope_and_its_bounds(
-    controller: OvenbirdController, sequence: list[Tick]
-) -> None:
-    cfg = controller.config
-    safety = cfg.safety
-    for _, inputs, result in drive(controller, sequence):
-        decision = result.decision
-        if decision.ladder in (LadderLevel.HOLD, LadderLevel.REFUSE):
-            continue
-        outside = inputs.snapshot.fresh_value(HeishaSignal.OUTSIDE_TEMP)
-        assert isinstance(outside, float)
-        bounds = safety.bounds(outside)
-        assert decision.setpoint is not None
-        assert bounds.low_int <= decision.setpoint <= bounds.high_int
-        assert decision.pre_round is not None
-        assert bounds.low - 1e-9 <= decision.pre_round <= bounds.high + 1e-9
-        plan = decision.term("plan")
-        assert plan is not None
-        assert plan.value == 0.0
-        target = decision.controller_state["room_target_c"]
-        if isinstance(target, float):
-            low = cfg.comfort_room_c - cfg.model_plan.max_setback_k
-            high = cfg.comfort_room_c + cfg.model_plan.max_preheat_k
-            assert low - 1e-9 <= target <= high + 1e-9
-        if decision.ladder is LadderLevel.MODEL_PLAN:
-            assert inputs.room is not None
-            assert decision.controller_state["model_plan_ignored"] is None
-            assert not result.state.stove_active
-
-
-@settings(max_examples=150, deadline=None)
-@given(controller=st.sampled_from(CONTROLLERS), sequence=steady_with_model_plan())
-def test_a_model_plan_coming_and_going_respects_dwell_and_deadband(
-    controller: OvenbirdController, sequence: list[Tick]
-) -> None:
-    assert_dwell_and_deadband(controller, sequence)
-
-
 @settings(max_examples=100, deadline=None)
 @given(controller=st.sampled_from(CONTROLLERS), sequence=st.lists(ticks, min_size=1, max_size=30))
 def test_step_is_a_pure_function(controller: OvenbirdController, sequence: list[Tick]) -> None:
+    """Stepping again from the same state and inputs gives identical results."""
     for before, inputs, result in drive(controller, sequence):
         again = controller.step(before, inputs)
         assert again.state == result.state
@@ -367,6 +331,7 @@ def test_step_is_a_pure_function(controller: OvenbirdController, sequence: list[
 def test_decision_json_round_trip_is_stable(
     controller: OvenbirdController, sequence: list[Tick]
 ) -> None:
+    """Decision records survive strict JSON serialisation and back unchanged."""
     for _, _, result in drive(controller, sequence):
         data = result.decision.to_json_dict()
         text = json.dumps(data, allow_nan=False, sort_keys=True)
@@ -378,6 +343,7 @@ def test_decision_json_round_trip_is_stable(
 @settings(max_examples=100, deadline=None)
 @given(sequence=steady())
 def test_no_intent_ever_switches_the_pump_off(sequence: list[Tick]) -> None:
+    """No intent switches the pump off and water setpoints stay at or above 20 °C."""
     for _, _, result in drive(CONTROLLERS[2], sequence):
         kinds = {intent.kind for intent in result.intents}
         assert kinds <= set(IntentKind)

@@ -97,7 +97,24 @@ def replay_check(
 
 
 def mqtt_config(start: datetime, params: Path | None, weather: Path | None, out: Path) -> RunConfig:
-    """Return the configuration of the B2 checks: example profile, room via the MQTT topic."""
+    """Return the configuration of the B2 checks: example profile, room via the MQTT topic.
+
+    Parameters
+    ----------
+    start
+        Simulated start time (UTC).
+    params
+        Plant parameter file, or ``None`` for the defaults.
+    weather
+        Weather directory, or ``None``.
+    out
+        Output directory of the run.
+
+    Returns
+    -------
+    RunConfig
+        One simulated hour from ``start``.
+    """
     return RunConfig(
         start=start,
         end=start + timedelta(hours=1),
@@ -110,7 +127,24 @@ def mqtt_config(start: datetime, params: Path | None, weather: Path | None, out:
 
 
 def ha_config(start: datetime, params: Path | None, weather: Path | None, out: Path) -> RunConfig:
-    """Return the configuration of the HA replay: example profile, room via Home Assistant."""
+    """Return the configuration of the HA replay: example profile, room via Home Assistant.
+
+    Parameters
+    ----------
+    start
+        Simulated start time (UTC).
+    params
+        Plant parameter file, or ``None`` for the defaults.
+    weather
+        Weather directory, or ``None``.
+    out
+        Output directory of the run.
+
+    Returns
+    -------
+    RunConfig
+        One simulated hour from ``start``.
+    """
     return RunConfig(
         start=start,
         end=start + timedelta(hours=1),
@@ -149,7 +183,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run B2; exit code 1 when a check fails."""
+    """Run B2; exit code 1 when a check fails.
+
+    Parameters
+    ----------
+    argv
+        Command-line arguments; ``None`` reads ``sys.argv``.
+
+    Returns
+    -------
+    int
+        Exit code, 0 when every check passed.
+    """
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=args.log_level.upper(), format="%(levelname)s %(name)s %(message)s")
     out: Path = args.out or Path(tempfile.mkdtemp(prefix="ovenbird-validate-"))

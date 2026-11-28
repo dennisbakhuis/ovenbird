@@ -4,10 +4,8 @@ Off unless ``weather_enabled`` is set **and** a location is known: the manual
 coordinates (``weather_latitude``/``weather_longitude``, source ``manual`` or
 ``browser``), else Home Assistant's ``zone.home`` (source ``ha_zone_home``). The
 coordinates leave the house rounded to 0.01°. Each issue is written to ``history.db``
-(table ``forecast``) through the history writer. The forecast is shown only, unless the
-model plan is switched on (``control_model_use`` ``on``): then it is a controller input,
-through a bounded room-target offset (:mod:`ovenbird.control.modelplan`); in ``shadow``
-it is read and the result recorded, with no effect. Its health check ``weather`` is
+(table ``forecast``) through the history writer; it is shown only (a plan rule can
+read it back through :mod:`ovenbird.control.forecastread`). Its health check ``weather`` is
 ``disabled``, ``starting`` (enabled, no issue yet), ``ok`` or ``stale`` (newest issue older than
 3 h); it never affects readiness.
 """

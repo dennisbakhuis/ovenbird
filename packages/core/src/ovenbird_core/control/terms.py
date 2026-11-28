@@ -11,44 +11,159 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
-from ovenbird_core.control.config import OvenbirdConfig
+from ovenbird_core.control.config import OvenbirdConfig, SummerConfig
 from ovenbird_core.control.curve import room_offset_to_water
 from ovenbird_core.control.notes import SECONDS_PER_HOUR, duration_text, kept, room_status, signed
 from ovenbird_core.control.record import Term
 from ovenbird_core.control.safety import SafetyBounds
-from ovenbird_core.control.types import (
-    ModelPlanBlock,
-    Override,
-    OverrideKind,
-    PlanSlice,
-    PlanSource,
-    RoomInput,
-)
-
-if TYPE_CHECKING:
-    from ovenbird_core.control.ovenbird import OvenbirdState
+from ovenbird_core.control.state import OvenbirdState, RampPhase
+from ovenbird_core.control.types import Override, OverrideKind, PlanSlice, PlanSource, RoomInput
+from ovenbird_core.instant import Instant
 
 HELD_INTEGRAL_FADE_S: Final = 24 * 3600.0
-MODEL_BLOCK_TEXT: Final[dict[ModelPlanBlock, str]] = {
-    ModelPlanBlock.ROOM_UNTRUSTED: "no trusted room value (a model plan never maps to water)",
-    ModelPlanBlock.STOVE_ACTIVE: "wood-stove episode active",
-    ModelPlanBlock.STOVE_RECOVERY: "wood-stove recovery (the detection has not re-armed yet)",
-    ModelPlanBlock.SLICE_TOO_LONG: "slice longer than a model slice may be",
+
+
+class PlanPause(StrEnum):
+    """Why an active plan slice has no effect this tick."""
+
+    STOVE = "stove"
+    STOVE_TAIL = "stove_tail"
+    SUMMER = "summer"
+    ROOM_TARGET = "room_target"
+    ROOM_UNTRUSTED = "room_untrusted"
+
+
+PLAN_PAUSE_NOTES: Final = {
+    PlanPause.STOVE: "paused by wood-stove mode",
+    PlanPause.STOVE_TAIL: (
+        "paused: the room is still warm after a wood-stove episode (until it has cooled "
+        "below the stove's exit threshold)"
+    ),
+    PlanPause.SUMMER: "paused by the summer switch",
+    PlanPause.ROOM_TARGET: "paused: a manual room target or away is active",
+    PlanPause.ROOM_UNTRUSTED: "paused: room value not trusted",
 }
-MODEL_WATER_BLOCK_TEXT: Final[dict[ModelPlanBlock, str]] = {
-    **MODEL_BLOCK_TEXT,
-    ModelPlanBlock.ROOM_UNTRUSTED: "no trusted room value to judge its authority by",
-}
+ROOM_KINDS: Final = frozenset({OverrideKind.ROOM_TARGET, OverrideKind.AWAY})
+ROOM_LABELS: Final = {OverrideKind.ROOM_TARGET: "manual room target", OverrideKind.AWAY: "away"}
 
 
-class RampPhase(StrEnum):
-    """Phase of the start ramp."""
+@dataclass(frozen=True, slots=True)
+class PlanShift:
+    """The active plan slice of one tick after its bound, and whether it applies.
 
-    IDLE = "idle"
-    HOLD = "hold"
-    RELEASE = "release"
+    Parameters
+    ----------
+    slice
+        The active slice as the planner sent it.
+    offset_k
+        Its room offset within the bound (a rule slice is clamped to
+        ``plan_rule_max_k``; an optimiser slice is not).
+    limit_k
+        The bound applied (``None`` for an optimiser slice).
+    paused
+        Why it has no effect this tick (``None``: it applies).
+    """
+
+    slice: PlanSlice
+    offset_k: float
+    limit_k: float | None
+    paused: PlanPause | None = None
+
+    @property
+    def clamped(self) -> bool:
+        """Whether the bound cut the slice's offset."""
+        return self.offset_k != self.slice.room_offset_k
+
+    @property
+    def applied(self) -> PlanSlice | None:
+        """The slice when it applies this tick, else ``None``."""
+        return self.slice if self.paused is None else None
+
+    def clamp_text(self) -> str:
+        """Return the clause that tells a clamped slice apart (empty when not clamped)."""
+        if not self.clamped or self.limit_k is None:
+            return ""
+        return f" (slice {signed(self.slice.room_offset_k)} K clamped to ±{self.limit_k:g} K)"
+
+
+def bounded_offset(cfg: OvenbirdConfig, plan: PlanSlice) -> tuple[float, float | None]:
+    """Return a slice's room offset within the rule bound, and the bound applied.
+
+    A rule slice is clamped to ``±plan_rule_max_k`` whatever the planner sent; an
+    optimiser slice keeps its offset (bound ``None``).
+    """
+    if plan.source is PlanSource.RULE:
+        return clamp(plan.room_offset_k, cfg.plan_rule_max_k), cfg.plan_rule_max_k
+    return plan.room_offset_k, None
+
+
+def plan_shift(
+    cfg: OvenbirdConfig,
+    plan: PlanSlice | None,
+    *,
+    stove: bool,
+    stove_tail: bool,
+    seen: RoomInput | None,
+    room: RoomInput | None,
+    summer: bool = False,
+    room_target: bool = False,
+) -> PlanShift | None:
+    """Return the tick's active plan slice after its bound, paused where it may not act.
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration.
+    plan
+        The slice active at this tick (``None`` without one).
+    stove
+        A wood-stove episode is active.
+    stove_tail
+        The stove detection waits for the room to cool below its exit threshold after
+        an episode (the cap or a manual stop ended it while the room was still warm).
+    seen
+        The room input as received (``None`` without a room sensor).
+    room
+        The trusted room value (fresh and plausible).
+    summer
+        The summer switch is on.
+    room_target
+        A manual room target or away applies this tick (it replaces the plan).
+
+    Returns
+    -------
+    PlanShift or None
+        ``None`` without an active slice. A slice is paused during an episode, in its
+        tail, while the summer switch is on, while a manual room target applies and
+        while a room sensor exists but its value is not trusted; without a room sensor
+        it applies (mapped to water by :func:`plan_term`).
+    """
+    if plan is None:
+        return None
+    offset, limit = bounded_offset(cfg, plan)
+    paused: PlanPause | None = None
+    if stove:
+        paused = PlanPause.STOVE
+    elif stove_tail:
+        paused = PlanPause.STOVE_TAIL
+    elif summer:
+        paused = PlanPause.SUMMER
+    elif room_target:
+        paused = PlanPause.ROOM_TARGET
+    elif seen is not None and room is None:
+        paused = PlanPause.ROOM_UNTRUSTED
+    return PlanShift(plan, offset, limit, paused)
+
+
+def plan_clause(shift: PlanShift | None, plan_w: float) -> str | None:
+    """Return the plan's clause of the decision note (``None`` without an active slice)."""
+    if shift is None:
+        return None
+    if shift.paused is not None:
+        return f"plan {signed(shift.slice.room_offset_k)} K room {PLAN_PAUSE_NOTES[shift.paused]}"
+    return f"plan {signed(shift.offset_k)} K room{shift.clamp_text()} ({signed(plan_w)} K water)"
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,75 +201,6 @@ class Feedback:
 
 
 @dataclass(frozen=True, slots=True)
-class ModelPlan:
-    """An active model plan slice of one tick (``PlanSource.MODEL``).
-
-    Parameters
-    ----------
-    requested_k
-        Room offset the planner sent.
-    applied_k
-        Room offset applied to the room target: ``requested_k`` clamped to the model
-        bounds, ``0`` while ``block`` is set.
-    block
-        Why the slice has no effect this tick (``None``: it applies).
-    water_requested_k
-        Water offset the planner sent (``0`` on a room-target slice).
-    water_applied_k
-        Water offset applied: ``water_requested_k`` clamped to the model water bounds
-        and scaled by ``authority``; ``0`` while ``block`` is set.
-    authority
-        Room authority of a water slice (``None`` on a room-target slice or while
-        ``block`` is set).
-    """
-
-    requested_k: float
-    applied_k: float
-    block: ModelPlanBlock | None
-    water_requested_k: float = 0.0
-    water_applied_k: float = 0.0
-    authority: float | None = None
-
-    @property
-    def water(self) -> bool:
-        """Whether the slice is a water slice."""
-        return self.water_requested_k != 0.0
-
-    @property
-    def clamped(self) -> bool:
-        """Whether the bounds cut the requested offset."""
-        return self.block is None and self.applied_k != self.requested_k
-
-    def ignored_text(self) -> str | None:
-        """Return why the slice is ignored, for the notes (``None`` when it applies)."""
-        if self.block is None:
-            return None
-        if self.water:
-            return (
-                f"model plan {signed(self.water_requested_k)} K water ignored: "
-                f"{MODEL_WATER_BLOCK_TEXT[self.block]}"
-            )
-        return f"model plan {signed(self.requested_k)} K ignored: {MODEL_BLOCK_TEXT[self.block]}"
-
-    def water_text(self) -> str:
-        """Return what became of a water slice, for the notes."""
-        asked = signed(self.water_requested_k)
-        if self.block is not None:
-            return self.ignored_text() or ""
-        if self.water_applied_k == 0.0 and self.authority == 0.0:
-            return f"model plan {asked} K water has no effect: room authority 0 % (room cool)"
-        if self.water_applied_k == 0.0:
-            return f"model plan {asked} K water cut to 0 by the model water bounds"
-        text = f"model plan {signed(self.water_applied_k)} K water for the forecast sun"
-        details: list[str] = []
-        if self.authority is not None and self.authority < 1.0:
-            details.append(f"room authority {math.floor(self.authority * 100):.0f} %")
-        if self.water_applied_k != self.water_requested_k:
-            details.append(f"asked {self.water_requested_k:+.2f} K")
-        return f"{text} ({', '.join(details)})" if details else text
-
-
-@dataclass(frozen=True, slots=True)
 class Ramp:
     """The start ramp of one tick: its phase and cap carried on, and its term."""
 
@@ -186,6 +232,17 @@ def curve_term(
 
     The term keeps the name ``curve`` in both cases; its note says which applies and,
     with a chosen outside sensor, where the raw value came from (``source``).
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration.
+    outside_f
+        Filtered outside temperature, in °C.
+    outside
+        Raw outside temperature, in °C.
+    source
+        Name of the chosen outside sensor, ``None`` for the pump's own.
     """
     curve_sp = cfg.base_water(outside_f)
     if cfg.weather_compensation:
@@ -227,11 +284,40 @@ def room_feedback(
     seen: RoomInput | None,
     fade: float,
     lost_for: float,
+    summer: bool = False,
 ) -> Feedback:
     """Return the room feedback (PI) of one tick (see the room value guards).
 
     ``room`` is the trusted room value, ``fresh_room`` the fresh one (implausible or
-    not) and ``seen`` the room input as received (possibly stale).
+    not) and ``seen`` the room input as received (possibly stale). While the summer
+    switch is on the feedback is paused with its integrator held, as in wood-stove mode.
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration.
+    state
+        Controller state after tracking.
+    target
+        Room target, in °C.
+    stove
+        A wood-stove episode is active.
+    room
+        Trusted room value, ``None`` when unusable.
+    fresh_room
+        Fresh room value, plausible or not.
+    implausible
+        The room value failed the plausibility cross-check.
+    deviation
+        Deviation found by the cross-check, in K, if any.
+    seen
+        Room input as received, possibly stale.
+    fade
+        Share of the held integral still kept after the value was lost, 0 to 1.
+    lost_for
+        Time the room value has been unusable, in s.
+    summer
+        The summer switch is on.
     """
     fb = cfg.feedback
     error: float | None = None
@@ -242,6 +328,11 @@ def room_feedback(
     held = 0.0
     if stove:
         fb_note = f"paused by wood-stove mode; integrator held at {signed(state.integral_k)} K"
+        if room is not None:
+            status = room_status(room, cfg.room.authority(room.held_s, room.age))
+            fb_note += f"; {status}"
+    elif summer:
+        fb_note = f"paused by the summer switch; integrator held at {signed(state.integral_k)} K"
         if room is not None:
             status = room_status(room, cfg.room.authority(room.held_s, room.age))
             fb_note += f"; {status}"
@@ -284,53 +375,184 @@ def room_feedback(
 
 def plan_term(
     cfg: OvenbirdConfig,
-    plan: PlanSlice | None,
+    shift: PlanShift | None,
     outside_f: float,
     *,
-    stove: bool,
     pi_room: RoomInput | None,
-    model: ModelPlan | None = None,
 ) -> tuple[float, float, Term]:
     """Return the plan's water offset before and after its clamp, and its term.
 
-    With an active room PI the plan shifts the room target instead (no water offset).
-    A model plan (``PlanSource.MODEL``) room-target slice only ever shifts the room
-    target: without an active room PI it has no effect at all, and ``model`` says why
-    it was ignored or whether its bounds cut it. A model water slice adds its applied
-    water offset (bounded, scaled by the room authority); the term's raw value is the
-    offset the planner asked for.
+    With an active room PI the bounded slice shifts the room target instead (no water
+    offset); a paused slice has no effect; without a room sensor the bounded offset
+    maps to water through the curve slope, clamped to ``plan_max_water_k``.
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration.
+    shift
+        Plan's bounded room shift, ``None`` without a plan.
+    outside_f
+        Filtered outside temperature, in °C.
+    pi_room
+        Room value driving the feedback, ``None`` without one.
     """
     plan_raw = plan_w = 0.0
-    ignored = None if model is None else model.ignored_text()
-    if model is not None and model.water:
-        plan_note = model.water_text()
-        if plan is not None and model.block is None:
-            plan_raw, plan_w = model.water_requested_k, plan.water_offset_k
-    elif ignored is not None:
-        plan_note = ignored
-    elif plan is None and model is not None:
-        plan_note = f"model plan {signed(model.requested_k)} K cut to 0 by the model bounds"
-    elif plan is None:
+    if shift is None:
         plan_note = "no plan"
-    elif plan.source is PlanSource.MODEL:
-        if stove or pi_room is None:
-            plan_note = "model plan ignored: no active room feedback"
-        else:
-            plan_note = f"model plan shifts room target by {signed(plan.room_offset_k)} K"
-            if model is not None and model.clamped:
-                plan_note += f" (asked {model.requested_k:+.2f} K, cut to the model bounds)"
-    elif stove:
-        plan_note = "paused by wood-stove mode"
+    elif shift.paused is not None:
+        plan_note = PLAN_PAUSE_NOTES[shift.paused]
     elif pi_room is not None:
-        plan_note = f"shifts room target by {signed(plan.room_offset_k)} K"
+        plan_note = f"shifts room target by {signed(shift.offset_k)} K{shift.clamp_text()}"
     else:
-        plan_raw = room_offset_to_water(cfg.curve, outside_f, plan.room_offset_k)
+        plan_raw = room_offset_to_water(cfg.curve, outside_f, shift.offset_k)
         plan_w = clamp(plan_raw, cfg.plan_max_water_k)
         plan_note = (
-            f"room offset {signed(plan.room_offset_k)} K mapped via curve slope "
-            f"{cfg.curve.sensitivity(outside_f):.2f}"
+            f"room offset {signed(shift.offset_k)} K mapped via curve slope "
+            f"{cfg.curve.sensitivity(outside_f):.2f}{shift.clamp_text()}"
         )
     return plan_raw, plan_w, Term("plan", plan_raw, plan_w, "K", plan_note)
+
+
+@dataclass(frozen=True, slots=True)
+class RoomShift:
+    """The tick's manual room target (a boost, a cooler room or away) and whether it applies.
+
+    Parameters
+    ----------
+    override
+        The active ``room_target`` or ``away`` override; its value is the shift of the
+        comfort room target in K.
+    paused
+        Why it has no effect this tick (``None``: it applies).
+    """
+
+    override: Override
+    paused: PlanPause | None = None
+
+    @property
+    def offset_k(self) -> float:
+        """The shift of the comfort room target in K."""
+        return self.override.value
+
+    @property
+    def applied(self) -> bool:
+        """Whether the shift applies this tick."""
+        return self.paused is None
+
+    @property
+    def label(self) -> str:
+        """What the decision note calls it (``manual room target`` or ``away``)."""
+        return ROOM_LABELS[self.override.kind]
+
+
+def active_room_override(override: Override | None, now: Instant) -> Override | None:
+    """Return ``override`` when it is a room-target kind active at ``now``, else ``None``."""
+    if override is None or override.kind not in ROOM_KINDS or not override.active(now):
+        return None
+    return override
+
+
+def room_shift(override: Override | None, *, stove: bool, summer: bool) -> RoomShift | None:
+    """Return the tick's manual room target, paused during a wood-stove episode or summer."""
+    if override is None:
+        return None
+    paused: PlanPause | None = None
+    if stove:
+        paused = PlanPause.STOVE
+    elif summer:
+        paused = PlanPause.SUMMER
+    return RoomShift(override, paused)
+
+
+def room_target_term(
+    cfg: OvenbirdConfig,
+    shift: RoomShift | None,
+    outside_f: float,
+    *,
+    pi_room: RoomInput | None,
+) -> tuple[float, float, Term | None]:
+    """Return the manual room target's water offset before and after its clamp, and its term.
+
+    With an active room PI the shift moves the room target instead (no water offset); a
+    paused shift has no effect; without a trusted room value the shift maps to water
+    through the curve slope, clamped to ``plan_max_water_k`` (as a plan slice does).
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration.
+    shift
+        Manual room-target shift, ``None`` without one.
+    outside_f
+        Filtered outside temperature, in °C.
+    pi_room
+        Room value driving the feedback, ``None`` without one.
+    """
+    if shift is None:
+        return 0.0, 0.0, None
+    raw = water = 0.0
+    who = f"{shift.label} {signed(shift.offset_k)} K by {shift.override.actor}"
+    if shift.paused is not None:
+        note = f"{who} {PLAN_PAUSE_NOTES[shift.paused]}"
+    elif pi_room is not None:
+        note = f"{who}: shifts the room target"
+    else:
+        raw = room_offset_to_water(cfg.curve, outside_f, shift.offset_k)
+        water = clamp(raw, cfg.plan_max_water_k)
+        note = f"{who}: mapped via curve slope {cfg.curve.sensitivity(outside_f):.2f}"
+    return raw, water, Term("room_target", raw, water, "K", note)
+
+
+def room_target_clause(shift: RoomShift | None, water: float) -> str | None:
+    """Return the manual room target's clause of the decision note (``None`` without one)."""
+    if shift is None:
+        return None
+    if shift.paused is not None:
+        return f"{shift.label} {signed(shift.offset_k)} K room {PLAN_PAUSE_NOTES[shift.paused]}"
+    if water:
+        return f"{shift.label} {signed(shift.offset_k)} K room ({signed(water)} K water)"
+    return f"{shift.label} {signed(shift.offset_k)} K room"
+
+
+def summer_term(
+    summer: SummerConfig | None,
+    active: bool,
+    mean_c: float | None,
+    pre_summer: float,
+    bounds: SafetyBounds,
+) -> tuple[float, Term | None]:
+    """Return the summer switch's water offset and its term (``None`` without the switch).
+
+    While on, the offset takes the sum of the terms before it down to the safety
+    minimum ``bounds.low`` (never up): ovenbird never switches the pump off, "no space
+    heating" is the lowest allowed setpoint, as wood-stove mode's ``to_minimum``.
+
+    Parameters
+    ----------
+    summer
+        Summer switch configuration, ``None`` without the switch.
+    active
+        Whether the switch is currently on.
+    mean_c
+        Slow outside mean, in °C, if known.
+    pre_summer
+        Sum of the terms before this one, in °C.
+    bounds
+        Safety envelope at the current outside temperature.
+    """
+    if summer is None:
+        return 0.0, None
+    mean = "unknown" if mean_c is None else f"{mean_c:.1f} °C"
+    if not active:
+        note = f"inactive (slow outside mean {mean}; heating off above {summer.off_c:g} °C)"
+        return 0.0, Term("summer", 0.0, 0.0, "K", note)
+    value = min(0.0, bounds.low - pre_summer)
+    note = (
+        f"no space heating: slow outside mean {mean} above {summer.off_c:g} °C (resumes "
+        f"below {summer.on_c:g} °C); water to the safety minimum {bounds.low:.1f} °C"
+    )
+    return value, Term("summer", value, value, "K", note)
 
 
 def boost_term(override: Override | None, boost: float) -> Term | None:
@@ -358,6 +580,27 @@ def start_ramp(
     falls below the outlet minus ``below_outlet_k`` or the curve minus
     ``max_below_curve_k``, and is frozen during defrost and DHW. The ramp ends once
     the cap is no longer below ``base``.
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration.
+    state
+        Controller state after tracking.
+    running
+        The compressor runs.
+    defrost
+        The heat pump is defrosting.
+    dhw
+        The heat pump is making domestic hot water.
+    outlet
+        Water outlet temperature, in °C.
+    curve_sp
+        Curve setpoint, in °C.
+    base
+        Sum of the terms before the ramp, in °C.
+    dt
+        Time since the previous tick, in s.
     """
     phase, cap = state.ramp_phase, state.ramp_cap
     ramp_raw = ramp = 0.0
@@ -412,7 +655,31 @@ def cycling_floor(
     base: float,
     raw_sum: float,
 ) -> Floor:
-    """Return the cycling floor (≥ 0) inside the compressor's minimum-run window."""
+    """Return the cycling floor (≥ 0) inside the compressor's minimum-run window.
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration.
+    state
+        Controller state after tracking.
+    now
+        Monotonic time of this tick, in s.
+    manual
+        A manual setpoint is active.
+    running
+        The compressor runs.
+    defrost
+        The heat pump is defrosting.
+    dhw
+        The heat pump is making domestic hot water.
+    outlet
+        Water outlet temperature, in °C.
+    base
+        Sum of the terms before the floor, in °C.
+    raw_sum
+        Sum of all terms before the floor, in °C.
+    """
     floor: float | None = None
     cycling = 0.0
     cc = cfg.cycling

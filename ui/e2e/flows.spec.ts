@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { settled } from './settle';
 import { sheetVersion } from './sheet';
 
 test.skip(Boolean(process.env['BASE_URL']), 'state-changing flows run against the mock only');
@@ -221,7 +222,7 @@ test('phone page heights stay within budget', async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 860 });
   await page.goto('./#/settings/room');
   await expect(page.getByTestId('room-status')).toBeVisible();
-  await page.waitForTimeout(300);
+  await settled(page);
   const room = await page.evaluate(() => document.documentElement.scrollHeight);
   expect(room, 'Room height at 400 px').toBeLessThanOrEqual(1600);
 
@@ -231,7 +232,7 @@ test('phone page heights stay within budget', async ({ page }) => {
   await expect(
     page.getByTestId('preset-diff').getByTestId('diff-row-control_max_supply_c'),
   ).toBeVisible();
-  await page.waitForTimeout(300);
+  await settled(page);
   await page.screenshot({ path: 'e2e/shots/flow-emitter-switch-phone.png', fullPage: true });
   const emitter = await page.evaluate(() => document.documentElement.scrollHeight);
   expect(emitter, 'Emitter height at 400 px with a preset switch').toBeLessThanOrEqual(1800);

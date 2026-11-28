@@ -74,8 +74,6 @@ from ovenbird.history.journal import (
     query_decisions,
 )
 from ovenbird.history.query import HistoryQueryError, default_step, query_series
-from ovenbird.insight.learner import keep_learner_config
-from ovenbird.insight.learnrun import LearnRunner
 from ovenbird.mqttsetup import MqttSetup
 from ovenbird.payloads import Json
 from ovenbird.pump.settings import PumpSettings
@@ -127,6 +125,7 @@ class SecurityHeadersMiddleware:
             return
 
         async def with_headers(message: Message) -> None:
+            """Replace the security headers of the response start before forwarding it."""
             if message["type"] == "http.response.start":
                 headers = [
                     (key, value)
@@ -188,16 +187,32 @@ def build_router(
     control: ControlLoop | None = None,
     tickets: LiveTickets | None = None,
 ) -> APIRouter:
-    """Return the API v1 routes."""
+    """Return the API v1 routes.
+
+    Parameters
+    ----------
+    runtime
+        Live signal store and clock the routes read.
+    settings
+        Service settings (history path, tokens and roles).
+    broadcaster
+        Fan-out the WebSocket route serves its clients from.
+    control
+        Control loop whose latest decision and status are served; ``None`` without one.
+    tickets
+        Issuer of the one-time WebSocket tickets; a fresh one when omitted.
+    """
     router = APIRouter(prefix=API_PREFIX)
     passes = tickets or LiveTickets()
 
     @router.get("/health", **returns(Health))
     async def health() -> Json:
+        """Return the service health."""
         return runtime.health()
 
     @router.get("/snapshot", **returns(Snapshot))
     async def snapshot() -> Json:
+        """Return the latest value of every signal."""
         return runtime.snapshot()
 
     @router.get("/history", **returns(History, encoder=True))
@@ -208,6 +223,21 @@ def build_router(
         step: Annotated[int | None, Query()] = None,
         output: Annotated[Format, Query(alias="format")] = "json",
     ) -> Json | Response:
+        """Return the history of the requested signals as JSON or CSV.
+
+        Parameters
+        ----------
+        signals
+            Comma-separated signal ids.
+        start
+            Start of the window as ISO time; 24 h before ``end`` by default.
+        end
+            End of the window as ISO time; now by default.
+        step
+            Resolution in seconds; chosen from the window length when omitted.
+        output
+            Response format: ``json`` or ``csv``.
+        """
         ids = list(dict.fromkeys(part.strip() for part in signals.split(",") if part.strip()))
         if not ids:
             raise HTTPException(400, "signals must name at least one signal id")
@@ -249,6 +279,19 @@ def build_router(
         limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
         output: Annotated[Format, Query(alias="format")] = "json",
     ) -> Json | Response:
+        """Return the journalled control decisions of a window as JSON or CSV.
+
+        Parameters
+        ----------
+        start
+            Start of the window as ISO time; 24 h before ``end`` by default.
+        end
+            End of the window as ISO time; now by default.
+        limit
+            Maximum number of rows (the newest ones).
+        output
+            Response format: ``json`` or ``csv``.
+        """
         since, until = window(runtime, start, end)
         rows = query_decisions(settings.history_path, since.timestamp(), until.timestamp(), limit)
         if output == "csv":
@@ -263,6 +306,7 @@ def build_router(
 
     @router.get("/decisions/latest", **returns(DecisionsLatest))
     def decisions_latest() -> Json:
+        """Return the latest control decision and the control status."""
         decision = control.latest if control is not None else None
         if decision is None:
             row = latest_decision(settings.history_path)
@@ -279,6 +323,19 @@ def build_router(
         limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
         output: Annotated[Format, Query(alias="format")] = "json",
     ) -> Json | Response:
+        """Return the journalled alarm transitions of a window as JSON or CSV.
+
+        Parameters
+        ----------
+        start
+            Start of the window as ISO time; 24 h before ``end`` by default.
+        end
+            End of the window as ISO time; now by default.
+        limit
+            Maximum number of rows (the newest ones).
+        output
+            Response format: ``json`` or ``csv``.
+        """
         since, until = window(runtime, start, end)
         rows = query_alarms(settings.history_path, since.timestamp(), until.timestamp(), limit)
         if output == "csv":
@@ -300,6 +357,19 @@ def build_router(
         limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
         output: Annotated[Format, Query(alias="format")] = "json",
     ) -> Json | Response:
+        """Return the journalled command events of a window as JSON or CSV.
+
+        Parameters
+        ----------
+        start
+            Start of the window as ISO time; 24 h before ``end`` by default.
+        end
+            End of the window as ISO time; now by default.
+        limit
+            Maximum number of rows (the newest ones).
+        output
+            Response format: ``json`` or ``csv``.
+        """
         since, until = window(runtime, start, end)
         rows = query_commands(settings.history_path, since.timestamp(), until.timestamp(), limit)
         if output == "csv":
@@ -314,12 +384,14 @@ def build_router(
 
     @router.post("/live/ticket", **returns(LiveTicket))
     async def live_ticket(request: Request) -> JSONResponse:
+        """Issue a short-lived ticket for opening the WebSocket."""
         who = require_role(request, settings, Role.READ)
         body = {"ticket": passes.issue(who.role), "expires_in": passes.ttl}
         return JSONResponse(body, headers=NO_STORE)
 
     @router.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:
+        """Serve one live WebSocket client."""
         await broadcaster.serve(websocket)
 
     return router
@@ -330,6 +402,7 @@ def add_ui(app: FastAPI, ui_dir: Path) -> None:
 
     @app.get("/{path:path}", include_in_schema=False)
     async def ui(path: str) -> Response:
+        """Serve a UI file, falling back to ``index.html`` for client-side routes."""
         if path == "api" or path.startswith("api/"):
             return JSONResponse({"detail": "Not Found"}, status_code=404)
         found = static_file(ui_dir, path) if path else None
@@ -344,6 +417,7 @@ def add_ui(app: FastAPI, ui_dir: Path) -> None:
 
 
 async def _keep_running(name: str, factory: Callable[[], Any]) -> None:
+    """Run ``factory()`` forever, restarting it with a backoff after a crash."""
     backoff = Backoff()
     while True:
         started = time.monotonic()
@@ -371,7 +445,6 @@ def create_app(
     ha_check: HaCheck = check_connection,
     writer: HistoryWriter | None = None,
     mqtt: MqttSetup | None = None,
-    learn: LearnRunner | None = None,
 ) -> FastAPI:
     """Build the FastAPI application.
 
@@ -405,9 +478,6 @@ def create_app(
     mqtt
         Broker test and change (``config/mqtt``); without it those endpoints
         answer 404.
-    learn
-        Learner runner (``insight/house/run``); without it the learner is reported
-        as unavailable.
 
     Returns
     -------
@@ -419,6 +489,7 @@ def create_app(
 
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        """Run the broadcaster for the life of the app and close the replay jobs on exit."""
         task = asyncio.create_task(_keep_running("websocket broadcaster", fanout.run))
         try:
             yield
@@ -463,18 +534,9 @@ def create_app(
             ),
             prefix=API_PREFIX,
         )
-    if config is not None:
-        keep_learner_config(config)
     app.include_router(
         build_insight_router(
-            runtime,
-            lambda: config.settings if config is not None else settings,
-            settings=settings,
-            config=config,
-            audit=audit,
-            learn=learn,
-            control=control,
-            weather=weather,
+            runtime, lambda: config.settings if config is not None else settings, control
         ),
         prefix=API_PREFIX,
     )

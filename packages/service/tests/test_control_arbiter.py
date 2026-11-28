@@ -9,10 +9,12 @@ QUIET = CommandIntent(IntentKind.QUIET_MODE, 1, ReasonCode.QUIET_SCHEDULE)
 
 
 def actual(value: int, *, fresh: bool = True, signal: str = "main/x") -> ActualValue:
+    """Build an ActualValue reported by the pump with a fixed age."""
     return ActualValue(value, 3.0, fresh, signal)
 
 
 def pump(water: int | None = 30, duty: int | None = 159, quiet: int | None = 0) -> PumpActual:
+    """Build a PumpActual with the given water target, max pump duty and quiet mode values."""
     return PumpActual(
         water_target=None if water is None else actual(water),
         max_pump_duty=None if duty is None else actual(duty),
@@ -21,6 +23,7 @@ def pump(water: int | None = 30, duty: int | None = 159, quiet: int | None = 0) 
 
 
 def test_send_when_the_pump_reports_another_value() -> None:
+    """An intent is sent when the pump reports a different value, with a matching JSON form."""
     (decision,) = arbitrate([SETPOINT], pump(water=30))
     assert decision.action is Action.SEND
     assert decision.actual == 30
@@ -34,18 +37,21 @@ def test_send_when_the_pump_reports_another_value() -> None:
 
 
 def test_nothing_when_already_applied() -> None:
+    """No action is taken when the pump already reports the intended values."""
     decisions = arbitrate([SETPOINT, DUTY, QUIET], pump(water=31, duty=102, quiet=1))
     assert [d.action for d in decisions] == [Action.NONE] * 3
     assert {d.reason for d in decisions} == {"already applied"}
 
 
 def test_never_write_blind() -> None:
+    """Nothing is sent when the actual value is stale or unknown."""
     stale = PumpActual(water_target=actual(30, fresh=False))
     assert arbitrate([SETPOINT], stale)[0].action is Action.SKIP
     assert arbitrate([SETPOINT], pump(water=None))[0].action is Action.SKIP
 
 
 def test_in_flight_and_queued_are_not_repeated() -> None:
+    """An intent already in flight or queued is not repeated, unless the in-flight value differs."""
     in_flight = AdapterView(in_flight={IntentKind.WATER_SETPOINT: 31})
     assert arbitrate([SETPOINT], pump(), in_flight)[0].reason == "in flight"
     queued = AdapterView(queued={IntentKind.WATER_SETPOINT: 31})
@@ -55,6 +61,7 @@ def test_in_flight_and_queued_are_not_repeated() -> None:
 
 
 def test_hold_skips_writes_but_not_applied_values() -> None:
+    """A hold skips writes but leaves already applied values as no action."""
     view = AdapterView(hold="foreign writer")
     decisions = arbitrate([SETPOINT, DUTY], pump(water=30, duty=102), view)
     assert decisions[0].action is Action.SKIP
@@ -63,6 +70,7 @@ def test_hold_skips_writes_but_not_applied_values() -> None:
 
 
 def test_arbiter_is_pure_and_ordered() -> None:
+    """Arbitration is deterministic and keeps the order of the intents."""
     first = arbitrate([DUTY, SETPOINT], pump())
     assert first == arbitrate([DUTY, SETPOINT], pump())
     assert [d.intent.kind for d in first] == [IntentKind.MAX_PUMP_DUTY, IntentKind.WATER_SETPOINT]

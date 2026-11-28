@@ -4,6 +4,9 @@ Date: 2026-11-14 (design). Source: [design.md](../design.md), "Learning loop".
 Superseded in part by: [The learned house model in the controller](2026-11-27-learned-model-in-controller.md)
 (2026-11-27). The first sentence below no longer holds for the bounded room-target plan
 of that record, when `control_model_use` is `on`. Everything else here stays in force.
+Updated by: [The house model is removed](2026-11-28-house-model-removed.md)
+(2026-11-28). The house model is removed in 0.6.0; the rule that a suggestion is a draft
+the owner applies stays in force for every suggestion ovenbird makes.
 
 ## Decision
 

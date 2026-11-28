@@ -27,10 +27,12 @@ JsonObject = dict[str, Any]
 
 
 def _closed(schema: dict[str, Any]) -> None:
+    """Remove ``additionalProperties`` so the schema lists only the declared keys."""
     schema.pop("additionalProperties", None)
 
 
 def _no_default(schema: dict[str, Any]) -> None:
+    """Remove ``default`` from the schema so an absent key is not advertised as ``null``."""
     schema.pop("default", None)
 
 

@@ -1,6 +1,7 @@
 import type { hotwater as en } from '$lib/i18n/en/hotwater';
 
 export const hotwater: Record<keyof typeof en, string> = {
+  busy_houseHeatHotWater: 'elders bezig',
   busy_statusDhw: 'Pomp elders bezig',
   busy_pumpStateDhw: 'Pomp elders bezig',
   busy_homeLaneHotWater: 'Elders bezig',

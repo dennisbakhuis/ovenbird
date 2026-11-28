@@ -140,6 +140,7 @@ def count_decisions(path: Path, start: float, end: float) -> int:
 
 
 def _has_decisions(conn: Any) -> bool:
+    """Return whether the history has a decision table."""
     found = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'decision'"
     ).fetchone()
@@ -167,10 +168,12 @@ def identity_json(identity: Identity) -> dict[str, Any]:
 
 
 def _value(decided: Decided | None) -> float | None:
+    """Return the setpoint of a decision, or ``None`` when there is none."""
     return None if decided is None else decided[3]
 
 
 def _sent(path: Path, start: float, end: float) -> list[float]:
+    """Return the times (Unix s) at which water setpoints were sent in the period."""
     if not path.exists():
         return []
     conn = connect(path, read_only=True)
@@ -191,6 +194,7 @@ def _sent(path: Path, start: float, end: float) -> list[float]:
 
 
 def _change_times(values: Sequence[tuple[float, float | None]]) -> list[float]:
+    """Return the times at which the value differs from the previous known one."""
     found: list[float] = []
     last: float | None = None
     for ts, value in values:
@@ -208,6 +212,19 @@ def _days(
     recorded: Sequence[tuple[float, float | None]],
     sent: Sequence[float],
 ) -> list[dict[str, Any]]:
+    """Return per local day the replayed and recorded setpoint changes and writes.
+
+    Parameters
+    ----------
+    request
+        Replay request (period, time zone).
+    replayed
+        Decisions made by the replay.
+    recorded
+        Setpoints the pump reported, as ``(time, value)``.
+    sent
+        Times at which setpoints were really sent.
+    """
     start, end = request.start, request.end
     span = max(1, math.ceil((end - start) / DAY_S) + 1)
     writes = _change_times([(item[0], item[3]) for item in replayed])
@@ -235,6 +252,17 @@ def _series(
     columns: dict[str, Sequence[float | None]],
     step: int,
 ) -> dict[str, list[Any]]:
+    """Return the columns thinned to one point per ``step`` bucket (last known value).
+
+    Parameters
+    ----------
+    grid
+        Minute grid of the replay, Unix seconds.
+    columns
+        Values per series on that grid, ``None`` where unknown.
+    step
+        Bucket width in seconds.
+    """
     series: dict[str, list[Any]] = {"at": [], **{name: [] for name in columns}}
     if not grid:
         return series
@@ -266,6 +294,25 @@ def _summary(
     found_episodes: Sequence[Any],
     sent: int,
 ) -> dict[str, Any]:
+    """Return the summary of a replay: setpoint differences, writes against budget and episodes.
+
+    Parameters
+    ----------
+    request
+        Replay request (period, threshold, candidate settings).
+    rows
+        Per-minute comparison of replayed and pump setpoint.
+    recorded
+        Setpoints the controller recorded on the same grid.
+    tally
+        Replayed and recorded decisions.
+    days
+        Per-day figures from :func:`_days`.
+    found_episodes
+        Divergence episodes found.
+    sent
+        Number of setpoints really sent in the period.
+    """
     threshold = request.threshold_k
     budget = request.candidate.command_daily_budget
     diffs = [row.diff for row in rows if row.diff is not None]
@@ -310,6 +357,7 @@ def _summary(
 
 
 def _episode_json(episode: Any, recorded_at: dict[int, float | None]) -> dict[str, Any]:
+    """Return the API form of a divergence episode with the setpoint recorded at its peak."""
     body: dict[str, Any] = episode.to_json()
     body["recorded_c"] = recorded_at.get(episode.at_max.ts)
     return body

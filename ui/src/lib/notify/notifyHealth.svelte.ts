@@ -1,3 +1,4 @@
+import { poll } from '$lib/core/poll.svelte';
 import { fetchNotifications, type NotificationStatus } from '$lib/system/about';
 import { notifyVerdict, type NotifyVerdict } from './notify';
 
@@ -29,22 +30,17 @@ class NotifyHealth {
    * Start polling; returns the function that stops it.
    */
   start(): () => void {
-    const controller = new AbortController();
-    let timer: number | undefined;
-    const load = async () => {
-      try {
-        const status = await fetchNotifications(controller.signal);
-        if (!controller.signal.aborted) this.status = status;
-      } catch {
-        if (!controller.signal.aborted) this.status = null;
-      }
-      if (!controller.signal.aborted) timer = window.setTimeout(load, REFRESH_MS);
-    };
-    void load();
-    return () => {
-      controller.abort();
-      window.clearTimeout(timer);
-    };
+    return poll(
+      async (signal) => {
+        try {
+          const status = await fetchNotifications(signal);
+          if (!signal.aborted) this.status = status;
+        } catch {
+          if (!signal.aborted) this.status = null;
+        }
+      },
+      { intervalMs: REFRESH_MS },
+    );
   }
 }
 

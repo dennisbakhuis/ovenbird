@@ -29,21 +29,26 @@ type Wall = Callable[[], float]
 
 
 def _iso(ts: float) -> str:
+    """Format unix time as an ISO 8601 timestamp in UTC."""
     return datetime.fromtimestamp(ts, UTC).isoformat()
 
 
 @dataclass
 class _State:
+    """One entity's state with the times Home Assistant keeps for it."""
+
     state: str
     unit: str | None
     last_changed: float
     last_reported: float
 
     def compressed(self) -> dict[str, Any]:
+        """Return the state in the compressed form of a ``subscribe_entities`` snapshot."""
         attributes = {} if self.unit is None else {"unit_of_measurement": self.unit}
         return {"s": self.state, "a": attributes, "lc": self.last_changed}
 
     def full(self, entity_id: str) -> dict[str, Any]:
+        """Return the state in the full ``get_states`` form for ``entity_id``."""
         attributes = {} if self.unit is None else {"unit_of_measurement": self.unit}
         return {
             "entity_id": entity_id,
@@ -91,7 +96,13 @@ class MemorySocket:
             self.outbox.put_nowait(json.dumps(message))
 
     async def send(self, raw: str) -> None:
-        """Handle one client message."""
+        """Handle one client message.
+
+        Parameters
+        ----------
+        raw
+            JSON text of the request.
+        """
         request = json.loads(raw)
         kind = request.get("type")
         if "id" in request:
@@ -135,6 +146,7 @@ class MemorySocket:
         return self._messages()
 
     async def _messages(self) -> AsyncIterator[str]:
+        """Yield queued messages until the connection closes."""
         while True:
             item = await self.outbox.get()
             if item is None:
@@ -194,6 +206,7 @@ class MemoryHomeAssistant:
         self._event({"c": {entity_id: {"+": {"s": state, "lc": now}}}})
 
     def _event(self, event: dict[str, Any]) -> None:
+        """Push an entity event to every open subscription and count it."""
         for socket in list(self.sockets):
             if socket.subscription is not None:
                 socket.push({"id": socket.subscription, "type": "event", "event": event})

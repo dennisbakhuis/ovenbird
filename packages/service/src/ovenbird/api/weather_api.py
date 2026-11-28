@@ -1,8 +1,7 @@
 """Weather endpoint: measured, filtered and forecast outside temperature (``GET weather``).
 
-Open to every role. The forecast is a controller input only through the model plan
-(``control_model_use`` ``on``, see :mod:`ovenbird.control.modelplan`); otherwise it is shown
-only. See :mod:`ovenbird.weather.report` for the fields.
+Open to every role. The forecast is shown only; it is not a controller input. See
+:mod:`ovenbird.weather.report` for the fields.
 """
 
 from __future__ import annotations
@@ -58,6 +57,7 @@ def build_weather_router(
         back_h: Annotated[float, Query(gt=0, le=MAX_BACK_H)] = 24.0,
         ahead_h: Annotated[float, Query(gt=0, le=MAX_AHEAD_H)] = 48.0,
     ) -> Json:
+        """Return the measured, forecast and filtered outside temperature around now."""
         now = runtime.clock()
         config = (
             control.controller.config

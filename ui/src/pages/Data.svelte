@@ -5,6 +5,7 @@
   instead.
 -->
 <script lang="ts">
+  import { poll } from '$lib/core/poll.svelte';
   import { untrack } from 'svelte';
   import ArchiveCard from '$components/system/ArchiveCard.svelte';
   import ExportCard from '$components/system/ExportCard.svelte';
@@ -66,18 +67,13 @@
 
   $effect(() => {
     controller = new AbortController();
-    untrack(() => {
-      void loadStorage();
-      void loadSignals();
-      void loadArchive();
+    untrack(() => void loadSignals());
+    const stop = poll(() => untrack(() => Promise.all([loadStorage(), loadArchive()])), {
+      intervalMs: REFRESH_MS,
     });
-    const timer = window.setInterval(() => {
-      void loadStorage();
-      void loadArchive();
-    }, REFRESH_MS);
     return () => {
       controller?.abort();
-      window.clearInterval(timer);
+      stop();
     };
   });
 </script>

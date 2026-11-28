@@ -13,7 +13,6 @@ from ovenbird_core.control import OvenbirdConfig, OvenbirdController, RoomProfil
 from ovenbird_core.control.config import RoomSensorProfile
 from ovenbird_sim.data.series import Series
 from ovenbird_sim.evaluate.closedloop import HaRoomSensor, LoopOptions, Weather, simulate
-from ovenbird_sim.evaluate.counterfactual import room_variant_models
 from ovenbird_sim.evaluate.sensors import (
     HUMIDITY_SIGNAL,
     HumidityModel,
@@ -38,6 +37,7 @@ GRID = RoomSensorModel(step_k=0.2, grid_offset_k=0.0, confirm_s=math.inf)
 
 
 def wandering_room(days: float, seed: int = 3) -> tuple[np.ndarray, np.ndarray]:
+    """Return times and a slowly wandering room temperature of ``days`` days at one-minute steps."""
     n = int(days * 1440)
     t = T0 + 60.0 * np.arange(n, dtype=np.float64)
     rng = np.random.default_rng(seed)
@@ -48,6 +48,7 @@ def wandering_room(days: float, seed: int = 3) -> tuple[np.ndarray, np.ndarray]:
 
 
 def recorded_by(model: RoomSensorModel, t: np.ndarray, air: np.ndarray, seed: int) -> Series:
+    """Return the value changes a device of ``model`` reports for the air temperature series."""
     device = RoomSensorDevice(model)
     draws = np.random.default_rng(seed).standard_normal(t.size)
     times: list[float] = []
@@ -61,7 +62,10 @@ def recorded_by(model: RoomSensorModel, t: np.ndarray, air: np.ndarray, seed: in
 
 
 class TestDevice:
+    """The simulated room sensor device."""
+
     def test_send_on_delta_with_hysteresis(self) -> None:
+        """A new value is sent only when it moves a grid step beyond the hysteresis."""
         device = RoomSensorDevice(replace(GRID, hysteresis_k=0.05))
         assert device.temperature(0.0, 21.32, 0.0) == pytest.approx(21.4)
         assert device.temperature(60.0, 21.48, 0.0) is None
@@ -71,12 +75,14 @@ class TestDevice:
         assert device.temperature(300.0, 21.34, 0.0) == pytest.approx(21.4)
 
     def test_samples_once_per_interval(self) -> None:
+        """The sensor reads only at its sampling interval."""
         device = RoomSensorDevice(GRID)
         assert device.temperature(0.0, 21.4, 0.0) is not None
         assert device.temperature(5.0, 22.2, 0.0) is None
         assert device.temperature(60.0, 22.2, 0.0) == pytest.approx(22.2)
 
     def test_heartbeat_and_force(self) -> None:
+        """The sensor repeats an unchanged value at the confirmation interval, or when forced."""
         device = RoomSensorDevice(replace(GRID, confirm_s=600.0))
         device.temperature(0.0, 21.4, 0.0)
         assert device.temperature(540.0, 21.4, 0.0) is None
@@ -84,6 +90,7 @@ class TestDevice:
         assert device.temperature(605.0, 21.4, 0.0, force=True) == pytest.approx(21.4)
 
     def test_recorded_liveness_times(self) -> None:
+        """Recorded liveness times are replayed as the last time the device was heard."""
         device = RoomSensorDevice(replace(GRID, liveness_times=(10.0, 70.0, 80.0, 500.0)))
         assert device.liveness(5.0) is None
         assert device.liveness(60.0) == 10.0
@@ -92,6 +99,7 @@ class TestDevice:
         assert device.liveness(1000.0) == 500.0
 
     def test_humidity_reports_about_six_times_a_day(self) -> None:
+        """The modelled humidity is reported about six times a day, in steps of at least 1 %."""
         rates = []
         for seed in range(4):
             device = RoomSensorDevice(replace(GRID, humidity=HumidityModel()), seed=seed)
@@ -103,7 +111,10 @@ class TestDevice:
 
 
 class TestCalibration:
+    """Calibration of the room sensor model from recorded values."""
+
     def test_recovers_change_rate_and_reversals(self) -> None:
+        """Calibration recovers the sensor's grid and reproduces its change rate and reversals."""
         t, air = wandering_room(20.0)
         truth = replace(GRID, noise_k=0.04, hysteresis_k=0.12)
         recorded = recorded_by(truth, t, air, seed=11)
@@ -122,6 +133,7 @@ class TestCalibration:
         assert model.reversal_share == target_reversals
 
     def test_liveness_times_from_recorded_states(self) -> None:
+        """Liveness times are taken from the valid states of a liveness signal."""
         t, air = wandering_room(2.0)
         recorded = recorded_by(GRID, t, air, seed=1)
         humidity = Series(np.array([T0 + 50.0, T0 + 100.0, T0 + 900.0]), np.array([55, 56, np.nan]))
@@ -130,6 +142,7 @@ class TestCalibration:
         assert model.profile.kind is RoomProfile.ON_CHANGE
 
     def test_example_device(self) -> None:
+        """The example device has the documented grid, humidity, profile and statistics."""
         example = example_room_sensor()
         assert (example.step_k, example.grid_offset_k) == (0.1, 0.0)
         assert example.confirm_s == math.inf
@@ -141,12 +154,16 @@ class TestCalibration:
 
 
 class TestStoreSemantics:
+    """How the controller's store judges the room sensor's value as fresh or stale."""
+
     def model(
         self, profile: RoomSensorProfile, liveness: tuple[float, ...] = ()
     ) -> RoomSensorModel:
+        """Return the example sensor with ``profile`` and liveness times."""
         return replace(GRID, profile=profile, liveness_times=liveness)
 
     def test_held_value_alive_by_liveness(self) -> None:
+        """A held value stays fresh while the liveness signal shows the device alive."""
         liveness = tuple(T0 + h * HOUR for h in range(1, 30))
         sensor = HaRoomSensor(self.model(example_profile(), liveness))
         first = sensor.view(T0, 21.72, 0.0)
@@ -160,18 +177,21 @@ class TestStoreSemantics:
         assert later.alive_by == HUMIDITY_SIGNAL
 
     def test_silent_after_the_silence_limit(self) -> None:
+        """Without liveness the value goes stale after the silence limit."""
         sensor = HaRoomSensor(self.model(example_profile()))
         sensor.view(T0, 21.72, 0.0)
         assert sensor.view(T0 + 23 * HOUR, 21.75, 0.0).fresh  # type: ignore[union-attr]
         assert not sensor.view(T0 + 25 * HOUR, 21.75, 0.0).fresh  # type: ignore[union-attr]
 
     def test_todays_1800_s(self) -> None:
+        """The 1800 s profile makes the value stale after 30 minutes."""
         sensor = HaRoomSensor(self.model(RoomSensorProfile(step_k=0.2)))
         sensor.view(T0, 21.72, 0.0)
         assert sensor.view(T0 + 1800.0, 21.75, 0.0).fresh  # type: ignore[union-attr]
         assert not sensor.view(T0 + 1860.0, 21.75, 0.0).fresh  # type: ignore[union-attr]
 
     def test_modelled_humidity_keeps_the_value_alive(self) -> None:
+        """The modelled humidity reports keep a held room value alive."""
         model = replace(example_room_sensor(), noise_k=0.0)
         sensor = HaRoomSensor(model, seed=2)
         fresh = []
@@ -182,28 +202,26 @@ class TestStoreSemantics:
 
 
 class TestVariants:
+    """Closed-loop behaviour with the different room sensor profiles."""
+
     PARAMS = PlantParams(HeatPumpParams(), BuildingParams(c_air=3.0e7, h_air_out=250.0))
 
-    def test_variant_models(self) -> None:
-        sensors = SensorModel(room=replace(example_room_sensor(), liveness_times=(T0,)))
-        models = room_variant_models(sensors)
-        ideal, today = models["ideal"].room, models["1800s"].room
-        assert ideal.confirm_s == 0.0
-        assert ideal.noise_k == 0.0
-        assert ideal.profile.kind is RoomProfile.PERIODIC
-        assert ideal.profile.quantum_k == 0.1
-        assert today.profile.max_age_s == 1800.0
-        assert today.liveness_times == ()
-        assert today.noise_k == sensors.room.noise_k
-
     def test_profile_keeps_feedback_where_1800_s_loses_it(self) -> None:
+        """The profile keeps the room feedback where the fixed 1800 s limit loses it."""
         n = 2 * 1440
         hours = (np.arange(n) / 60.0) % 24.0
         weather = Weather(T0, 60.0, np.full(n, 3.0), np.zeros(n), hours.astype(np.float64))
         start = initial_state(self.PARAMS, 21.0, t_mass=23.0, t_water=26.0)
         liveness = tuple(T0 + 3600.0 * k for k in range(49))
         recorded = replace(example_room_sensor(), humidity=None, liveness_times=liveness)
-        today = room_variant_models(SensorModel(room=recorded))["1800s"]
+        today = SensorModel(
+            room=replace(
+                recorded,
+                profile=RoomSensorProfile(step_k=recorded.step_k),
+                liveness_times=(),
+                humidity=None,
+            )
+        )
         traces = {}
         for name, sensors in (("profile", SensorModel(room=recorded)), ("1800s", today)):
             config = OvenbirdConfig.preset("mixed", comfort_room_c=21.0, room=sensors.room.profile)

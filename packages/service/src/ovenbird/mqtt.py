@@ -78,6 +78,7 @@ class SubscribeOnlyClient(Protocol):
 
 
 def _payload_bytes(payload: Any) -> bytes:
+    """Return an MQTT payload as bytes; ``None`` is empty."""
     if isinstance(payload, bytes | bytearray):
         return bytes(payload)
     if payload is None:

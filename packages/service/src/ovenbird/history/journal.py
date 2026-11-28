@@ -24,6 +24,7 @@ from typing import Any, Final
 from ovenbird.clock import iso_from_unix
 from ovenbird.history.packing import DecisionPacker, unpacker
 from ovenbird.history.schema import connect
+from ovenbird.sql import sql
 
 MAX_LIMIT: Final = 5000
 MAX_REPLAY: Final = 20_000
@@ -208,6 +209,21 @@ def write_journal(
     Of several state rows with the same key only the last one is kept. ``packer``
     keeps the decision dictionary between calls (a fresh one reads the newest
     stored dictionary).
+
+    Parameters
+    ----------
+    conn
+        Open history database connection.
+    decisions
+        Decision rows to insert.
+    commands
+        Command rows to insert.
+    alarms
+        Alarm rows to insert.
+    states
+        State rows to upsert.
+    packer
+        Decision packer keeping the compression dictionary between calls.
     """
     latest = {row.key: row for row in states}
     if not decisions and not commands and not alarms and not latest:
@@ -232,18 +248,24 @@ def write_journal(
                 )
             )
         conn.executemany(
-            f"INSERT INTO decision ({DECISION_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",  # noqa: S608
+            sql(
+                "INSERT INTO decision ({columns}) VALUES ({marks})",
+                columns=DECISION_COLUMNS,
+                marks=9,
+            ),
             packed,
         )
         conn.executemany(
-            f"INSERT INTO command ({COMMAND_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",  # noqa: S608
+            sql(
+                "INSERT INTO command ({columns}) VALUES ({marks})", columns=COMMAND_COLUMNS, marks=8
+            ),
             [
                 (c.ts, c.kind, c.value, c.status, c.attempt, c.topic, c.payload, c.detail)
                 for c in commands
             ],
         )
         conn.executemany(
-            f"INSERT INTO alarm ({ALARM_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?)",  # noqa: S608
+            sql("INSERT INTO alarm ({columns}) VALUES ({marks})", columns=ALARM_COLUMNS, marks=6),
             [(a.ts, a.code, a.severity, a.event, a.message, a.detail) for a in alarms],
         )
         conn.executemany(
@@ -285,6 +307,7 @@ def delete_journal_before(conn: sqlite3.Connection, cutoff: float) -> int:
 
 
 def _open(path: Path, table: str) -> sqlite3.Connection | None:
+    """Return a read-only connection when the file has the table, else ``None``."""
     if not path.exists():
         return None
     conn = connect(path, read_only=True)
@@ -298,6 +321,7 @@ def _open(path: Path, table: str) -> sqlite3.Connection | None:
 
 
 def _decision_columns(conn: sqlite3.Connection) -> str:
+    """Return the decision column list the database's schema generation has."""
     names = {row[1] for row in conn.execute("PRAGMA table_info(decision)")}
     if "body" in names:
         return DECISION_COLUMNS
@@ -345,14 +369,29 @@ def decision_rows(conn: sqlite3.Connection, rows: Sequence[Sequence[Any]]) -> li
 
 
 def query_decisions(path: Path, start: float, end: float, limit: int) -> list[DecisionRow]:
-    """Return the newest ``limit`` decisions in ``[start, end)``, oldest first."""
+    """Return the newest ``limit`` decisions in ``[start, end)``, oldest first.
+
+    Parameters
+    ----------
+    path
+        History database file.
+    start
+        Start of the window, Unix time (inclusive).
+    end
+        End of the window, Unix time (exclusive).
+    limit
+        Maximum number of rows.
+    """
     conn = _open(path, "decision")
     if conn is None:
         return []
     try:
         rows = conn.execute(
-            f"SELECT {_decision_columns(conn)} FROM decision WHERE ts >= ? AND ts < ? "  # noqa: S608
-            "ORDER BY ts DESC, id DESC LIMIT ?",
+            sql(
+                "SELECT {columns} FROM decision WHERE ts >= ? AND ts < ? "
+                "ORDER BY ts DESC, id DESC LIMIT ?",
+                columns=_decision_columns(conn),
+            ),
             (start, end, min(limit, MAX_LIMIT)),
         ).fetchall()
         return decision_rows(conn, rows[::-1])
@@ -366,6 +405,17 @@ def iter_decisions(
     """Yield every decision in ``[start, end)``, oldest first, reading ``batch`` rows at a time.
 
     Each batch is its own short read, so a slow consumer never holds the database.
+
+    Parameters
+    ----------
+    path
+        History database file.
+    start
+        Start of the window, Unix time (inclusive).
+    end
+        End of the window, Unix time (exclusive).
+    batch
+        Rows per read.
     """
     conn = _open(path, "decision")
     if conn is None:
@@ -375,8 +425,11 @@ def iter_decisions(
         after: tuple[float, int] = (start, -1)
         while True:
             rows = conn.execute(
-                f"SELECT {select}, id FROM decision WHERE ts >= ? AND ts < ? "  # noqa: S608
-                "AND (ts > ? OR (ts = ? AND id > ?)) ORDER BY ts, id LIMIT ?",
+                sql(
+                    "SELECT {columns}, id FROM decision WHERE ts >= ? AND ts < ? "
+                    "AND (ts > ? OR (ts = ? AND id > ?)) ORDER BY ts, id LIMIT ?",
+                    columns=select,
+                ),
                 (start, end, after[0], after[0], after[1], batch),
             ).fetchall()
             if not rows:
@@ -392,14 +445,29 @@ def iter_decisions(
 def decisions_between(
     path: Path, start: float, end: float, limit: int = MAX_REPLAY
 ) -> list[DecisionRow]:
-    """Return every decision in ``[start, end)`` (at most the newest ``limit``), oldest first."""
+    """Return every decision in ``[start, end)`` (at most the newest ``limit``), oldest first.
+
+    Parameters
+    ----------
+    path
+        History database file.
+    start
+        Start of the window, Unix time (inclusive).
+    end
+        End of the window, Unix time (exclusive).
+    limit
+        Maximum number of rows.
+    """
     conn = _open(path, "decision")
     if conn is None:
         return []
     try:
         rows = conn.execute(
-            f"SELECT {_decision_columns(conn)} FROM decision WHERE ts >= ? AND ts < ? "  # noqa: S608
-            "ORDER BY ts DESC, id DESC LIMIT ?",
+            sql(
+                "SELECT {columns} FROM decision WHERE ts >= ? AND ts < ? "
+                "ORDER BY ts DESC, id DESC LIMIT ?",
+                columns=_decision_columns(conn),
+            ),
             (start, end, limit),
         ).fetchall()
         return decision_rows(conn, rows[::-1])
@@ -414,8 +482,10 @@ def decision_before(path: Path, ts: float) -> DecisionRow | None:
         return None
     try:
         row = conn.execute(
-            f"SELECT {_decision_columns(conn)} FROM decision WHERE ts < ? "  # noqa: S608
-            "ORDER BY ts DESC, id DESC LIMIT 1",
+            sql(
+                "SELECT {columns} FROM decision WHERE ts < ? ORDER BY ts DESC, id DESC LIMIT 1",
+                columns=_decision_columns(conn),
+            ),
             (ts,),
         ).fetchone()
         return None if row is None else decision_rows(conn, [row])[0]
@@ -449,9 +519,12 @@ def decision_state_series(
         return []
     try:
         rows = conn.execute(
-            f"SELECT {_decision_columns(conn)} FROM decision "  # noqa: S608
-            "WHERE id IN (SELECT MAX(id) FROM decision WHERE ts >= ? AND ts < ? "
-            "GROUP BY CAST(ts / ? AS INTEGER)) ORDER BY ts, id",
+            sql(
+                "SELECT {columns} FROM decision "
+                "WHERE id IN (SELECT MAX(id) FROM decision WHERE ts >= ? AND ts < ? "
+                "GROUP BY CAST(ts / ? AS INTEGER)) ORDER BY ts, id",
+                columns=_decision_columns(conn),
+            ),
             (start, end, step),
         ).fetchall()
         decisions = decision_rows(conn, rows)
@@ -473,8 +546,10 @@ def latest_decision(path: Path) -> DecisionRow | None:
         return None
     try:
         row = conn.execute(
-            f"SELECT {_decision_columns(conn)} FROM decision "  # noqa: S608
-            "ORDER BY ts DESC, id DESC LIMIT 1"
+            sql(
+                "SELECT {columns} FROM decision ORDER BY ts DESC, id DESC LIMIT 1",
+                columns=_decision_columns(conn),
+            )
         ).fetchone()
         return None if row is None else decision_rows(conn, [row])[0]
     finally:
@@ -523,16 +598,22 @@ def query_decision_series(path: Path, start: float, end: float, step: int) -> di
     try:
         if step == 0:
             rows = conn.execute(
-                f"SELECT {select} FROM decision WHERE ts >= ? AND ts < ? "  # noqa: S608
-                "ORDER BY ts DESC, id DESC LIMIT ?",
+                sql(
+                    "SELECT {columns} FROM decision WHERE ts >= ? AND ts < ? "
+                    "ORDER BY ts DESC, id DESC LIMIT ?",
+                    columns=select,
+                ),
                 (start, end, MAX_RAW_SERIES),
             ).fetchall()
             rows.reverse()
         else:
             rows = conn.execute(
-                f"SELECT {select} FROM decision WHERE id IN ("  # noqa: S608
-                "SELECT MAX(id) FROM decision WHERE ts >= ? AND ts < ? "
-                "GROUP BY CAST(ts / ? AS INTEGER)) ORDER BY ts, id",
+                sql(
+                    "SELECT {columns} FROM decision WHERE id IN ("
+                    "SELECT MAX(id) FROM decision WHERE ts >= ? AND ts < ? "
+                    "GROUP BY CAST(ts / ? AS INTEGER)) ORDER BY ts, id",
+                    columns=select,
+                ),
                 (start, end, step),
             ).fetchall()
         decisions = decision_rows(conn, rows)
@@ -561,6 +642,7 @@ SERIES_COLUMNS: Final = (
 
 
 def _term_values(record: dict[str, Any]) -> dict[str, tuple[Any, Any]]:
+    """Return the ``(raw, value)`` of every term of a decision record by name."""
     found: dict[str, tuple[Any, Any]] = {}
     for term in record.get("terms") or ():
         if isinstance(term, dict) and isinstance(term.get("name"), str):
@@ -569,6 +651,15 @@ def _term_values(record: dict[str, Any]) -> dict[str, tuple[Any, Any]]:
 
 
 def _append_series(columns: dict[str, list[Any]], row: DecisionRow) -> None:
+    """Append one decision's values to the series columns.
+
+    Parameters
+    ----------
+    columns
+        Series columns by name, appended to in place.
+    row
+        Decision row to take the values from.
+    """
     record = json.loads(row.record)
     terms = _term_values(record)
     state = record.get("controller_state") or {}
@@ -596,14 +687,29 @@ def _append_series(columns: dict[str, list[Any]], row: DecisionRow) -> None:
 
 
 def query_commands(path: Path, start: float, end: float, limit: int) -> list[CommandRow]:
-    """Return the newest ``limit`` command events in ``[start, end)``, oldest first."""
+    """Return the newest ``limit`` command events in ``[start, end)``, oldest first.
+
+    Parameters
+    ----------
+    path
+        History database file.
+    start
+        Start of the window, Unix time (inclusive).
+    end
+        End of the window, Unix time (exclusive).
+    limit
+        Maximum number of rows.
+    """
     conn = _open(path, "command")
     if conn is None:
         return []
     try:
         rows = conn.execute(
-            f"SELECT {COMMAND_COLUMNS} FROM command WHERE ts >= ? AND ts < ? "  # noqa: S608
-            "ORDER BY ts DESC, id DESC LIMIT ?",
+            sql(
+                "SELECT {columns} FROM command WHERE ts >= ? AND ts < ? "
+                "ORDER BY ts DESC, id DESC LIMIT ?",
+                columns=COMMAND_COLUMNS,
+            ),
             (start, end, min(limit, MAX_LIMIT)),
         ).fetchall()
     finally:
@@ -612,14 +718,29 @@ def query_commands(path: Path, start: float, end: float, limit: int) -> list[Com
 
 
 def query_alarms(path: Path, start: float, end: float, limit: int) -> list[AlarmRow]:
-    """Return the newest ``limit`` alarm transitions in ``[start, end)``, oldest first."""
+    """Return the newest ``limit`` alarm transitions in ``[start, end)``, oldest first.
+
+    Parameters
+    ----------
+    path
+        History database file.
+    start
+        Start of the window, Unix time (inclusive).
+    end
+        End of the window, Unix time (exclusive).
+    limit
+        Maximum number of rows.
+    """
     conn = _open(path, "alarm")
     if conn is None:
         return []
     try:
         rows = conn.execute(
-            f"SELECT {ALARM_COLUMNS} FROM alarm WHERE ts >= ? AND ts < ? "  # noqa: S608
-            "ORDER BY ts DESC, id DESC LIMIT ?",
+            sql(
+                "SELECT {columns} FROM alarm WHERE ts >= ? AND ts < ? "
+                "ORDER BY ts DESC, id DESC LIMIT ?",
+                columns=ALARM_COLUMNS,
+            ),
             (start, end, min(limit, MAX_LIMIT)),
         ).fetchall()
     finally:
@@ -634,8 +755,10 @@ def alarms_since(path: Path, code: str, start: float) -> list[AlarmRow]:
         return []
     try:
         rows = conn.execute(
-            f"SELECT {ALARM_COLUMNS} FROM alarm WHERE code = ? AND ts >= ? "  # noqa: S608
-            "ORDER BY ts, id",
+            sql(
+                "SELECT {columns} FROM alarm WHERE code = ? AND ts >= ? ORDER BY ts, id",
+                columns=ALARM_COLUMNS,
+            ),
             (code, start),
         ).fetchall()
     finally:
@@ -684,10 +807,10 @@ def command_events_of(
         if conn is not None:
             conn.close()
         return []
-    marks = ", ".join("?" for _ in kinds)
-    query = (
-        f"SELECT {COMMAND_COLUMNS} FROM command WHERE kind IN ({marks}) "  # noqa: S608
-        "AND ts >= ? AND ts < ?"
+    query = sql(
+        "SELECT {columns} FROM command WHERE kind IN ({marks}) AND ts >= ? AND ts < ?",
+        columns=COMMAND_COLUMNS,
+        marks=len(kinds),
     )
     params: list[Any] = [*kinds, start, end]
     if status is not None:

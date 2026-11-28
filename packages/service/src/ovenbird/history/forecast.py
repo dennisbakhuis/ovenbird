@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Final
 
 from ovenbird.history.schema import connect
+from ovenbird.sql import qualified, sql
 
 COLUMNS: Final = "issued_ts, target_ts, temp_c, radiation_wm2, cloud_pct, wind_ms"
 HOUR_S: Final = 3600.0
@@ -55,7 +56,11 @@ def write_forecast(conn: sqlite3.Connection, rows: Sequence[ForecastRow]) -> int
     conn.execute("BEGIN")
     try:
         conn.executemany(
-            f"INSERT OR REPLACE INTO forecast ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?)",  # noqa: S608
+            sql(
+                "INSERT OR REPLACE INTO forecast ({columns}) VALUES ({marks})",
+                columns=COLUMNS,
+                marks=6,
+            ),
             [
                 (r.issued_ts, r.target_ts, r.temp_c, r.radiation_wm2, r.cloud_pct, r.wind_ms)
                 for r in rows
@@ -75,6 +80,7 @@ def delete_forecast_before(conn: sqlite3.Connection, cutoff: float) -> int:
 
 
 def _open(path: Path) -> sqlite3.Connection | None:
+    """Open the history read-only if it has a forecast table, else return ``None``."""
     if not path.exists():
         return None
     conn = connect(path, read_only=True)
@@ -111,7 +117,10 @@ def issue_rows(path: Path, issued_ts: float) -> list[ForecastRow]:
         return []
     try:
         rows = conn.execute(
-            f"SELECT {COLUMNS} FROM forecast WHERE issued_ts = ? ORDER BY target_ts",  # noqa: S608
+            sql(
+                "SELECT {columns} FROM forecast WHERE issued_ts = ? ORDER BY target_ts",
+                columns=COLUMNS,
+            ),
             (issued_ts,),
         ).fetchall()
     finally:
@@ -124,6 +133,15 @@ def at_lead(path: Path, lead_h: float, start: float, end: float) -> dict[float, 
 
     For each target hour the issue whose lead is in ``[lead_h, lead_h + 1)`` hours is
     used (the newest one when several qualify).
+
+    Parameters
+    ----------
+    path
+        History database.
+    lead_h
+        How many hours before the target the forecast was issued.
+    start, end
+        Target period, Unix seconds.
 
     Returns
     -------
@@ -150,7 +168,7 @@ def newest_rows(path: Path, start: float, end: float, issued_by: float) -> list[
     """Return, for each target hour in ``[start, end]``, the newest stored issue's row.
 
     The newest issue at or before ``issued_by`` is the one with the shortest lead
-    (``target_ts - issued_ts``), which is what the model planner needs: the best
+    (``target_ts - issued_ts``), which is what a forecast plan rule needs: the best
     knowledge of each hour, past and future.
 
     Parameters
@@ -172,10 +190,14 @@ def newest_rows(path: Path, start: float, end: float, issued_by: float) -> list[
         return []
     try:
         rows = conn.execute(
-            f"SELECT f.{COLUMNS.replace(', ', ', f.')} FROM forecast AS f "  # noqa: S608
-            "JOIN (SELECT target_ts, MAX(issued_ts) AS issued_ts FROM forecast "
-            "WHERE issued_ts <= ? AND target_ts >= ? AND target_ts <= ? GROUP BY target_ts) AS m "
-            "ON f.target_ts = m.target_ts AND f.issued_ts = m.issued_ts ORDER BY f.target_ts",
+            sql(
+                "SELECT {columns} FROM forecast AS f "
+                "JOIN (SELECT target_ts, MAX(issued_ts) AS issued_ts FROM forecast "
+                "WHERE issued_ts <= ? AND target_ts >= ? AND target_ts <= ? "
+                "GROUP BY target_ts) AS m "
+                "ON f.target_ts = m.target_ts AND f.issued_ts = m.issued_ts ORDER BY f.target_ts",
+                columns=qualified(COLUMNS, "f"),
+            ),
             (issued_by, start, end),
         ).fetchall()
     finally:

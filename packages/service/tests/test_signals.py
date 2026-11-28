@@ -34,6 +34,7 @@ MIRROR_DEVICE = "heishamon-in-ha"
 
 
 def sensor(value: str, unit: str = "°C", name: str | None = None) -> EntityState:
+    """Build an entity state with the given value, unit and optional friendly name."""
     attributes: dict[str, Any] = {"unit_of_measurement": unit}
     if name is not None:
         attributes["friendly_name"] = name
@@ -41,19 +42,25 @@ def sensor(value: str, unit: str = "°C", name: str | None = None) -> EntityStat
 
 
 class FakeHa:
+    """Minimal Home Assistant stand-in with an entity index, devices and temperature unit."""
+
     def __init__(self, index: dict[str, EntityState], devices: dict[str, str]) -> None:
+        """Store the entity index and the entity-to-device mapping."""
         self.index = index
         self.devices = devices
         self.temperature_unit: str | None = "°C"
 
     def area_of(self, entity_id: str) -> str | None:
+        """Return no area, as the fake knows none."""
         return None
 
     def device_of(self, entity_id: str) -> str | None:
+        """Return the device an entity belongs to, if any."""
         return self.devices.get(entity_id)
 
 
 def runtime_with(values: dict[str, Any]) -> Runtime:
+    """Build a runtime whose store holds the given HeishaMon values at the fake clock time."""
     clock = FakeClock()
     runtime = Runtime(clock=clock)
     for signal, value in values.items():
@@ -64,6 +71,7 @@ def runtime_with(values: dict[str, Any]) -> Runtime:
 def mirrors(
     index: dict[str, EntityState], devices: dict[str, str], values: dict[str, Any] = PUMP
 ) -> frozenset[str]:
+    """Return the devices whose entities copy at least a few of the given pump values."""
     runtime = runtime_with(values)
     return pump_mirror_devices(
         index, devices.get, pump_values(runtime.store.snapshot(runtime.clock()))
@@ -71,6 +79,7 @@ def mirrors(
 
 
 def test_a_device_copying_three_pump_values_is_a_mirror() -> None:
+    """A device with three entities copying pump values is flagged as a mirror."""
     index = {
         "sensor.hp_outlet": sensor("34.5"),
         "sensor.hp_inlet": sensor("30.3"),
@@ -82,6 +91,7 @@ def test_a_device_copying_three_pump_values_is_a_mirror() -> None:
 
 
 def test_two_copied_values_are_below_the_threshold() -> None:
+    """Two copied pump values stay below the mirror threshold."""
     assert MIRROR_MIN_SIGNALS == 3
     index = {
         "sensor.hp_outlet": sensor("34.5"),
@@ -92,6 +102,7 @@ def test_two_copied_values_are_below_the_threshold() -> None:
 
 
 def test_a_value_just_outside_the_tolerance_does_not_count() -> None:
+    """A value off by more than the tolerance is not counted as a copy."""
     off = 30.25 + MIRROR_TOLERANCE + 0.01
     index = {
         "sensor.hp_outlet": sensor("34.5"),
@@ -102,6 +113,7 @@ def test_a_value_just_outside_the_tolerance_does_not_count() -> None:
 
 
 def test_entities_matching_the_same_pump_signal_count_once() -> None:
+    """Several entities matching the same pump signal count only once."""
     same = {"sensor.a": sensor("34.5"), "sensor.b": sensor("34.52"), "sensor.c": sensor("34.48")}
     assert mirrors(same, dict.fromkeys(same, MIRROR_DEVICE)) == frozenset()
     two = {"sensor.a": sensor("34.46"), "sensor.b": sensor("34.54"), "sensor.c": sensor("30.25")}
@@ -111,6 +123,7 @@ def test_entities_matching_the_same_pump_signal_count_once() -> None:
 
 
 def test_values_that_many_pump_signals_share_prove_nothing() -> None:
+    """Devices with values that many pump signals share, such as zeros, are not flagged."""
     index = {
         "sensor.plug_power": sensor("0", "W"),
         "sensor.plug_current": sensor("0.0", "A"),
@@ -121,6 +134,7 @@ def test_values_that_many_pump_signals_share_prove_nothing() -> None:
 
 
 def test_entities_without_a_device_are_never_flagged() -> None:
+    """Entities without a device, or spread over different devices, are never flagged."""
     index = {
         "sensor.hp_outlet": sensor("34.5"),
         "sensor.hp_inlet": sensor("30.25"),
@@ -132,6 +146,7 @@ def test_entities_without_a_device_are_never_flagged() -> None:
 
 
 def test_without_heishamon_values_nothing_is_flagged() -> None:
+    """Without HeishaMon values, or with only Home Assistant values, nothing is flagged."""
     index = {
         "sensor.hp_outlet": sensor("34.5"),
         "sensor.hp_inlet": sensor("30.25"),
@@ -145,6 +160,7 @@ def test_without_heishamon_values_nothing_is_flagged() -> None:
 
 @pytest.fixture
 def candidates(make_settings: Callable[..., Settings]) -> dict[str, Any]:
+    """Build candidate lists from a fake Home Assistant that has one pump-mirror device."""
     index = {
         "sensor.panasonic_heat_pump_main_outlet_temp": sensor("34.5", name="HP outlet"),
         "sensor.panasonic_heat_pump_main_inlet_temp": sensor("30.25", name="HP inlet"),
@@ -164,6 +180,7 @@ def candidates(make_settings: Callable[..., Settings]) -> dict[str, Any]:
 def test_signal_candidates_flag_every_entity_of_a_mirror_device(
     candidates: dict[str, Any],
 ) -> None:
+    """Every entity of a mirror device is flagged as pump_mirror in all candidate lists."""
     room = {item["signal"]: item["pump_mirror"] for item in candidates["room"]}
     assert room == {
         "ha/climate.panasonic_heat_pump_main_z1_temp#current_temperature": True,

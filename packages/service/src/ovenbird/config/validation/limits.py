@@ -18,7 +18,13 @@ from ovenbird_core.control.safety import DEFAULT_MAX_SUPPLY_C
 
 
 def limit_issues(settings: Settings) -> list[Issue]:
-    """Return the violated rules of the safety limits, curve, feedback and start ramp."""
+    """Return the violated rules of the safety limits, curve, feedback and start ramp.
+
+    Parameters
+    ----------
+    settings
+        Settings to check.
+    """
     issues: list[Issue] = []
     try:
         safety = settings.safety_limits()

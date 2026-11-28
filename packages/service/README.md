@@ -320,65 +320,6 @@ holds the loop runs as `shadow` (decisions record `mode: shadow`), the guard ref
 values (whoever writes meanwhile is not a foreign writer) and releases nothing, not
 even a safety correction; the publishing connection stays open but idle.
 
-## House-model learner
-
-The learner (`python -m ovenbird_sim.learn`) refits the house model weekly and writes
-JSON that the service serves under `api/v1/insight/house` (`docs/design.md`, House
-insight). By default the service runs it itself: the runtime image carries it through the
-`learner` extra (numpy and scipy, which the service process never imports), and
-`ovenbird.insight.learnrun` starts it as a low-priority child process (building model only,
-about 11 s of CPU and 240 MB), one run at a time, with a 30 minute timeout and a 512 MB
-memory cap. It runs every `house_learn_interval_h` (168 by default) between 02:00 and
-05:00 in `control_timezone`, and on request through `POST api/v1/insight/house/run` (the
-House page's Run now). `house_learn_enabled` off stops the schedule and keeps Run now. A
-service installed without the extra answers `learner_unavailable`. Every `house_*` setting
-(facts about the house, bounds on the learned values, fit and test days, tolerance, left-out
-days) reaches the learner through `learner-config.json`; a change applies at its next run. The child runs as the
-service's user, so it sees the whole data directory.
-
-The separate learner container (root `Dockerfile` target `learner`) remains for an
-install that wants the learner isolated, or whose image lacks the extra. Both can be
-installed: the learner takes an exclusive lock on `models/.learner.lock`, so a run that
-finds the other busy exits without error. Set `house_learn_enabled` to false when the
-container does the work. It is untrusted code with the scientific stack, so it gets
-only what it needs:
-
-- `<data_dir>/learner/` (mode 0750, files 0640), written by the service, **read-only**
-  for the learner: `learner-config.json` (the effective `control_*` and `house_*`
-  fields, no secrets; rewritten at start and after every apply) and
-  `history.snapshot.db` (a hard link to the atomically replaced backup snapshot, or a
-  copy where links fail; refreshed every 10 min).
-- `<data_dir>/models/` (mode 2770), the learner's output. The service reads it as
-  untrusted: no links (`O_NOFOLLOW`), regular files of at most 4 MB, strict JSON, an
-  allow-list of keys with bounded sizes and checked types; anything else is answered
-  as `state: learning` with the reason. A model whose learner has not run for twice its
-  interval (`interval_h` in `status.json`, else weekly) is reported with
-  `learner.stale: true`.
-
-Never mount the whole data volume into the learner: it holds `options.json` (MQTT and
-HA credentials), `config.db` and the live `history.db`. Production recipe, next to a
-service whose data volume is `ovenbird-data` (Docker 26 or newer for
-`volume-subpath`; with a bind-mounted data directory use `-v <dir>/learner:/learner:ro
--v <dir>/models:/models`):
-
-```fish
-docker run -d --name ovenbird-learner --restart unless-stopped \
-    --user 10003:10001 --read-only --network none --cap-drop ALL \
-    --security-opt no-new-privileges \
-    --mount type=volume,src=ovenbird-data,dst=/learner,readonly,volume-subpath=learner \
-    --mount type=volume,src=ovenbird-data,dst=/models,volume-subpath=models \
-    ovenbird-learner
-```
-
-The image's default command reads `/learner/history.snapshot.db` and
-`/learner/learner-config.json`, writes `/models` and repeats every 168 h. uid 10003 is
-the learner's own user; group 10001 is the service's, which gives it read access to
-`learner/` and write access to `models/` and nothing else. Both directories exist once
-the service has started. A weekly cron job of the same command (`--history
-<data>/learner/history.snapshot.db --config <data>/learner/learner-config.json --models
-<data>/models`) works too, but only the container keeps the rest of the data directory
-out of the learner's reach.
-
 ## Configuration store
 
 Control settings live in `<data_dir>/config.db` (`ovenbird/configstore/`): append-only
@@ -423,9 +364,8 @@ With `weather_enabled` and a location (manual, else HA's `zone.home`), the servi
 fetches an Open-Meteo forecast every hour (stdlib `urllib` in a thread, backoff after a
 failure; simulation mode uses a simulated provider and never the network) and stores
 every issue as issued in `history.db` (table `forecast`, retention as the 1 h rollup).
-It is shown (`GET api/v1/weather`) and is a controller input only through the model plan
-(`control_model_use` `on`, locked for now; with `shadow` it is read and the result recorded,
-with no effect); health check `weather` never affects readiness.
+It is shown (`GET api/v1/weather`) and is not a controller input; health check `weather`
+never affects readiness.
 
 ## Configuration
 
@@ -476,14 +416,10 @@ reverted (see `docs/api-v1.md`).
 | `OVENBIRD_CONTROL_ROOM_LIVENESS_SIGNALS` | empty | sibling signals of the room sensor's device (`ha/<entity>` or MQTT input signals, comma-separated); their HA entities are subscribed automatically |
 | `OVENBIRD_CONTROL_ROOM_CROSSCHECK_SIGNAL` | unset | optional plausibility cross-check (e.g. `main/Room_Thermostat_Temp`) |
 | `OVENBIRD_CONTROL_COMFORT_C` | `21` | room target |
-| `OVENBIRD_CONTROL_OUTSIDE_SIGNAL` / `_MAX_AGE_S` | unset / `1800` | outside thermometer for the heating curve (`ha/<entity_id>` or an MQTT input's signal, in °C) instead of the pump's `main/Outside_Temp`; the safety envelope, monitors and learning keep the pump's sensor. Older than the age limit: the curve uses the pump's sensor and `outside_sensor_stale` is raised (see `docs/control-interface.md`) |
+| `OVENBIRD_CONTROL_OUTSIDE_SIGNAL` / `_MAX_AGE_S` | unset / `1800` | outside thermometer for the heating curve (`ha/<entity_id>` or an MQTT input's signal, in °C) instead of the pump's `main/Outside_Temp`; the safety envelope and monitors keep the pump's sensor. Older than the age limit: the curve uses the pump's sensor and `outside_sensor_stale` is raised (see `docs/control-interface.md`) |
 | `OVENBIRD_CONTROL_OUTSIDE_PLAUSIBLE_MIN_C` / `_PLAUSIBLE_MAX_C` / `_MAX_DEVIATION_K` | `-40` / `50` / `10` | a chosen outside value outside the plausible range, not finite, or further than the deviation from the pump's fresh reading is not used: the curve uses the pump's sensor for that tick and `outside_sensor_implausible` is raised |
 | `OVENBIRD_HOT_WATER` | `auto` | show hot water (DHW) in the app: `auto` follows the pump's `main/DHW_Installed` (shown while unknown), `on`, `off`; display only, a DHW run still freezes the corrections |
 | `OVENBIRD_CONTROL_STOVE_ENABLED` | `false` | wood-stove mode (`docs/control-interface.md`): room feedback paused with its integrator held and the curve lowered while a stove heats the sensor's room; manual start/stop through `POST api/v1/control/stove` |
-| `OVENBIRD_CONTROL_MODEL_USE` | `off` | the learned house model as a bounded room-target offset (`docs/design.md`, Planner): `off`, `shadow` (computed and recorded, no effect on decisions) or `on` (refused for now: `model_use_on_locked`); `GET api/v1/insight/house/control` |
-| `OVENBIRD_CONTROL_MODEL_MAX_SETBACK_K` / `_MAX_PREHEAT_K` | `0.5` / `0.3` | largest set-back (0.1 to 1 K) and pre-heat (0 to 0.5 K) of the room target |
-| `OVENBIRD_CONTROL_MODEL_HORIZON_H` | `6` | how far ahead the planner looks (2 to 12 h) |
-| `OVENBIRD_CONTROL_MODEL_MAX_RMSE_K` | `0.6` | largest held-out 24 h room error of the champion model that still allows a plan (0.2 to 1.5 K) |
 | `OVENBIRD_CONTROL_STOVE_AUTO` / `_ENTER_ABOVE_K` / `_EXIT_HYSTERESIS_K` | `true` / `1.5` / `1.0` | automatic detection (needs a room signal): enter at comfort + 1.5 K, leave 1 K lower |
 | `OVENBIRD_CONTROL_STOVE_RISE_ENABLED` / `_RISE_K` / `_RISE_WINDOW_S` | `true` / `1.0` / `1800` | also enter on a fast rise above comfort |
 | `OVENBIRD_CONTROL_STOVE_BACKOFF_K` / `_TO_MINIMUM` | `3.0` / `false` | how far the curve is lowered (or down to the safety minimum); the pump is never switched off |

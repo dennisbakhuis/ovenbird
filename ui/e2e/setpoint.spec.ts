@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { settled } from './settle';
 import { pinCycleMinute } from './clock';
 
 const NORMAL_MINUTE = 130;
@@ -25,7 +26,7 @@ test.describe('setpoint page', () => {
     await expect(page.getByTestId('waterfall')).toBeVisible();
     await expect(page.getByTestId('decision-table').locator('tbody tr').first()).toBeVisible();
     await expect(page.getByTestId('reason-strip')).toBeVisible();
-    await page.waitForTimeout(500);
+    await settled(page);
     const size = await page.evaluate(() => ({
       height: document.documentElement.scrollHeight,
       scroll: document.documentElement.scrollWidth,
@@ -70,14 +71,14 @@ test.describe('setpoint page', () => {
       const slider = page.getByTestId('setpoint-history').getByRole('slider').first();
       await expect(slider).toBeInViewport();
       await expect(page.getByTestId('waterfall')).toBeVisible();
-      await page.waitForTimeout(300);
+      await settled(page);
       const before = await layout(page);
       const box = await slider.boundingBox();
       if (!box) throw new Error('no chart');
       for (const fraction of [0.1, 0.3, 0.5, 0.7, 0.9]) {
         await page.mouse.move(box.x + box.width * fraction, box.y + 40);
         await expect(title).toContainText('crosshair');
-        await page.waitForTimeout(250);
+        await settled(page);
         expect(await layout(page), `layout at ${fraction}`).toEqual(before);
       }
       await page.mouse.move(2, 2);

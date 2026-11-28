@@ -64,6 +64,20 @@ def sweep_dates(start: datetime, end: datetime, window: float, count: int) -> li
     one start to the next, so the starts cover night and day as well as the cold and
     mild parts of the span.
 
+    Parameters
+    ----------
+    start, end
+        Span the runs must fit in.
+    window
+        Assessment window of the scenario, in seconds.
+    count
+        Number of start times.
+
+    Returns
+    -------
+    list[datetime]
+        The start times, minute-aligned, in order.
+
     Raises
     ------
     ValueError
@@ -86,6 +100,7 @@ def sweep_dates(start: datetime, end: datetime, window: float, count: int) -> li
 
 
 def _stamp(moment: datetime) -> str:
+    """Return ``moment`` as a compact directory name (``YYYYMMDDTHHMM``)."""
     return moment.strftime("%Y%m%dT%H%M")
 
 
@@ -142,6 +157,18 @@ def run_one(config: RunConfig, keep_history: bool = False) -> dict[str, Any]:
     """Run one sweep run and return its outcome (``pass``, ``fail`` or ``error``).
 
     The history database of a passed run is removed unless ``keep_history``.
+
+    Parameters
+    ----------
+    config
+        The single-scenario run; ``fault_at`` names the scenario and its start.
+    keep_history
+        Keep ``history.db`` even when the run passed.
+
+    Returns
+    -------
+    dict[str, Any]
+        Status, failed checks, violations, notes and wall time of the run.
     """
     began = time.perf_counter()
     name, at = config.fault_at[0]
@@ -176,6 +203,7 @@ def run_one(config: RunConfig, keep_history: bool = False) -> dict[str, Any]:
 
 
 def _quiet(level: str) -> None:
+    """Configure logging at ``level`` in a worker process."""
     logging.basicConfig(level=level.upper(), format="%(levelname)s %(name)s %(message)s")
 
 
@@ -185,7 +213,24 @@ def run_sweep(
     log_level: str = "CRITICAL",
     keep_history: bool = False,
 ) -> list[dict[str, Any]]:
-    """Run ``runs`` on ``jobs`` processes and return their outcomes in order."""
+    """Run ``runs`` on ``jobs`` processes and return their outcomes in order.
+
+    Parameters
+    ----------
+    runs
+        Planned runs (:func:`plan`); each output directory is cleared first.
+    jobs
+        Worker processes; at most one runs them in this process.
+    log_level
+        Logging level of the workers.
+    keep_history
+        Keep ``history.db`` of passed runs.
+
+    Returns
+    -------
+    list[dict[str, Any]]
+        One :func:`run_one` outcome per run.
+    """
     configs = [config for _, _, config in runs]
     for config in configs:
         if config.out.exists():
@@ -205,7 +250,18 @@ def default_jobs() -> int:
 
 
 def matrix(rows: Sequence[dict[str, Any]]) -> str:
-    """Return the matrix of scenarios and start times as text."""
+    """Return the matrix of scenarios and start times as text.
+
+    Parameters
+    ----------
+    rows
+        Outcomes of :func:`run_sweep`.
+
+    Returns
+    -------
+    str
+        A pass/fail grid per scenario and start, then the details of failed checks.
+    """
     names = list(dict.fromkeys(row["name"] for row in rows))
     by_name = {name: [row for row in rows if row["name"] == name] for name in names}
     width = max(len(name) for name in names)

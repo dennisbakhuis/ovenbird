@@ -94,7 +94,24 @@ def windows(
     trial: tuple[float, float] | None,
     baseline: tuple[float, float] | None,
 ) -> tuple[tuple[float, float], tuple[float, float], str]:
-    """Resolve the trial and baseline periods (unix seconds) and where they came from."""
+    """Resolve the trial and baseline periods (unix seconds) and where they came from.
+
+    Parameters
+    ----------
+    loop
+        Control loop holding the go-live snapshot, ``None`` without one.
+    now
+        Current time.
+    trial
+        Trial period asked for, Unix seconds, ``None`` to derive it.
+    baseline
+        Baseline period asked for, Unix seconds, ``None`` to take the period before the trial.
+
+    Returns
+    -------
+    tuple
+        Trial period, baseline period and the source (``query``, ``go_live`` or ``default``).
+    """
     end = now.wall.timestamp()
     source = "query"
     if trial is None:
@@ -116,7 +133,19 @@ def windows(
 def trial_state(
     loop: ControlLoop | None, source: str, span: tuple[float, float], end: float
 ) -> tuple[str, float]:
-    """Return the summary's ``state`` and the trial's length in days."""
+    """Return the summary's ``state`` and the trial's length in days.
+
+    Parameters
+    ----------
+    loop
+        Control loop holding the go-live snapshot, ``None`` without one.
+    source
+        Where the trial period came from (``query``, ``go_live`` or ``default``).
+    span
+        Trial period, Unix seconds.
+    end
+        Current time, Unix seconds.
+    """
     days = max(0.0, (span[1] - span[0]) / DAY_S)
     snapshot = go_live_snapshot(loop)
     if source == "default" or snapshot is None:
@@ -256,7 +285,23 @@ def summary_body(
     theirs: dict[str, Any],
     budget: int,
 ) -> dict[str, Any]:
-    """Return the trial summary from both periods, the trial's state and length."""
+    """Return the trial summary from both periods, the trial's state and length.
+
+    Parameters
+    ----------
+    source
+        Where the trial period came from.
+    state
+        State of the trial.
+    days
+        Length of the trial in days.
+    ours
+        Figures of the trial period.
+    theirs
+        Figures of the baseline period.
+    budget
+        Daily command budget the criteria compare against.
+    """
     found = criteria(ours, theirs, budget)
     criteria_met = all(c["status"] in {OK, "info"} for c in found)
     return {

@@ -67,6 +67,8 @@ class Derived[T]:
 
 @dataclass(frozen=True, slots=True)
 class _Gathered:
+    """Values, missing and stale signals and the oldest age of a gather over a signal set."""
+
     values: dict[SignalId, Value]
     missing: tuple[SignalId, ...]
     stale: tuple[SignalId, ...]
@@ -74,6 +76,17 @@ class _Gathered:
 
 
 def _gather(snapshot: Snapshot, signals: tuple[SignalId, ...], allow_stale: bool) -> _Gathered:
+    """Collect the usable values of ``signals`` from ``snapshot`` and note what is missing or stale.
+
+    Parameters
+    ----------
+    snapshot
+        State snapshot.
+    signals
+        Signals to read.
+    allow_stale
+        Keep stale values instead of leaving them out.
+    """
     values: dict[SignalId, Value] = {}
     missing: list[SignalId] = []
     stale: list[SignalId] = []
@@ -95,6 +108,7 @@ def _gather(snapshot: Snapshot, signals: tuple[SignalId, ...], allow_stale: bool
 
 
 def _number(value: Value | None) -> float | None:
+    """Return ``value`` as float, ``None`` for missing, boolean or non-numeric values."""
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     return float(value)
@@ -106,6 +120,19 @@ def _state_flag(
     threshold: float,
     allow_stale: bool,
 ) -> Derived[bool]:
+    """Return whether ``signal`` is at or above ``threshold``, with the inputs it relied on.
+
+    Parameters
+    ----------
+    snapshot
+        State snapshot.
+    signal
+        Signal to compare.
+    threshold
+        Lowest value counted as set.
+    allow_stale
+        Use a stale value instead of returning ``None``.
+    """
     inputs = (signal,)
     gathered = _gather(snapshot, inputs, allow_stale)
     number = _number(gathered.values.get(signal))

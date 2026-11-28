@@ -60,6 +60,19 @@ class Location:
 
 
 def _url(base: str, location: Location, start: date, end: date) -> str:
+    """Return the Open-Meteo request URL for ``location`` from ``start`` to ``end``.
+
+    Parameters
+    ----------
+    base
+        Endpoint URL without query.
+    location
+        Place whose coordinates are requested.
+    start
+        First day (UTC).
+    end
+        Last day (UTC).
+    """
     query = urllib.parse.urlencode(
         {
             "latitude": f"{location.latitude:.2f}",
@@ -74,6 +87,7 @@ def _url(base: str, location: Location, start: date, end: date) -> str:
 
 
 def _get(url: str) -> dict[str, object]:
+    """Fetch ``url`` over https and return the decoded JSON object."""
     if not url.startswith("https://"):
         raise ValueError("only https URLs are fetched")
     request = urllib.request.Request(url, headers={"User-Agent": "ovenbird-sim"})  # noqa: S310
@@ -85,6 +99,7 @@ def _get(url: str) -> dict[str, object]:
 
 
 def _hourly(payload: dict[str, object]) -> HourlyBlock:
+    """Return the hourly block of an Open-Meteo response as lists by variable name."""
     hourly = payload.get("hourly")
     if not isinstance(hourly, dict):
         raise ValueError("Open-Meteo response without hourly data")

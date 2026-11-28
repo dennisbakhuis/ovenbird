@@ -31,7 +31,19 @@ async def diagnostics(
     output: Annotated[Literal["json", "zip"], Query(alias="format")] = "json",
     items: Annotated[int, Query(ge=1, le=MAX_ITEMS)] = DEFAULT_ITEMS,
 ) -> Response:
-    """``GET diagnostics``: the redacted diagnostics bundle as a download."""
+    """``GET diagnostics``: the redacted diagnostics bundle as a download.
+
+    Parameters
+    ----------
+    deps
+        Supervision dependencies (settings, supervision facade).
+    request
+        Incoming request; it needs the admin role.
+    output
+        Download format: ``json`` or ``zip``.
+    items
+        Number of newest journal items per section in the bundle.
+    """
     supervision = deps.supervision
     require_role(request, deps.settings, Role.ADMIN)
     facts = await asyncio.to_thread(supervision.history_facts, supervision.now())

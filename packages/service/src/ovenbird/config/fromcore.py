@@ -66,6 +66,7 @@ _PENDING: Final[dict[int, tuple[object, CoreSource]]] = {}
 
 
 def _plain(value: Any) -> Any:
+    """Return the plain value of an enum member, any other value unchanged."""
     return value.value if isinstance(value, Enum) else value
 
 
@@ -123,6 +124,15 @@ def _narrowed(
     lt: float | None,
     le: float | None,
 ) -> SettingSpec | None:
+    """Return the core setting narrowed to the given bounds, or ``None`` without bounds.
+
+    Parameters
+    ----------
+    core
+        Core setting whose range is the outer limit.
+    gt, ge, lt, le
+        Exclusive and inclusive lower and upper bounds of the narrower range.
+    """
     if gt is None and ge is None and lt is None and le is None:
         return None
     edges = {core.gt, core.ge, core.lt, core.le}

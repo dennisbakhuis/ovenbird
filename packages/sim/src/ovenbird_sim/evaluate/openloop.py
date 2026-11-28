@@ -258,6 +258,7 @@ def drive[S](
     last_t: float | None = None
 
     def tick(t: float) -> None:
+        """Run the controller for the tick at Unix time ``t`` and pass the result to the sink."""
         nonlocal state, count
         now = Instant.from_unix(t)
         snapshot = store.snapshot(now)
@@ -286,6 +287,7 @@ def drive[S](
     pending: deque[StreamItem] = deque()
 
     def apply(item: StreamItem) -> None:
+        """Apply a stream item to the store; commands are only remembered, not applied."""
         nonlocal last_command
         if not isinstance(item, CaptureRecord):
             store.apply(item)
@@ -299,6 +301,7 @@ def drive[S](
         store.apply(router.route(converted) if isinstance(converted, MqttMessage) else converted)
 
     def advance(until: float, *, inclusive: bool) -> None:
+        """Run the ticks due before ``until`` (or at it if ``inclusive``), feeding queued items."""
         nonlocal next_tick
         while next_tick is not None and (next_tick < until or (inclusive and next_tick <= until)):
             if options.end is not None and next_tick > options.end:
@@ -359,7 +362,13 @@ class Summary:
     _last_intents: dict[str, int] = field(default_factory=dict)
 
     def add(self, tick: Tick) -> None:
-        """Account for one tick."""
+        """Account for one tick.
+
+        Parameters
+        ----------
+        tick
+            The tick: controller result and the recorded reference.
+        """
         record = tick.result.decision
         self.ticks += 1
         self.first_t = tick.t if self.first_t is None else self.first_t
@@ -398,6 +407,15 @@ class Summary:
         self._stove(tick, setpoint)
 
     def _stove(self, tick: Tick, setpoint: int | None) -> None:
+        """Record a stove-mode entry or exit of ``tick`` (``setpoint`` is the water setpoint).
+
+        Parameters
+        ----------
+        tick
+            The tick whose controller state is inspected.
+        setpoint
+            The water setpoint intent of the tick (degC), if any.
+        """
         record = tick.result.decision
         state = record.controller_state
         if "stove_state" not in state:
@@ -506,25 +524,30 @@ class Summary:
 
 
 def _lower(current: JsonValue, value: float) -> float:
+    """Return the smaller of ``current`` (when numeric) and ``value``."""
     return value if not isinstance(current, int | float) else min(current, value)
 
 
 def _upper(current: JsonValue, value: float) -> float:
+    """Return the larger of ``current`` (when numeric) and ``value``."""
     return value if not isinstance(current, int | float) else max(current, value)
 
 
 def _histogram(counter: Counter[str]) -> JsonDict:
+    """Return the counts as a dict ordered by descending count, then key."""
     ordered: list[tuple[str, int]] = sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))
     out: JsonDict = dict(ordered)
     return out
 
 
 def _shares(counter: Counter[int]) -> JsonDict:
+    """Return the share of every key in the total (empty when the total is zero)."""
     total = sum(counter.values())
     return {str(k): v / total for k, v in sorted(counter.items())} if total else {}
 
 
 def _mean(counter: Counter[int]) -> float | None:
+    """Return the mean of the keys weighted by their counts, or ``None`` when empty."""
     total = sum(counter.values())
     return sum(k * v for k, v in counter.items()) / total if total else None
 
@@ -586,6 +609,7 @@ def open_loop_run[S](
     with ResultDB(db_path) as db:
 
         def sink(tick: Tick) -> None:
+            """Store a tick's step and reference in the result database and summarise it."""
             db.add_step(RUN_ID, tick.index, tick.result, inputs=opts.store_inputs)
             ref = tick.reference
             db.add(
@@ -662,6 +686,7 @@ def render_stove(summary: JsonDict) -> str | None:
 
 
 def _number(value: JsonValue) -> str:
+    """Format a number with one decimal, or ``?`` when it is not numeric."""
     return f"{value:.1f}" if isinstance(value, int | float) else "?"
 
 

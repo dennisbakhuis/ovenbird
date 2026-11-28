@@ -40,10 +40,6 @@ const PREFIXES: Record<string, string[]> = {
   notify_health: ['notifyHealth_'],
   ha_test_error: ['haTest_'],
   mqtt_test_error: ['mqttTest_'],
-  learner_failure: ['houseRunFailure_'],
-  learner_refusal: ['houseRunRefused_'],
-  learner_state: ['houseRunPill_'],
-  insight_error: ['houseError_'],
 };
 
 describe('i18n completeness', () => {
@@ -75,6 +71,32 @@ describe('i18n completeness', () => {
     expect(missing).toEqual([]);
   });
 
+  it.each(languages)('has text, ovenbird-now and you lines for every alarm in %s', (language) => {
+    const record = codes as Record<string, string[]>;
+    const missing: string[] = [];
+    for (const code of [...record['alarm']!, ...record['alarm_journal']!]) {
+      for (const prefix of ['alarm_', 'alarmText_']) {
+        if (translateOptional(language, `${prefix}${code}`) === undefined)
+          missing.push(`${prefix}${code}`);
+      }
+    }
+    for (const code of record['alarm']!) {
+      for (const prefix of ['alarmNow_', 'alarmYou_']) {
+        if (translateOptional(language, `${prefix}${code}`) === undefined)
+          missing.push(`${prefix}${code}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it.each(languages)('has the same monitor sentences as English in %s', (language) => {
+    const other = dictionaries[language] as Record<string, string>;
+    const missing = Object.keys(dictionaries.en).filter(
+      (key) => /^(mon|svc|cmdDetail)/.test(key) && !other[key],
+    );
+    expect(missing).toEqual([]);
+  });
+
   it('covers every category of the generated codes file', () => {
     expect(Object.keys(codes).filter((c) => !(c in PREFIXES) && c !== 'config_tier')).toEqual([]);
   });
@@ -90,45 +112,10 @@ describe('i18n completeness', () => {
       'pendelbeveiliging',
       'ontdooien',
       'blokkade',
-      'warmteverlies',
-      'tijdconstante',
-      'stookgrens',
-      'zonvenster',
-      'netto vrije warmte',
-      'warmtecapaciteit',
-      'warmteopslag',
-      'isolatiescore',
       'kamerdoel',
-      'modelplan',
-      'leerprogramma',
-      'leerronde',
-      'testdagen',
-      'weggelaten dagen',
-      'nawarmte',
       'houtkachel',
-      'vastzetten',
-      'begrenzen',
     ]) {
       expect(joined, term).toContain(term);
-    }
-  });
-
-  it('keeps out the rejected Dutch variants of the House terms', () => {
-    const joined = Object.values(dictionaries.nl).join(' ').toLowerCase();
-    for (const term of [
-      'zonopening',
-      'zonne-opening',
-      'gratis warmte',
-      'learner',
-      'leerrun',
-      'ongeziene',
-      'herbemonster',
-      'gefit',
-      'fitvenster',
-      'koude omslag',
-      'wat-als',
-    ]) {
-      expect(joined, term).not.toContain(term);
     }
   });
 });

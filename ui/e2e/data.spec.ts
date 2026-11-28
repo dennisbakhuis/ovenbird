@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync } from 'node:fs';
+import { settled } from './settle';
 import { join } from 'node:path';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
@@ -386,7 +387,7 @@ test.describe('archive screenshots', () => {
           const card = page.getByTestId('archive-card');
           await card.getByTestId('archive-months-details').locator('summary').click();
           await expect(card.getByTestId('archive-month').first()).toBeVisible();
-          await page.waitForTimeout(500);
+          await settled(page);
           const width = await page.evaluate(() => document.documentElement.scrollWidth);
           expect(width).toBeLessThanOrEqual(viewport.width);
           await card.screenshot({
@@ -394,7 +395,7 @@ test.describe('archive screenshots', () => {
           });
           await page.goto('./#/settings/data');
           await expect(page.getByTestId('preset-size-short')).toContainText(/MB|kB/);
-          await page.waitForTimeout(300);
+          await settled(page);
           await page.screenshot({
             path: join(ARCHIVE_SHOTS!, `presets-${viewport.label}-${scheme}-${lang}.png`),
             fullPage: true,

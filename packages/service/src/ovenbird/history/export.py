@@ -19,6 +19,7 @@ from ovenbird.clock import iso_from_unix
 from ovenbird.history.database import ROLLUP_STEPS, SECONDS_PER_DAY, SampleKind
 from ovenbird.history.query import DECIMALS, HistoryQueryError, staleness_limit
 from ovenbird.history.schema import connect
+from ovenbird.sql import sql
 from ovenbird_core import StalenessPolicy
 
 STEPS: Final = (0, *ROLLUP_STEPS)
@@ -82,10 +83,12 @@ class Point:
 
 
 def _round(value: float) -> float:
+    """Round ``value`` to the precision of the export."""
     return round(value, DECIMALS)
 
 
 def _open(path: Path, table: str) -> sqlite3.Connection | None:
+    """Open the history read-only if it exists and has ``table``, else return ``None``."""
     if not path.exists():
         return None
     conn = connect(path, read_only=True)
@@ -111,7 +114,13 @@ def stored_signals(path: Path) -> list[SignalInfo]:
 
 
 def signal_inventory(path: Path) -> list[dict[str, Any]]:
-    """Return the body items of ``GET api/v1/history/signals``: ranges per resolution."""
+    """Return the body items of ``GET api/v1/history/signals``: ranges per resolution.
+
+    Parameters
+    ----------
+    path
+        History database.
+    """
     signals = stored_signals(path)
     if not signals:
         return []
@@ -143,6 +152,17 @@ def signal_inventory(path: Path) -> list[dict[str, Any]]:
 
 
 def _range(step: int, first: float, last: float, count: int) -> dict[str, Any]:
+    """Return the API item of one resolution: step, first and last time, and number of points.
+
+    Parameters
+    ----------
+    step
+        Resolution in seconds (0 for raw samples).
+    first, last
+        Time of the first and last point, Unix seconds.
+    count
+        Number of points.
+    """
     return {
         "step": step,
         "first": iso_from_unix(float(first)),
@@ -171,25 +191,40 @@ def resolve_signals(path: Path, requested: Sequence[str] | None) -> list[SignalI
 
 
 def data_range(path: Path, signals: Sequence[SignalInfo], step: int) -> tuple[float, float] | None:
-    """Return the first and the end of the data of ``signals`` at ``step``; ``None`` when empty."""
+    """Return the first and the end of the data of ``signals`` at ``step``; ``None`` when empty.
+
+    Parameters
+    ----------
+    path
+        History database.
+    signals
+        Signals of the export.
+    step
+        Resolution in seconds (0 for raw samples).
+    """
     if step not in STEPS:
         raise HistoryQueryError(f"step must be one of {', '.join(map(str, STEPS))}")
     if not signals or not path.exists():
         return None
     ids = [info.db_id for info in signals]
-    marks = ", ".join("?" for _ in ids)
     conn = connect(path, read_only=True)
     try:
         if step == 0:
             row = conn.execute(
-                f"SELECT min(ts), max(ts) FROM sample WHERE signal_id IN ({marks})",  # noqa: S608
+                sql(
+                    "SELECT min(ts), max(ts) FROM sample WHERE signal_id IN ({marks})",
+                    marks=len(ids),
+                ),
                 ids,
             ).fetchone()
             extra = 1e-6
         else:
             row = conn.execute(
-                f"SELECT min(bucket), max(bucket) FROM rollup WHERE step = ? "  # noqa: S608
-                f"AND signal_id IN ({marks})",
+                sql(
+                    "SELECT min(bucket), max(bucket) FROM rollup WHERE step = ? "
+                    "AND signal_id IN ({marks})",
+                    marks=len(ids),
+                ),
                 (step, *ids),
             ).fetchone()
             extra = float(step)
@@ -242,7 +277,6 @@ def series_chunks(
     order = {info.db_id: index for index, info in enumerate(signals)}
     kinds = {info.db_id: SampleKind(info.kind) for info in signals}
     ids = list(order)
-    marks = ", ".join("?" for _ in ids)
     policy = staleness or StalenessPolicy()
     seeded = False
     chunk_start = math.floor(min(first_data, high) / CHUNK_S) * CHUNK_S
@@ -257,8 +291,11 @@ def series_chunks(
                     points = _seed(conn, signals, start, policy)
                     seeded = True
                 rows = conn.execute(
-                    f"SELECT signal_id, ts, value FROM sample WHERE ts >= ? AND ts < ? "  # noqa: S608
-                    f"AND signal_id IN ({marks}) ORDER BY ts",
+                    sql(
+                        "SELECT signal_id, ts, value FROM sample WHERE ts >= ? AND ts < ? "
+                        "AND signal_id IN ({marks}) ORDER BY ts",
+                        marks=len(ids),
+                    ),
                     (lo, hi, *ids),
                 ).fetchall()
                 found = [
@@ -267,9 +304,12 @@ def series_chunks(
                 points.extend(sorted(found, key=lambda p: (p.ts, p.signal)))
             else:
                 rows = conn.execute(
-                    "SELECT signal_id, bucket, weighted_sum, duration, minimum, maximum, last "  # noqa: S608
-                    f"FROM rollup WHERE step = ? AND bucket >= ? AND bucket < ? "
-                    f"AND signal_id IN ({marks}) ORDER BY bucket",
+                    sql(
+                        "SELECT signal_id, bucket, weighted_sum, duration, minimum, maximum, last "
+                        "FROM rollup WHERE step = ? AND bucket >= ? AND bucket < ? "
+                        "AND signal_id IN ({marks}) ORDER BY bucket",
+                        marks=len(ids),
+                    ),
                     (step, lo, hi, *ids),
                 ).fetchall()
                 points = sorted(
@@ -289,6 +329,21 @@ def _seed(
     start: float,
     policy: StalenessPolicy,
 ) -> list[Point]:
+    """Return each signal's last value at or before ``start`` that is still fresh.
+
+    These values start a series.
+
+    Parameters
+    ----------
+    conn
+        Open history connection.
+    signals
+        Signals of the export.
+    start
+        Start of the export, Unix seconds.
+    policy
+        How long a value of each signal stays fresh.
+    """
     points = []
     for index, info in enumerate(signals):
         max_age = staleness_limit(info.name, policy)
@@ -312,6 +367,27 @@ def _rollup_point(
     maximum: float,
     last: float,
 ) -> Point:
+    """Return the export point of a roll-up bucket: time-weighted mean, or last value.
+
+    The mean applies to numbers; other kinds keep the last value.
+
+    Parameters
+    ----------
+    index
+        Position of the signal in the export.
+    kind
+        Sample kind of the signal.
+    bucket
+        Bucket start, Unix seconds.
+    weighted_sum
+        Sum of value times duration over the bucket.
+    duration
+        Seconds of data in the bucket.
+    minimum, maximum
+        Extremes in the bucket.
+    last
+        Last value in the bucket.
+    """
     numeric = kind is SampleKind.NUMBER and duration > 0
     value = weighted_sum / duration if numeric else last
     return Point(float(bucket), index, _round(value), _round(minimum), _round(maximum))
@@ -353,15 +429,27 @@ def iter_rows(
         while True:
             if after is None:
                 rows = conn.execute(
-                    f"SELECT {select} FROM {table} WHERE {first} >= ? AND {first} < ? "  # noqa: S608
-                    f"ORDER BY {first}, {second} LIMIT ?",
+                    sql(
+                        "SELECT {columns} FROM {table} WHERE {first} >= ? AND {first} < ? "
+                        "ORDER BY {first}, {second} LIMIT ?",
+                        columns=select,
+                        table=table,
+                        first=first,
+                        second=second,
+                    ),
                     (start, end, batch),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    f"SELECT {select} FROM {table} WHERE {first} >= ? AND {first} < ? "  # noqa: S608
-                    f"AND ({first} > ? OR ({first} = ? AND {second} > ?)) "
-                    f"ORDER BY {first}, {second} LIMIT ?",
+                    sql(
+                        "SELECT {columns} FROM {table} WHERE {first} >= ? AND {first} < ? "
+                        "AND ({first} > ? OR ({first} = ? AND {second} > ?)) "
+                        "ORDER BY {first}, {second} LIMIT ?",
+                        columns=select,
+                        table=table,
+                        first=first,
+                        second=second,
+                    ),
                     (start, end, after[0], after[0], after[1], batch),
                 ).fetchall()
             if not rows:

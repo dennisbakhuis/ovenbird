@@ -110,6 +110,7 @@ class HistorySettings(FeatureSettings):
     @field_validator(*RETENTION_FIELDS)
     @classmethod
     def _at_least_a_day(cls, value: float | None) -> float | None:
+        """Check that a retention is at least a day."""
         return check_retention(value)
 
     def history_retention(self) -> Retention:

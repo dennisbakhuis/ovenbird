@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from ovenbird_core.control.config import OvenbirdConfig, SetpointStageConfig
 from ovenbird_core.control.safety import EPSILON, SafetyBounds
-from ovenbird_core.control.terms import RampPhase
+from ovenbird_core.control.state import RampPhase
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +37,17 @@ def dwell_time(
     ``phase`` is the ramp phase after this tick, ``before`` and ``before_cap`` the
     phase and cap it started from. On the ramp's first tick (no cap yet) there is
     no dwell.
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration.
+    phase
+        Ramp phase after this tick.
+    before
+        Ramp phase at the start of this tick.
+    before_cap
+        Ramp cap at the start of this tick, in °C, or ``None``.
     """
     ramping = phase is not RampPhase.IDLE or (
         before is not RampPhase.IDLE and before_cap is not None
@@ -58,7 +69,29 @@ def soften(
     dhw: bool,
     manual: bool,
 ) -> Stages:
-    """Return the integer candidate after rounding hysteresis, deadband and dwell."""
+    """Return the integer candidate after rounding hysteresis, deadband and dwell.
+
+    Parameters
+    ----------
+    stages
+        Rounding, deadband and dwell settings.
+    pre_round
+        Continuous safety-clamped setpoint, in °C.
+    reference
+        Setpoint currently in force, in °C, if known.
+    last_change_at
+        Monotonic time of the last setpoint change, in s.
+    now
+        Monotonic time of this tick, in s.
+    dwell
+        Minimum time between changes, in s.
+    defrost
+        The heat pump is defrosting.
+    dhw
+        The heat pump is making domestic hot water.
+    manual
+        A manual setpoint is active, so nothing is softened.
+    """
     rounded = round_half_up(pre_round)
     if reference is None or manual:
         return Stages(rounded, None)
@@ -85,6 +118,19 @@ def hard_constraints(
 
     A decrease inside the minimum-run window must also keep ``decrease_headroom_k``
     above the floor, so outlet jitter cannot flip the setpoint.
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration.
+    stages
+        Softened candidate setpoint and its binding.
+    floor
+        Cycling floor in °C, ``None`` outside the minimum-run window.
+    reference
+        Setpoint currently in force, in °C, if known.
+    bounds
+        Safety envelope at the current outside temperature.
 
     Returns
     -------

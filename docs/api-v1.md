@@ -6,8 +6,8 @@ The only API path to the pump is an admin's write of one of three pump settings
 (`POST pump/settings/{id}`), which goes through the command adapter like every
 controller command. State-changing endpoints: the configuration (`config/validate`,
 `config/preview`, `PUT config`, `config/rollback`, `config/reset-ack`), the mode
-(`control/pause`, `control/resume`), wood-stove mode (`control/stove`),
-`control/release-hold`, `pump/settings/{id}`, release control (`control/release`,
+(`control/pause`, `control/resume`), wood-stove mode (`control/stove`), boost and away
+(`control/boost`, `control/away`), `control/release-hold`, `pump/settings/{id}`, release control (`control/release`,
 `control/snapshot`), `shadow/episodes/explain`, `notifications/test` and starting or
 cancelling a replay (`replay`, `replay/{id}/cancel`).
 The response bodies are also described in `docs/openapi.json`, generated from the
@@ -21,7 +21,7 @@ stack runs a scaled clock) and are `[from, to)`.
 | Role | How | May |
 |---|---|---|
 | read | any authenticated request; without `OVENBIRD_ADMIN_PASSWORD` a loopback-only service serves requests without credentials as read | every `GET` except `config/export`, `config/signals`, `audit` and `diagnostics` |
-| operate | `Authorization: Bearer <OVENBIRD_OPERATE_TOKEN>` (environment only, at least 32 characters, constant-time compare, same lockout as Basic) | read + `POST config/validate`, `POST config/preview`, `POST replay`, `POST replay/{id}/cancel`, `POST control/pause`, `POST control/stove`, `POST insight/house/proposal/draft`, `POST insight/house/run`, `POST notifications/test` |
+| operate | `Authorization: Bearer <OVENBIRD_OPERATE_TOKEN>` (environment only, at least 32 characters, constant-time compare, same lockout as Basic) | read + `POST config/validate`, `POST config/preview`, `POST replay`, `POST replay/{id}/cancel`, `POST control/pause`, `POST control/stove`, `POST`/`DELETE control/boost`, `PUT`/`DELETE control/away`, `POST notifications/test` |
 | admin | HTTP Basic admin credentials, or a request from the Home Assistant ingress proxy (the app panel is admin-only) | everything |
 
 Wrong credentials or a wrong token get `401` (`429` while locked out, see the service
@@ -74,7 +74,7 @@ A single-use pass for `WS api/v1/ws` (see Roles and request rules); sent with
 ## `GET api/v1/health`
 
 ```json
-{"live": true, "ready": true, "version": "0.5.0", "api_version": 1,
+{"live": true, "ready": true, "version": "0.6.0", "api_version": 1,
  "checks": {"mqtt": "connected", "heishamon": "alive", "ha": "disabled", "history": "ok",
             "alarms": "ok", "weather": "disabled"}}
 ```
@@ -282,7 +282,8 @@ above), `defrost_stuck` (longest defrost, s, above; it applies to the time since
 `since`, not to `value`; in a profile's deice mode 2 at least its longest mode 2
 defrost plus 5 min, 2100 s for the WH-MXC12J9E8), `room_below_floor` (comfort floor, °C, below),
 `room_sensor_silent` and `room_report_overdue` (s, above, against `value` = the report
-age); `pump_error`, `backup_heater`, `backup_heater_allowed`, `ha_link_down` and
+age), `compressor_starts` (`safety_starts_per_hour_max`, starts/h, above, against `value`
+= the starts in the last hour); `pump_error`, `backup_heater`, `backup_heater_allowed`, `ha_link_down` and
 `room_unit_refused` have none.
 `room` is the room input under its sensor profile (null without a room signal): the
 profile and its limits, the value, `fresh`, `held_s` (since the value changed),
@@ -331,7 +332,11 @@ until an admin acknowledges it with `POST api/v1/config/reset-ack`), `envelope_m
 (the envelope rule corrected a water setpoint of ovenbird's that already lay outside the
 envelope band when ovenbird set it: the controller did not clamp to the envelope the
 rule enforces; raised once, clears when ovenbird's next own value is inside the band),
-`archive_failing`, `archive_rebuilt` (the yearly archive; see Yearly archive)
+`archive_failing`, `archive_rebuilt` (the yearly archive; see Yearly archive),
+`compressor_starts` (more than `safety_starts_per_hour_max`, default 4, compressor starts
+in the last hour and in the hour before it, or more than `safety_starts_per_day_max`,
+default 30, in 24 h; counted from `Compressor_Freq`, a restart after a defrost is no
+start; the start times survive a restart; off with `safety_starts_alarm_enabled`)
 (warning);
 `heishamon_restarted`, `backup_heater_allowed`, `heating_off_outdoor`,
 `pump_setting_changed` (a writable pump setting changed without ovenbird, e.g. on the
@@ -363,6 +368,19 @@ taken for a sensor fault: no automatic detection until the room has cooled below
 automatic entry needs 1 K) and `stove_reference_share`; reason `stove` while the
 back-off shapes the setpoint, and the `stove` term (K). `room_plausible` stays the
 cross-check's verdict during an episode (`room_crosscheck_threshold_k` its threshold).
+`boost` and `away` are as in `GET control/boost` and `GET control/away`. `summer` is the
+summer switch (`control_summer_*`): `enabled`, `active` (no space heating), `mean_c` the
+slow outside mean (an exponential mean of the curve's outside value with time constant
+`mean_tau_s`, 24 h by default), `off_c` / `on_c` the limits (heating stops above `off_c`,
+resumes below `on_c` = `off_c` - `control_summer_hysteresis_k`), `warming_up` true until
+the mean has one time constant of samples (it does not switch before). The decision
+record carries `controller_state.summer_*`, the `summer` term (K, the cut to the
+safety minimum) and reason `summer` while it holds the water at the minimum; with the
+switch off none of it is present. A boost or away carries `room_override`
+(`room_target` or `away`), `room_override_k` and `room_override_paused` (`stove`,
+`summer` or null), the `room_target` term and reasons `room_target` / `away`.
+`controller_state.quiet_start` is true while quiet mode after a start applies
+(`control_quiet_start_*`; reason `quiet_start` on the quiet-mode intent).
 `control` is null when the service runs without a control loop.
 
 ## CSV exports (`?format=csv`)
@@ -437,11 +455,18 @@ when the hold ends; `await_release`: latched until `control/release-hold`) and
 `event`: `raised` / `cleared` for alarms; `started` / `expired` / `released` for
 `command_hold` (`detail.until` is unix seconds, null when latched) and for the
 informational `stove_mode` journal entries (wood-stove mode on; off by a manual stop;
-off for any other reason, `detail.exit` says which; not alarms, never in `active`) and for
-the informational `model_plan` entries: `started` when the model plan has no plan because a
-guard blocks, `released` when every guard passes again (`detail`: `use`, `blocks`, the
-failing guard codes of `insight/house/control`); only while `control_model_use` is not
-`off`, never an alarm and never a notification.
+off for any other reason, `detail.exit` says which; not alarms, never in `active`). A
+history written by 0.5 may also hold informational `model_plan` entries (the retired model
+plan's guard verdicts); they are returned as stored. The sun day shift journals
+informational `dayshift` entries (`started` for the start of a boost or set-back,
+`released` for its end and for a cancel; `detail`: `use` (`shadow` or `on`), `event`
+(`boost_start`, `boost_end`, `setback_start`, `setback_end`, `cancel`), `phase`,
+`offset_k` and `reasons` as in `control/dayshift`; never in `active`, never notified).
+Boost and away journal informational `boost` and `away_mode` entries (`started`;
+`expired` when it ran out; `released` when ended early, by `DELETE`, by away (for a
+boost), a manual wood-stove start (for a boost) or switching the feature off; `detail`
+the request). The summer switch journals informational `summer_mode` entries (`started`
+when space heating stops, `expired` when it resumes; `detail`: `mean_c`, `setpoint`).
 `recognised` for the informational `envelope_correction` entries (the HeishaMon envelope
 rule corrected ovenbird's water setpoint and ovenbird adopted it; `detail`: `setting`,
 `signal`, `ovenbird_value`, `seen_value`, `outside_c`, `low_c`, `high_c` (the band),
@@ -497,6 +522,182 @@ asked from where).
 
 `400` for a bad body, an `until` in the past or more than 24 h ahead; `409` when
 wood-stove mode is not enabled or the service has no control loop.
+
+## `GET api/v1/control/boost` (read)
+
+The boost in force and its settings:
+
+```json
+{"enabled": true, "active": true, "paused": null, "shift_k": 1.0, "target_c": 22.0,
+ "remaining_s": 5400.0, "default_s": 7200.0, "default_k": 1.0,
+ "request": {"offset_k": 1.0, "target_c": null, "until": "2026-01-14T19:00:00Z",
+             "actor": "operator", "at": "2026-01-14T17:00:00Z"}}
+```
+
+`paused` is `stove` (a wood-stove episode) or `summer` (the summer switch) when the
+controller holds the boost at the latest tick; its clock keeps running. `409` without a
+control loop.
+
+## `POST api/v1/control/boost` (operate)
+
+A temporary room target (needs `control_boost_enabled`, on by default). Body: at most one
+of `offset_k` (K from comfort, -3 to +2, not 0; negative is "cooler") and `target_c`
+(°C, within the same offsets of `control_comfort_c`), neither takes
+`control_boost_default_k` (1 K); at most one of `duration_s` (900 to 43200 s) and
+`until` (ISO), neither takes `control_boost_default_s` (2 h). The controller shifts the
+room target by the offset through the room feedback (without a trusted room value it
+maps the offset to water via the curve slope, at most the controller's 5 K water clamp
+of a plan, `plan_max_water_k`); the boost replaces a plan slice (the day shift) while it
+runs and stays inside every safety limit. It takes effect at the next tick, ends by
+itself at `until`, is stored and survives a restart, replaces an earlier boost and is
+journalled (informational `boost`: `started`; `expired` at the end; `released` when it
+was ended early) and audited (`boost`). A wood-stove episode or the summer switch pauses
+it; a manual wood-stove start (`POST control/stove` with `on: true`) ends it.
+
+`200`: `{"request": <the request>, "boost": <as GET control/boost>}`. `400` for a bad
+body or a value out of range; `409` when boost is off, while away is set (end away
+first) or without a control loop.
+
+## `DELETE api/v1/control/boost` (operate)
+
+Ends the boost now (journalled `released`, audited `boost_end`); body `{}` under the
+request rules above. `200`:
+`{"request": <the ended request or null>, "boost": <as GET control/boost>}`.
+
+## `GET api/v1/control/away` (read)
+
+The away period and its settings:
+
+```json
+{"enabled": true, "active": true, "phase": "away", "paused": null, "target_c": 16.0,
+ "until": "2026-01-20T18:00:00Z", "comfort_from": "2026-01-20T12:00:00Z",
+ "default_target_c": 16.0, "default_lead_s": 21600.0,
+ "request": {"target_c": 16.0, "until": "2026-01-20T18:00:00Z",
+             "comfort_lead_s": 21600.0, "comfort_from": "2026-01-20T12:00:00Z",
+             "actor": "operator", "at": "2026-01-14T17:00:00Z"}}
+```
+
+`phase`: `away` (the room target is the away target) or `returning` (from
+`comfort_from`, the comfort target again so the house is warm at `until`). `paused` as
+for the boost. `409` without a control loop.
+
+## `PUT api/v1/control/away` (operate)
+
+Sets an away period (needs `control_away_enabled`, on by default). Body
+`{"until": "<iso>"}`, optionally `target_c` (10 to 20 °C and below comfort, default
+`control_away_target_c` 16 °C) and `comfort_lead_s` (0 to 86400 s, default
+`control_away_comfort_lead_s` 6 h). `until` must lie more than the lead and at most 60
+days ahead. Setting away ends a running boost (journalled). Until `until` (the return
+phase included): the `room_below_floor` floor follows the away target (target minus
+`safety_room_floor_k`), the day shift pauses (guard `away`) and the house basics leave the
+days out (`excluded.away`). Stored, survives a restart, replaces an earlier period,
+journalled (informational `away_mode`: `started`, `expired`, `released`) and audited
+(`away`). A wood-stove episode or the summer switch pauses the away target as they pause a
+boost.
+
+`200`: `{"request": <the request>, "away": <as GET control/away>}`. `400` for a bad
+body or value; `409` when away is off or without a control loop.
+
+## `DELETE api/v1/control/away` (operate)
+
+Ends the away period now; comfort applies at the next tick (journalled `released`,
+audited `away_end`); body `{}` under the request rules above. `200`: `{"request": <the ended request or null>, "away": <as GET
+control/away>}`.
+
+## `GET api/v1/control/features` (read)
+
+Every switchable feature with its state, in a fixed order; the ids are the `feature` of
+the settings fields in `GET config/schema`:
+
+```json
+{"mode": "shadow",
+ "features": [{"id": "weather_compensation", "state": "shadow", "enabled": true,
+               "active": true, "experimental": false, "on_available": true}, ...]}
+```
+
+`id`: `weather_compensation`, `room_feedback`, `slow_start`, `minimum_run`, `pump_duty`,
+`quiet`, `stove`, `dayshift`, `summer`, `away`, `boost`, `house_basics`,
+`starts_alarm`. `state`: `off` (switched off, or room feedback without a room signal),
+`shadow` (on, but not applied: the controller is not in `auto`, or the day shift is set
+to `shadow`; `house_basics` and `starts_alarm` only observe and are never `shadow`),
+`active_now` (on, applied and acting at the latest tick) or `on`. `active` is whether
+it acts at the latest tick whatever the mode. `experimental` (since 0.6.0) marks a
+feature shipped as an opt-in although its simulator evaluation did not pass (only
+`dayshift`); `on_available` says whether it may be switched fully on: always true for the
+others, for `dayshift` only while `control_dayshift_experimental_ok` is set. `409`
+without a control loop.
+
+## `GET api/v1/control/dayshift` (read)
+
+The sun day shift (`control_dayshift_*`): on a sunny, mild day the room target rises a
+little inside the day window, and in the night after such a day it drops a little, so
+the house stores the day's heat and the heat pump runs less at night. The rule is
+evaluated every quarter hour (`ovenbird.control.dayshift`); in `on` its offset reaches
+the controller as a rule plan slice valid for 20 minutes (see the plan-slice contract in
+`docs/control-interface.md`), in `shadow` it is only recorded, in `off` nothing runs.
+
+```json
+{"mode": "shadow", "configured": "shadow", "on_available": false, "experimental": true,
+ "phase": "boost",
+ "offset_k": 0.25, "desired_k": 0.5, "applied_k": 0.0,
+ "reasons": ["sun_forecast", "outside_mild"], "guards": [],
+ "evaluated_at": "2026-03-10T09:00:00Z", "valid_until": null,
+ "next_change": {"at": "2026-03-10T17:00:00Z", "phase": "idle"}, "boosted_today": true,
+ "windows": {"day_start": "09:00", "day_end": "17:00", "night_start": "23:00",
+             "night_end": "05:00", "comfort_at": "07:00",
+             "setback_end": "2026-03-11T03:00:00Z", "timezone": "UTC"},
+ "forecast": {"issued_at": "2026-03-10T08:00:00Z", "hours": 54, "sun_wm2": 310.4,
+              "sun_limit_wm2": 150.0, "outside_c": 8.2, "outside_min_c": 7.5,
+              "outside_limit_c": 5.0, "night_min_c": 3.1, "night_limit_c": 5.0}}
+```
+
+- `mode` is the switch in effect and `configured` the setting; they are the same since
+  0.6.0 (`on` is no longer run as `shadow`).
+- `experimental` is true: the day shift did not pass its simulator evaluation
+  (`docs/evaluation/dayshift.md`). `on_available` says whether `on` may be chosen, that
+  is whether `control_dayshift_experimental_ok` is set. Both replace `locked` (0.5.x).
+- `phase`: `idle`, `boost` (inside the day window, also while the offset ramps back
+  after it), `setback`, `recovery` (from the end of a set-back to `comfort_at`: the room
+  returns to comfort) or `blocked` (a guard, or the room cancelled this night's
+  set-back).
+- `offset_k` is the step-limited offset of the latest evaluation (what `on` hands to the
+  controller, within `control_plan_rule_max_k`), `desired_k` the one it moves to in steps
+  of at most 0.25 K per quarter hour, `applied_k` the room-target shift the controller
+  applied at the latest tick (always 0 in `shadow`).
+- `reasons`: `sun_forecast` and `outside_mild` (a boost); `sun_low` (the forecast mean
+  irradiance over the rest of the day window, or over the hour either side of now, is
+  below `sun_limit_wm2`), `room_warm` (the room reached the boosted target: no more boost
+  that day, the day still counts as sunny), `outside_cold`
+  (the filtered outside temperature or the forecast minimum over the rest of the window
+  is below `outside_limit_c`), `outside_unknown` (no filtered outside temperature yet),
+  `forecast_missing` (no forecast hours for the span); `night_after_boost` (a set-back),
+  `no_boost_today` (the night after a day that did not hold the full boost for 2 h),
+  `night_cold` (the forecast night minimum is below `night_limit_c`), `recovery_lead`
+  (the set-back has ended so the
+  room is back at comfort at `comfort_at`); `room_below_target` (before a set-back starts:
+  the room is less than 0.5 K above comfort; during one: the room fell more than 0.3 K
+  below the lowered target, no more set-back this night); `outside_windows`
+  (neither window); `off`; and the guards.
+- `guards` (also in `reasons`, and the phase is `blocked`): `forecast_stale` (no stored
+  forecast issue younger than 3 h), `room_untrusted`, `stove_active`, `stove_tail` (12 h
+  after a wood-stove episode), `away` (an away period is set, its return included). A guard ends a boost or set-back at once (offset 0).
+- The limits relax while the shift runs: the outside limits by 1 K, the sun limit to half.
+- `next_change`: the next boundary of the schedule that leads to another phase (the day
+  window, its end, and for a sunny day the night's set-back, its end and
+  `comfort_at`); whether it happens still depends on the forecast and the guards then;
+  `null` while blocked or `off`.
+- `windows`: the local times in `timezone` (`control_timezone`) and `setback_end`, the
+  end of the set-back of the current or coming night (`night_end` or
+  `control_dayshift_recovery_s` before `comfort_at`, the earlier).
+- `forecast`: what the latest evaluation read (`null` before it and in `off`): the issue
+  time of the newest stored forecast, the hours read, the mean irradiance and minimum
+  temperature over the rest of today's day window (all of it once it is over), the
+  filtered outside temperature, the minimum of the current or coming night, and the
+  limits in force.
+
+Recorded while not `off`: `derived/dayshift_offset_k` (the offset the controller got: 0
+in `shadow` and without a slice) and `derived/dayshift_shadow_k` (the offset the rule
+computed, handed over or not), both at every tick, in K. `409` without a control loop.
 
 ## `POST api/v1/control/pause` (operate) and `POST api/v1/control/resume` (admin)
 
@@ -593,8 +794,7 @@ dynamic bounds follow the current emitter and limits).
   `max_items` 6, `outside_min`/`outside_max` −30/30 and `min`/`max` = the water range,
   minimum setpoint / maximum supply), `signal`, `signal_list`, `windows` (the quiet
   windows: list of `{"start": "HH:MM", "end": "HH:MM", "level": 1-3}`, `max_items` 4,
-  `level_min`/`level_max`, `end` before `start` wraps midnight), `dates` (a list of ISO days
-  `YYYY-MM-DD`, `max_items` 60; the service stores it sorted), `retention` (days of
+  `level_min`/`level_max`, `end` before `start` wraps midnight), `retention` (days of
   history to keep, unit `d`; `0` keeps it forever, `null` returns to the default),
   `mqtt_inputs` (extra MQTT topics read as signals: a list of `{"topic", "signal",
   "unit", "minimum", "maximum"}`, at most 32 inputs (`max_items` 32), topic, signal and unit at most 256
@@ -606,39 +806,57 @@ dynamic bounds follow the current emitter and limits).
   entities).
 - `tier`: `basic`, `advanced` (both `editable`) or `expert` (displayed only, "fixed by
   installation"). `groups` are ordered: `curve`, `room`, `feedback`, `limits`,
-  `behaviour`, `ramp`, `cycling`, `pump_duty`, `pump` (`hot_water`), `quiet`, `emitter`,
-  `monitors`, `weather`, `house` (the facts about the house, starting points the learner may
-  overrule: `house_floor_area_m2`, the heated floor area in m² for the indicative
-  insulation score of `insight/house`; `house_volume_m3` 50 to 5000; `house_build_period`,
-  one of `before_1945`, `1945_1974`, `1975_1991`, `1992_2005`, `2006_2014`, `2015_later`;
-  `house_window_area_m2` 0 to 200; `house_window_orientation`, one of `north`, `east`,
-  `south`, `west`, `mixed`; `house_occupants` 0 to 12; all unset by default; the former
-  `house_floor_heating_share` is retired: a stored value is ignored with a warning in the
-  log, a change that sets it is `unknown_field`),
-  `house_bounds` (advanced limits on the learned values, each pair optional on either
-  side, equal values pin the quantity: `house_ua_min_w_per_k`/`_max_w_per_k` 30 to 1500
-  W/K, `house_time_constant_min_h`/`_max_h` 5 to 500 h, `house_solar_aperture_min_m2`/
-  `_max_m2` 0 to 40 m², `house_internal_gain_min_w`/`_max_w` 0 to 2000 W; a minimum above
-  its maximum is `house_bounds_order`) and `house_learning` (`house_learn_enabled`,
-  whether the service refits the house model itself on a schedule, default on;
-  `house_learn_interval_h`, hours between those refits, 24 to 720, default 168;
-  `house_learn_fit_days` 21 to 90, default 60, and `house_learn_test_days` 7 to 21,
-  default 14, with the fit window at least the test window plus 8 days
-  (`house_fit_days_short`); `house_learn_tolerance_k` -0.1 to 0.2, default 0;
-  `house_learn_excluded_days`, up to 60 days `YYYY-MM-DD`, none more than a day ahead, each
-  once, stored sorted: `date_format`, `date_future`, `date_repeated`). Every `house_*`
-  field reaches the learner through its configuration file; the next run applies it;
-  `model_plan` (the learned house model as a bounded room-target offset, see
-  `insight/house/control`: `control_model_use`, basic, one of `off` (default), `shadow` and
-  `on`, where `on` is refused for now with `model_use_on_locked`; and the advanced
-  `control_model_max_setback_k` 0.1 to 1 K, default 0.5, `control_model_max_preheat_k` 0 to
-  0.5 K, default 0.3, `control_model_horizon_h` 2 to 12 h, default 6, and
-  `control_model_max_rmse_k` 0.2 to 1.5 K, default 0.6), `ha`, `mqtt` (the broker
+  `behaviour`, `ramp`, `cycling`, `pump_duty`, `pump` (`hot_water`), `stove`, `dayshift`,
+  `summer`, `manual`, `quiet`, `emitter`,
+  `monitors`, `weather`, `house` (the facts the owner states about the house, for a rough
+  heat-loss estimate: `house_floor_area_m2`, the heated floor area in m²; `house_volume_m3`
+  50 to 5000; `house_build_period`, one of `before_1945`, `1945_1974`, `1975_1991`,
+  `1992_2005`, `2006_2014`, `2015_later`; `house_window_area_m2` 0 to 200;
+  `house_window_orientation`, one of `north`, `east`, `south`, `west`, `mixed`;
+  `house_occupants` 0 to 12; all unset by default; and `house_basics_enabled`, on by
+  default, which switches `insight/basics` on or off; the settings of the retired house model,
+  `house_ua_*`, `house_time_constant_*`, `house_solar_aperture_*`, `house_internal_gain_*`,
+  `house_learn_*` and `control_model_*`, and the older `house_floor_heating_share` are
+  gone: a stored value is ignored with a warning in the log, a change that sets one is
+  `unknown_field`), `ha`, `mqtt` (the broker
   connection of `config/mqtt` and `mqtt_inputs`), `controller`, `commands`, `safety`,
   `history` (the advanced retention fields `history_raw_days`, `history_1m_days`,
   `history_15m_days`, `history_1h_days`, `history_decision_days`; the rest of the group
-  is expert) and `installation`. A changed retention reaches the history writer with the
+  is expert) and `installation`. `dayshift` (after `stove`) holds the sun day shift (see
+  `GET api/v1/control/dayshift`): `control_dayshift_use` `off` (default), `shadow` or
+  `on` (experimental: valid only with `control_dayshift_experimental_ok`, a basic boolean
+  defaulting to `false`, otherwise `dayshift_on_needs_ack`);
+  `control_dayshift_day_start` / `_day_end` (local `HH:MM`, 09:00 and 17:00),
+  `control_dayshift_boost_k` and `control_dayshift_setback_k` (0 to 1 K, 0.5 K each),
+  `control_dayshift_min_outside_c` (-10 to 15 °C, 5 °C), `control_dayshift_min_sun_wm2`
+  (0 to 600 W/m², 150 W/m²), `control_dayshift_night_start` / `_night_end` (23:00 and
+  05:00), `control_dayshift_comfort_at` (07:00), `control_dayshift_recovery_s` (0 to 8 h,
+  4 h) and `control_plan_rule_max_k` (0 to 1.5 K, 1 K: the bound of every rule plan
+  slice, which also limits how far a set-back lowers the `room_below_floor` alarm). The
+  times are strings of type `string`, refused with `clock_time` when not `HH:MM`. A changed retention reaches the history writer with the
   configuration (at the next controller tick) and is applied at once, no restart.
+  `summer` (after `dayshift`) holds the summer switch: `control_summer_enabled` (off by
+  default), `control_summer_off_c` (10 to 25 °C, 18 °C: no space heating while the slow
+  outside mean is above it), `control_summer_hysteresis_k` (0.5 to 5 K, 2 K: heating
+  resumes below `off_c` minus it) and `control_summer_mean_s` (6 h to 3 d, 24 h: the
+  time constant of the slow mean; a full day and night, so one warm afternoon does not
+  stop heating). While it holds, the controller asks for the safety minimum setpoint with
+  the room feedback frozen; no other command, the pump is never switched off.
+  `manual` holds boost and away (see `POST control/boost`, `PUT control/away`):
+  `control_boost_enabled` (on), `control_boost_default_s` (900 to 43200 s, 2 h),
+  `control_boost_default_k` (0.5 to 2 K, 1 K), `control_away_enabled` (on),
+  `control_away_target_c` (10 to 20 °C, 16 °C), `control_away_comfort_lead_s` (0 to 24 h,
+  6 h). `quiet` adds `control_quiet_enabled` (on; off ignores the windows),
+  `control_quiet_start_enabled` (off), `control_quiet_start_minutes` (1 to 30, 10) and
+  `control_quiet_start_level` (1 to 3, 2): quiet mode for the first minutes after a
+  compressor start, the quieter of it and a window, held through a defrost (sent through
+  the same quiet-mode path). `monitors` adds `safety_starts_alarm_enabled` (on),
+  `safety_starts_per_hour_max` (1 to 20, 4) and `safety_starts_per_day_max` (1 to 200,
+  30) for `compressor_starts`. `control_cycling_max_raise_k` is an advanced field of
+  `cycling`.
+- `feature`: the feature a field tunes (the ids of `GET control/features`), null for a
+  general field. `read_only`: true for a field the API does not change (the expert tier),
+  so a UI can show expert values flagged as fixed.
 - `min`/`max` are hard bounds (`exclusive_*` when the bound itself is not allowed);
   `soft_min`/`soft_max` give a warning that must be acknowledged. Dynamic: the maximum
   of `control_max_supply_c` is the emitter's default (only lowering is possible here),
@@ -720,9 +938,6 @@ value, e.g. `[0, "start"]` in the quiet windows; "-" means none):
 | `integral_time` | error | `min` | neither 0 nor at least 1800 s |
 | `timezone` | error | - | not an IANA zone |
 | `window_empty` | error | `path` | a quiet window that starts where it ends |
-| `date_format` | error | - | a left-out day that is not a real `YYYY-MM-DD` date |
-| `date_future` | error | - | a left-out day more than a day ahead |
-| `date_repeated` | error | - | a left-out day listed twice |
 | `retention_min` | error | `min` | a `history_*_days` retention between 0 and 1 day (0 keeps the data forever; any other value is at least 1 day) |
 | `input_bounds` | error | `path` | an MQTT input's plausibility bound that is not a finite number, or a minimum above the maximum |
 | `input_topic_reserved` | error | `path`, `topic` | an MQTT input on a topic of the HeishaMon board itself: `<base>/main`, `<base>/commands` and everything below them, `<base>/stats`, `<base>/LWT` (other subtrees of the base, such as `1wire`, stay allowed) |
@@ -740,9 +955,6 @@ value, e.g. `[0, "start"]` in the quiet windows; "-" means none):
 | `stove_reference_is_room` | error | - | the room signal as the wood-stove reference room |
 | `signal_not_temperature` | error | `signal` | the wood-stove reference room is not a temperature in °C (an HA entity outside `sensor`, `input_number`, `number`, or an MQTT input with another unit) |
 | `min_above_max` | error | `min`, `max` | minimum setpoint not below the maximum supply (both effective) |
-| `house_bounds_order` | error | `min_field`, `max_field`, `min`, `max` | a `house_*_min_*` bound above its `house_*_max_*` bound (reported on the maximum field) |
-| `house_fit_days_short` | error | `fit_days`, `test_days`, `min` | `house_learn_fit_days` below `house_learn_test_days` + 8 |
-| `model_use_on_locked` | error | - | `control_model_use` `on`: the model may only be switched on after the evaluation and a shadow period (decision record 2026-11-27); `off` and `shadow` are accepted |
 | `curve_range` | error | `min`, `max` | water outside [minimum setpoint, maximum supply] |
 | `outside_envelope` | error | `at`, `by_k` | the curve leaves the safety envelope |
 | `integral_above_output` | error | - | integrator limit above the output limit |
@@ -751,6 +963,8 @@ value, e.g. `[0, "start"]` in the quiet windows; "-" means none):
 | `location_pair` | error | - | latitude without longitude or the reverse |
 | `location_required` | error | - | a manual or browser location without coordinates |
 | `max_supply_raise` | error | `max` | the maximum supply raised above the emitter's default |
+| `dayshift_windows` | error | - | the day shift windows out of order: the day window wraps midnight or is empty, or, going forward from its end, the night does not start, end and reach `control_dayshift_comfort_at` before the next day window |
+| `dayshift_on_needs_ack` | error | - | `control_dayshift_use` = `on` without `control_dayshift_experimental_ok`: switching on, or taking the acknowledgement back while `on` is set |
 | `warning_not_acknowledged` | error (`PUT` only) | `warning` | a warning that was not acknowledged |
 | `no_change` | error (`PUT` only) | - | the changes leave the configuration as it is |
 | `comment_too_long` | error (`PUT` only) | - | a comment over 200 characters |
@@ -1046,7 +1260,7 @@ responses as `PUT`; audited as `config_rollback`. `404` for an unknown version.
 A download (`Content-Disposition: attachment`):
 
 ```json
-{"ovenbird_config": 1, "app_version": "0.5.0", "exported_at": "...", "version": 13,
+{"ovenbird_config": 1, "app_version": "0.6.0", "exported_at": "...", "version": 13,
  "values": {"control_comfort_c": 21.6}, "effective": {"<every non-secret field>": "..."}}
 ```
 
@@ -1066,10 +1280,7 @@ control returns to the configured mode (unless paused). `200` `{"mode", "config"
 
 Measured, filtered and forecast outside temperature (`back_h` up to 168, `ahead_h` up
 to 72; `422` beyond). The forecast is **opt-in** (`weather_enabled`; the coordinates
-leave the house, rounded to 0.01°). It is shown only, unless the model plan is switched on
-(`control_model_use`, see `insight/house/control`): then it is a controller input, through
-a bounded room-target offset. With `shadow` it is read and the result recorded, with no
-effect on any decision.
+leave the house, rounded to 0.01°). It is shown only; it is not a controller input.
 
 ```json
 {"enabled": true, "provider": "open-meteo", "issued": "...", "age": 1200.0, "stale": false,
@@ -1233,579 +1444,128 @@ its source signal has no data that day.
   writes included); null for days starting before the command journal's retention
   (`OVENBIRD_HISTORY_DECISION_DAYS`) or without a journal.
 
-## `GET api/v1/insight/house` (read)
+## `GET api/v1/insight/basics` (read)
 
-The learned house model: the champion's insight written by the optional learner
-(`python -m ovenbird_sim.learn`, run by the service itself or in the `learner` container;
-see `GET api/v1/insight/house/run` and `docs/design.md`, House insight) into
-`<data_dir>/models`. The service only reads JSON, and treats it as
-untrusted: no links, regular files up to 4 MB, strict JSON (no `NaN`), the top-level keys
-below only, bounded sizes, finite numbers and checked types; a refused file is answered
-as `state` `learning` with the reason in `missing`. Always `200`; with the champion:
-
-```json
-{"state": "ready", "schema": "ovenbird.house-insight/1", "model": "house-20260214",
- "champion": {"model": "house-20260214", "promoted_at": "2026-02-19T19:23:52+00:00"},
- "last_run": {"at": "...", "outcome": "promoted", "model": "house-20260214",
-              "champion": "house-20260214", "message": "...", "runtime_s": 275.7,
-              "interval_h": 168.0, "warnings": [],
-              "champion_revalidation": {"model": "house-20260214", "at": "...",
-                                        "source": "held_out", "...": "..."}},
- "credible": true, "revalidation": null,
- "gates": {"heat_loss": {"ok": true, "needed": [], "message": null, "source": "fitted"},
-           "dynamics": {"ok": true, "needed": [], "message": null, "source": "fitted"},
-           "sun": {"ok": false, "needed": ["more_sunny_days"],
-                   "message": "2 more sunny days needed to check the model's sun response",
-                   "source": "fitted"}},
- "learner": {"last_run_at": "2026-02-19T19:23:52+00:00", "age_h": 30.5,
-             "interval_h": 168.0, "stale_after_h": 336.0, "stale": false},
- "data": {"from": "2026-01-05T00:00:00+00:00", "to": "2026-02-14T18:01:00+00:00",
-          "fit_days": 40.75, "signature_days": 38, "excluded_days": [], "warnings": []},
- "ua": {"w_per_k": 147.3, "interval_90": [140.2, 152.8],
-        "interval_source": "bootstrap_and_folds",
-        "bootstrap_interval_90": [142.1, 152.8], "fold_w_per_k": [140.2, 149.0],
-        "source": "rc_model",
-        "signature_w_per_k": 145.9, "signature_interval_90": [137.6, 154.4],
-        "low_confidence": false},
- "time_constant_h": {"value": 52.6, "interval_90": [48.9, 56.4]},
- "heat_capacity_kwh_per_k": 7.75,
- "capacities_kwh_per_k": {"loop": 0.35, "emitter": 1.25, "building": 6.15},
- "emitter_time_constant_h": {"value": 1.26, "interval_90": [1.1, 1.4]},
- "structure": {"name": "chain",
-               "fixed": {"h_water_air": 5.0, "solar_mass_fraction": 0.0,
-                         "q_int_modulation": 0.0, "q_int_peak_hour": 19.0},
-               "free": ["c_water", "c_mass", "c_air", "h_water_mass", "h_mass_air",
-                        "h_air_out", "solar_aperture_m2", "q_int_w"],
-               "nodes": {"c_water": "loop", "c_mass": "emitter", "c_air": "building"}},
- "solar_aperture_m2": {"value": 3.62, "interval_90": [3.18, 4.07]},
- "internal_gains_w": {"value": 318.0, "interval_90": [262.0, 381.0], "identified": false,
-                      "label": "net_free_heat", "note": "net free heat ...",
-                      "at_zero": false, "ua_w_per_k_per_100_w": 10.2},
- "balance_temperature_c": {"value": 17.6, "interval_90": [17.1, 18.2]},
- "signature": {"indoor": "house_mean",
-               "points": [{"date": "2026-01-06", "outside_c": 4.12, "heat_w": 2012.4,
-                           "indoor_c": 21.04, "ghi_w_m2": 38.5}],
-               "fit": {"h_w_per_k": 145.9, "h_interval_90": [137.6, 154.4],
-                       "gains_w": 322.6, "solar_m2": 3.71, "balance_c": 17.6,
-                       "balance_interval_90": [17.1, 18.2], "rmse_w": 141.8,
-                       "mean_indoor_c": 21.02, "mean_ghi_w_m2": 41.3, "model": "..."}},
- "excitation": {"excited": false, "days": 36, "heating_days": 14, "delta_t_days": 30,
-                "run_share_days": 15, "heat_days": 12, "mean_delta_t_k": 9.8,
-                "mean_run_share": 0.31, "heat_kwh_per_day": 22.4, "outside_sd_k": 2.9,
-                "outside_range_k": 8.6, "ua_relative_width": 0.07, "ua_tight": true,
-                "rules": {"heating_days": 20, "delta_t_k": 5.0, "run_share": 0.2,
-                          "outside_range_k": 10.0, "ua_relative_width": 0.3,
-                          "heat_day_kwh": 20.0},
-                "needed": {"heating_days": 6, "outside_range_k": 1.4},
-                "reasons": ["14 heating days in the fit window < 20", "..."]},
- "credibility": {"credible": false,
-                 "gates": {"heat_loss": {"ok": false, "uses": ["insulation_score", "..."],
-                                         "checks": {"ua_stability": {"ok": true,
-                                                    "value": 0.05, "limit": 0.15,
-                                                    "folds": 2,
-                                                    "fold_ua_w_per_k": [140.2, 149.0]},
-                                                    "...": "..."},
-                                         "needed": ["more_heating_days"],
-                                         "reasons": ["..."], "message": "...",
-                                         "shortfall": {"heating_days": 6,
-                                                       "outside_span_k": 1.4}},
-                           "dynamics": {"ok": true, "...": "...",
-                                        "diagnostics": {"skill_24h": -0.02, "note": "..."}},
-                           "sun": {"ok": false, "...": "..."}},
-                 "checks": {"signature": true, "excitation": false, "ua_consistent": true,
-                            "ua_stable": true, "predictive": true, "sun": false},
-                 "days": 38, "heating_days": 37, "cold_days": 6, "outside_span_k": 11.8,
-                 "agreement": 0.01, "skill": 0.21,
-                 "rules": {"heating_days": 30, "heating_day_w": 300.0, "outside_span_k": 10.0,
-                           "cold_day_below_c": 5.0, "ua_agreement": 0.2,
-                           "skill_horizon_h": 6.0, "min_skill": 0.0},
-                 "needed": {"heating_days": 6, "outside_span_k": 1.4},
-                 "reasons": ["14 heating days in the fit window < 20", "..."],
-                 "low_confidence": false,
-                 "message": "insufficient data: 6 more heating days, 1.4 K more spread ..."},
- "score": {"state": "learning", "message": "insufficient data: 6 more heating days ...",
-           "design_indoor_c": 20.0, "design_outside_c": -10.0, "floor_area_m2": 130.0,
-           "bands": [{"band": "A", "below_w_per_m2": 30.0}, "...",
-                     {"band": "G", "below_w_per_m2": null}],
-           "indicative": true, "note": "Indicative: ... Not the official energielabel."},
- "validation": {"test_from": "2026-01-31T00:00:00+00:00", "test_to": "2026-02-14T00:00:00+00:00",
-                "score_horizon_h": 24.0, "held_out_room_rmse_k": 0.093,
-                "persistence_room_rmse_k": 0.12, "skill_horizon_h": 6.0,
-                "skill_at_horizon": 0.21,
-                "skill": {"horizons_h": [1, 3, 6, 12, 24], "room_rmse_k": ["..."],
-                          "persistence_rmse_k": ["..."], "diurnal_rmse_k": ["..."],
-                          "skill": ["..."], "skill_diurnal": ["..."], "origins": 104},
-                "series_rmse_k": 0.11, "series_bias_k": -0.03, "series_points": 1248,
-                "challenger_room_rmse_k": 0.093, "champion_room_rmse_k": null,
-                "compared": {"from": "...", "to": "...", "origins": 104,
-                             "champion_in_sample": false},
-                "champion": null, "challenger_credible": false, "champion_credible": null,
-                "challenger_gates": {"heat_loss": false, "dynamics": true, "sun": false},
-                "champion_gates": null, "same_house": null, "promoted": true, "rule": "no champion yet",
-                "settings_changed": false, "tolerance_k": 0.0,
-                "unconstrained_room_rmse_k": null, "constraint_cost": null},
- "at_bound": [{"parameter": "solar_aperture_m2", "value": 6.0, "side": "upper",
-               "limit": 6.0, "kind": "owner"}],
- "error_trend": [{"model": "house-20260214", "data_to": "...", "promoted": true,
-                  "ua_w_per_k": 147.3, "room_rmse_24h_k": 0.093}],
- "daily_error": [{"date": "2026-01-31", "room_rmse_24h_k": 0.078, "origins": 9}],
- "proposal": {"comfort_c": 21.0, "flow_lpm": 14.5, "credible": false, "stale": false,
-              "based_on_curve": [[-10.0, 39.0], [0.0, 34.0], [15.0, 25.0]],
-              "current_curve": [[-10.0, 39.0], [0.0, 34.0], [15.0, 25.0]],
-              "curve": [[-10.0, 37.5], [0.0, 32.0], [15.0, 25.0]],
-              "points": [{"outside_c": -10.0, "model_c": 37.38, "current_c": 39.0,
-                          "heat_w": 4231, "extrapolated": true, "water_c": 37.5,
-                          "change_k": -1.5, "limited_by": null}],
-              "mean_change_k": -1.17, "max_change_k": 2.0, "method": "..."},
- "events": [], "limits": ["single room sensor: the UA is apparent ...", "..."],
- "provenance": {"data_from": "...", "data_to": "...", "fit_days": 40.75, "step_s": 60,
-                "config_hash": "35767f480b5ce141", "code_version": "0.5.0",
-                "method": "full_plant", "fallback_reason": null, "seed": 0,
-                "bootstrap": 20, "folds": 2, "generated": "...",
-                "constraints": {"h_air_out": [150.0, 250.0]},
-                "told": {"ua_w_per_k": 310.0, "solar_aperture_m2": 4.5,
-                         "internal_gain_w": 440.0},
-                "learning": {"fit_days": 60, "test_days": 14, "tolerance_k": 0.0,
-                             "excluded_days": ["2026-02-03"], "excluded_days_in_fit": 1}}}
-```
-
-- `ua`: the RC model's envelope conductance (`h_air_out`, W/K). `interval_90` is the
-  reported range (`interval_source` `bootstrap_and_folds`): the envelope of the 90 %
-  day-block bootstrap interval (`bootstrap_interval_90`) and the UAs of the rolling-origin
-  train-window fits (`fold_w_per_k`); the insulation score and the heat-loss gate use
-  this range. `signature_*` the energy signature's apparent heat-loss coefficient over
-  the whole 15 min history as a cross-check (`low_confidence` when they differ by more
-  than 20 %). Apparent: one room sensor, ventilation included. Older models have no
-  `interval_source`: their `interval_90` is the bootstrap interval.
-- `structure`: the model's shape. `chain` (the default): heat flows loop → emitter →
-  building → outside, and four parameters are held, not fitted (`fixed`: no direct
-  loop-to-room path beyond a token 5 W/K, all sun onto the building node, constant
-  internal gains); `free` lists the eight fitted ones. `nodes` names the three nodes:
-  `loop` (the circulating water), `emitter` (the fast node: floor, screed, radiators) and
-  `building` (the slow node: air, furniture, inner walls). Older models have no
-  `structure`.
-- `heat_capacity_kwh_per_k`: the model's total heat capacity (all three nodes); show this
-  rather than a single node. `capacities_kwh_per_k`: per node under the labels above.
-  `emitter_time_constant_h`: how fast the emitter follows a change of the loop (its
-  capacity over its two conductances), with its bootstrap interval; the building's
-  `time_constant_h` is the slow one.
-- `internal_gains_w`: `identified` is always `false`: the value is net free heat
-  (people, appliances, anything else that warms the house), not separable from the heat
-  loss (the data fix the balance temperature, so more gains mean a larger UA).
-  `ua_w_per_k_per_100_w` is how much the UA moves with 100 W more gains at the fit
-  window's mean indoor-outdoor difference; `at_zero` when the fit put them at 0, which
-  is "not identified", not a fault. Show it with that caveat, never as a measurement.
-- `excitation`: whether the fit window held enough heating weather to separate the
-  envelope loss from the gains. Counted over local days with at least 80 % usable data
-  (room and outside known, outside every known event): a *heating day* has a mean
-  indoor-minus-outside difference of at least 5 K and the compressor running at least
-  20 % of the time. `excited` needs at least 20 heating days, a 10 K range of the
-  heating days' outside means and a 90 % UA interval narrower than 30 % of the UA
-  (`ua_relative_width`, `ua_tight`). `needed` is what is missing (`heating_days`,
-  `outside_range_k`), `reasons` the failed rules; the other counts and means
-  (`delta_t_days`, `run_share_days`, `heat_days` with at least 20 kWh of heat,
-  `mean_delta_t_k`, `mean_run_share`, `heat_kwh_per_day`, `outside_sd_k`) are for display
-  only.
-- `credibility`: three gates, one per use (`gates`), each with `ok`, `uses`, `checks`
-  (per check `ok`, `value`, `limit` and detail), `needed` (codes), `reasons` and
-  `message` (`null` when `ok`):
-  - `heat_loss` (U; the insulation score, the curve proposal, the what-if steady state
-    and the balance): `signature` (the energy signature over the 15 min history: at
-    least 30 heating days of more than 300 W and a 10 K spread of daily outside means),
-    `excitation` (above), `ua_interval` (the reported UA range at most 30 % of the UA),
-    `ua_agreement` (the signature's coefficient within 20 % of the RC model's) and
-    `ua_stability` (every rolling-origin train-window UA within 15 % of the full fit's;
-    `folds`, `fold_ua_w_per_k`). `shortfall` holds `heating_days` and
-    `outside_span_k` for a "not enough heating weather yet" message.
-  - `dynamics` (D; the what-if cool-down and the room-target planner): `skill_6h`, the
-    held-out skill against persistence pooled over the first 6 h, above 0.
-    `diagnostics.skill_24h` is reported and never gated (a room held flat by the
-    controller makes "no change" hard to beat a day ahead).
-  - `sun` (S; the water planner): `sunny_days` (at least 5 held-out local days with
-    global irradiance above 150 W/m² for at least 3 h, the room known), `sun_skill` (the
-    6 h room error on sunny hours, model against the same model without sun, `1 -
-    model / no sun` above 0) and `sun_response` (`value` the slope of the room's
-    measured sun response on the model's, from 09:00 origins over 8 h; its 90 %
-    day-block bootstrap `interval` must overlap `limit` 0.67 to 1.5; `origins`).
-  `needed` codes: `no_signature`, `more_heating_days`, `more_outside_spread`,
-  `ua_interval_wide`, `ua_disagrees`, `ua_unstable` (U); `no_dynamics_skill` (D);
-  `more_sunny_days`, `no_sun_skill`, `sun_response_off` (S); `legacy_model` (a model
-  fitted before the gates). `credible` is the heat-loss gate. The flat `checks`
-  (`signature`, `excitation`, `ua_consistent`, `ua_stable`, `predictive`, `sun`),
-  `needed` (the heat-loss shortfall), `reasons` and `message` (both the heat-loss gate's)
-  are kept for older readers. Older models have no `gates` and carry `cold_days` in
-  `rules` and `needed` and sometimes no `checks`.
-- `credible`, `gates`, `revalidation` (top level): what the service uses. `revalidation`
-  is the champion's latest re-validation on newer data (`last_run.champion_revalidation`
-  when it names the champion, else `null`). `gates` holds each gate now: `ok`,
-  `needed`, `message` (`null` when `ok`) and `source`: `revalidated` (the
-  re-validation's gates), `fitted` (the model's own) or `legacy` (a model fitted before
-  the gates: its old `credible` as `heat_loss`, its old `predictive` check, else its old
-  `credible`, as `dynamics`, and `sun` not passing with `legacy_model` until the next
-  run). A re-validation from a learner before the gates still turns `heat_loss` off when
-  its `credible` is false. `credible` is `gates.heat_loss.ok`. The `score`, the proposal
-  draft, the what-if steady state and the `balance` use `heat_loss`; the what-if
-  cool-down `dynamics`; the planner gate needs `heat_loss` and `dynamics`. Show each gate
-  next to what it guards, with its `message`.
-- `score`: recomputed on every request from `ua` and the current `house_floor_area_m2`.
-  `state` is `learning` (`credible` false: `message`, or the re-validation's first
-  reason), `no_floor_area` (only
-  `heat_loss_w`) or `ready` with `heat_loss_w` (UA × 30 K), `w_per_m2`, `band` (A < 30,
-  B < 45, C < 60, D < 80, E < 100, F < 125, G ≥ 125 W/m² at 20 °C in, −10 °C out),
-  `interval_90` and `band_interval`. Indicative, **not the official energielabel**.
-- `validation`: the held-out test of this model's run, the new model fitted before the
-  latest `house_learn_test_days` (the *challenger*) and scored on them.
-  `held_out_room_rmse_k` is the free-run room RMSE pooled over leads up to 24 h,
-  `persistence_room_rmse_k` the same for "the room stays as it is" from the same origins
-  (every 3 h). `skill` lists, per horizon, the model's RMSE, persistence's, the diurnal
-  reference's (the room 24 h earlier) and the skills `1 - model / reference`;
-  `skill_at_horizon` is the skill against persistence at `skill_horizon_h` (6 h).
-  `series_rmse_k` and `series_bias_k` (predicted minus measured) are over the series'
-  out-of-sample rows (see `insight/house/series`): **the typical error to show**, the
-  error of a prediction made a day ahead, wood-stove periods left out.
-  Promotion compares `challenger_room_rmse_k` with `champion_room_rmse_k` on `compared`:
-  the held-out days after the end of the champion's own data when at least 16 origins
-  fall there, else the whole block (`champion_in_sample` true when the champion saw part
-  of it). The rules, in order, stated in `rule`: no usable new error keeps the champion;
-  no champion promotes; a credible model (heat-loss gate) replaces one that is not
-  (`challenger_credible`, `champion_credible`); a model that is not credible never
-  replaces a credible one, also when the owner's settings changed; a model that fails
-  the dynamics or the sun gate the champion passes on the same compared days never
-  replaces it, also when the settings changed (`challenger_gates`, `champion_gates`:
-  each gate on the compared days; the champion's re-validated); changed settings
-  promote (`settings_changed`); the same house on at least a day of newer data promotes
-  (`same_house`: the new UA and time constant both inside the champion's 90 % intervals);
-  otherwise the new model must not be worse than the champion's plus `tolerance_k`
-  (`house_learn_tolerance_k`; positive accepts a slightly worse model, negative demands a
-  clear improvement). `unconstrained_room_rmse_k`, only when the owner set bounds or
-  pins: the held-out error of a fit with those released; `constraint_cost`
-  (`excess_k`, `limit_k`, `worse`) flags when the constrained model is worse by more than
-  0.05 K or 15 % of the free one. `error_trend`: the held-out error per run,
-  `daily_error`: per day of the held-out block.
-- `at_bound`: parameters fitted at a limit (within 2 %): `side` `lower`, `upper` or
-  `pinned`, `kind` `owner` (an owner bound or pin, or the owner's time-constant range on
-  `time_constant_h`) or `structural` (the model's own hard range: a sign that the model
-  shape, not the house, sets the value). The parameters the structure holds are never
-  listed, nor internal gains at 0 (see `internal_gains_w`).
-- `data.warnings`: data notes the owner should see, for instance a wood-stove episode
-  without a recorded end that the learner capped.
-- `proposal`: the water temperature the model needs to hold `comfort_c` at each outside
-  temperature of the curve the run saw (`based_on_curve`), within the installation's
-  limits (`limited_by`: `min_setpoint`, `max_supply` or `envelope`), with the change
-  per point; `stale` when the current curve (`current_curve`) differs from it.
-  `credible` is false while the model is not promoted or not credible.
-- `events`: wood-stove periods (detected, or `stove_mode` from the service's journal)
-  left out of the fit and the scoring. Each entry: `kind` (`stove` detected, or
-  `stove_mode`), `start_local`, `end_local` and `tail_end_local` (ISO local time to the
-  minute, in the install's time zone; the exclusion covers `start_local` to
-  `tail_end_local`, the recovery tail included), `hours` and `excluded_hours` (without and
-  with the tail), `peak_k` and `rise_k_per_h` (the living room's largest anomaly and
-  relative rise; `null` for `stove_mode`), `utc_days` (the UTC dates the period touches)
-  and `reason` (a sentence). The service passes the list on as the learner wrote it (only
-  the generic size and type checks of the file apply), so a client must tolerate other
-  fields.
-- `provenance`: where the model came from. `constraints` are the owner's fact and bound
-  settings that shaped the fit (`{}` when none), `told` the rough values the facts imply
-  (`ua_w_per_k`, `solar_aperture_m2`, `internal_gain_w`; `null` where the facts do not
-  give one), `learning` the learning options in force (`fit_days`, `test_days`,
-  `tolerance_k`, the owner's `excluded_days` and `excluded_days_in_fit`, how many of them
-  fell inside the data). `validation.settings_changed` is true when the owner's facts or
-  bounds differed from the champion's. All of these
-  pass through the service's generic checks unchanged (older models lack them).
-- `learner`: when the learner last ran (`status.json`, real time) and whether that is
-  too long ago: `stale` when `age_h` exceeds `stale_after_h`, twice the learner's
-  interval (`interval_h` from its `--every-h`, else 168 h). A stale model is still
-  served; the House page says how old it is.
-
-Also `200` when no model has been promoted yet:
+The house basics: an estimate of the heat loss of the house at the current weather and
+of the heat the house gets from the heat pump at a water temperature. With
+`house_basics_enabled` off the body is `{"enabled": false, ...}` with `computed_at`,
+`heat_loss`, `loss_now`, `heat_pump` and `by_weather` `null`, and nothing is read. The
+fits use the 15 min rollups of the last 365 complete local days (`control_timezone`) and
+are cached: they are computed again at most once an hour, when a local day closes or
+when the history path, room signal or time zone changes (`computed_at`). The live values
+(room, outside, heat now, the last 24 h) are read on every request.
 
 ```json
-{"state": "learning", "missing": ["9 more days of 1 min history (have 13.0, the fit needs 22)"],
- "last_run": {"at": "...", "outcome": "learning", "missing": ["..."], "runtime_s": 1.4},
- "learner": {"last_run_at": "...", "age_h": 2.0, "interval_h": 168.0,
-             "stale_after_h": 336.0, "stale": false}}
+{"enabled": true, "computed_at": "2026-01-20T11:00:00Z", "timezone": "Europe/Amsterdam",
+ "room_signal": "ha/sensor.living_room_temperature", "design_outside_c": -10.0,
+ "heat_loss": {"status": "credible", "reasons": [], "h_w_per_k": 182.4,
+   "h_low_w_per_k": 171.0, "h_high_w_per_k": 193.8, "offset_w": 640,
+   "balance_offset_k": 3.5, "balance_c": 17.5, "days_used": 44, "points_used": 22,
+   "outlier_points": 0, "near_balance_points": 0, "span_k": 14.2, "outside_min_c": -1.5,
+   "outside_max_c": 12.7, "room_mean_c": 21.0, "residual_w": 55,
+   "first_date": "2025-12-01", "last_date": "2026-01-19",
+   "excluded": {"low_coverage": 1, "stove": 4, "no_heating": 3, "away": 0},
+   "points": [{"first_date": "2025-12-01", "last_date": "2025-12-02", "delta_k": 12.4,
+               "heat_w": 1620, "outside_c": 8.6, "room_c": 21.0, "use": "used"}]},
+ "loss_now": {"room_source": "measured", "outside_source": "filtered",
+   "forecast_available": true,
+   "now": {"at": "2026-01-20T11:02:10Z", "outside_c": 2.0, "room_c": 21.0, "delta_k": 19.0,
+           "loss_w": 2826, "low_w": 2790, "high_w": 2862, "beyond_data": false},
+   "night": {"at": "2026-01-21T05:00:00Z", "outside_c": -3.0, "room_c": 21.0,
+             "delta_k": 24.0, "loss_w": 3738, "low_w": 3660, "high_w": 3816,
+             "beyond_data": true},
+   "design": {"at": null, "outside_c": -10.0, "room_c": 21.0, "delta_k": 31.0,
+              "loss_w": 5014, "low_w": 4840, "high_w": 5188, "beyond_data": true}},
+ "heat_pump": {
+   "delivered": {"now_w": 3120, "now_reason": null, "mean_24h_w": 2710,
+                 "coverage_24h": 0.998},
+   "emitter": {"status": "provisional", "reasons": ["few_hours"], "k_w_per_k": 402.5,
+     "k_low_w_per_k": 380.1, "k_high_w_per_k": 424.9, "hours_used": 64, "days_used": 12,
+     "span_k": 6.1, "flow_l_min": 20.0, "room_c": 21.0, "setpoint_min_c": 24.0,
+     "setpoint_max_c": 45.0,
+     "table": [{"supply_c": 24.0, "mean_water_c": 23.6, "heat_w": 1046, "low_w": 988,
+                "high_w": 1103, "loss_now_w": 2826, "margin_w": -1780}],
+     "balance_supply_c": 29.0, "balance_mean_water_c": 28.0, "balance_in_range": true}},
+ "by_weather": [{"from_c": 2.0, "to_c": 4.0, "days": 6, "heat_w": 2580,
+                 "electric_w": 690, "cop": 3.74, "few_days": false}]}
 ```
 
-`state` is `not_run` (no learner run at all) or `learning` (runs so far promoted
-nothing: `missing` from the last run, or its error; or the learner's files were
-refused). Backward compatibility: services before the improvement round answered these
-two states with `404` and the same body; clients should accept both (the UI does).
+**`heat_loss`**: least squares of the mean space-heating power `P` against the room
+minus outside temperature `dT`, `P = H x dT - G`. `h_w_per_k` is `H` (W/K) with its
+95 % band `h_low_w_per_k`..`h_high_w_per_k` (the slope's standard error and Student's
+t); `offset_w` is `G` (internal and solar gains on average); `balance_offset_k` = `G/H`
+and `balance_c` = `room_mean_c - G/H`, the outside temperature at which the house needs
+no heating. `P` is the loop heat `derived/heat_delivered_w` (flow x spread): hot-water
+runs are not in it and a defrost's draw from the loop is netted.
 
-## `GET api/v1/insight/house/history` (read)
+- A point (`points`, oldest first) is a 48 h window of two consecutive qualifying local
+  days, averaged, so heat stored in the floor one day and given back the next mostly
+  cancels; windows never share a day. A day qualifies when at least 80 % of it has data
+  (loop heat or hot water, outside and room), it needed real heating (mean loop heat at
+  least 250 W and the room at least 4 K above outside) and no wood-stove episode
+  (journal `stove_mode`) touched it or the 12 h before it, as the stove heats the room
+  sensor and its heat stays in the room overnight, and no away period (journal
+  `away_mode`, its return included) touched it. `excluded` counts complete days with
+  data that did not qualify, by the first reason that applies (days without any data
+  are not counted). `use`: `used`, `outlier` (one robust pass drops windows beyond 3.5
+  robust standard deviations: a holiday, an open window, a stove the journal missed)
+  or `near_balance` (less than 3 K above the fitted `G/H`: part of such a day needs no
+  heat, so its mean falls below the line).
+- `days_used` = 2 x `points_used`; `span_k`: range of `dT` over them; `residual_w`: the
+  residual standard deviation of a window.
+- `status`: `collecting` (no number: `no_room_signal` without a room signal,
+  `too_few_days` under 10 days, `span_too_small`
+  under 3 K, `slope_not_positive`, `slope_implausible` above 2000 W/K, `too_uncertain`
+  when the band reaches zero), `provisional` (`few_days` under 30 days, `narrow_span`
+  under 10 K: a number with a wide band) or `credible`.
+- Limits: no irradiance is modelled, so when the milder days are also the sunnier ones
+  (autumn) `H` reads high, and in a winter of clear cold days low; the room is the
+  control sensor's room, so `H` describes the house as that sensor sees it; a stove
+  outside the journal or a long set-back adds scatter.
 
-One entry per promoted model, oldest first, with the score for the current floor area:
+**`loss_now`**: the heat loss from `H` and `G` with the 95 % band of the fitted line
+(it widens away from the data; `beyond_data` when `dT` lies above every window used),
+`null` while `heat_loss` is collecting. `now` uses the room now (`room_source`
+`measured`, else the comfort target, `comfort`) and the controller's filtered outside
+temperature (`outside_source` `filtered`, else the fresh measurement `measured`; `now`
+is `null` without either). `night` is the loss at the lowest forecast temperature of
+the coming night (from now, or 18:00, until the next local 09:00; `at` is that hour),
+`null` when the stored forecast is stale or missing (`forecast_available`). `design`
+is the load at the design outside temperature `design_outside_c` (−10 °C, a constant:
+there is no setting for it) with the room at the comfort target.
 
-```json
-{"floor_area_m2": 130.0,
- "models": [{"model": "house-20260214", "data_to": "...", "generated": "...",
-             "champion": true, "ua_w_per_k": 147.3, "ua_interval_90": [142.1, 152.8],
-             "time_constant_h": 52.6, "credible": false, "room_rmse_24h_k": 0.093,
-             "score": {"state": "learning", "...": "..."}}]}
-```
+**`heat_pump.delivered`**: `now_w` is `derived/heat_delivered_w` now (`null` with
+`now_reason` `hot_water` during a hot-water run, else `unknown`); `mean_24h_w` the
+mean loop heat of the last 24 h (1 min rollups, hot water counted as zero) and
+`coverage_24h` its share with data.
 
-## `GET api/v1/insight/house/control` (read)
+**`heat_pump.emitter`**: least squares through the origin of the loop heat against the
+mean water temperature (inlet and outlet averaged) minus the room, on the clock hours in
+which the compressor ran (at least 1 Hz) for the house throughout, without hot water or
+a defrost, in the second hour of a run or later and outside a wood-stove episode and its
+tail: `Q = K x (T_water - T_room)`, `k_w_per_k` with its 95 % band (the standard error
+is clustered by local day, as the hours of one day are not independent). `status`:
+`collecting` (`no_room_signal`, `too_few_hours` under 24 hours or 3 days, and the same
+guards as above, `slope_implausible` above 5000 W/K), `provisional` (`few_hours` under
+100 hours or 7 days, `narrow_span` when `T_water - T_room` spans under 5 K) or
+`credible`. `table` gives, for supply temperatures across the allowed setpoint range
+(`setpoint_min_c`..`setpoint_max_c`: its ends and every 5 K between), the expected
+steady heat into the house `heat_w` (`low_w`..`high_w` from the band of `K`) with the
+mean water temperature it implies, `Q = K (T_s - T_room) / (1 + K / 2W)` with `W` the
+loop's heat per K of spread at the mean measured flow `flow_l_min` (without flow data
+the mean water is the supply), next to `loss_now_w` (`now.loss_w`) and `margin_w` =
+`heat_w - loss_now_w`. `balance_supply_c`/`balance_mean_water_c` is the water
+temperature at which the heat equals the loss now (`null` without both fits or when the
+house needs no heat), `balance_in_range` whether it lies in the setpoint range. These
+are **steady-state** figures: an under-floor system takes hours to reach them after a
+change, so they say where the house settles, not what the next hour brings.
 
-The learned house model as a bounded room-target offset (the *model plan*, decision record
-`docs/decisions/2026-11-27-learned-model-in-controller.md`): the switch, the guards, the
-latest planner evaluation and what it computed over the last 7 days.
-
-```json
-{"use": "shadow",
- "verdict": {"ok": false, "blocks": ["room_untrusted"]},
- "model": "house-20261113", "model_rmse_k": 0.42,
- "bounds": {"max_setback_k": 0.5, "max_preheat_k": 0.3, "horizon_h": 6.0, "max_rmse_k": 0.6},
- "now": {"at": "2026-12-01T09:00:03Z", "status": "issued", "offset_k": -0.2, "applied": false,
-         "reason": "plan_setback", "valid_until": "2026-12-01T09:20:03Z",
-         "rise_k": 0.8, "rise_at": "2026-12-01T13:15:03Z", "fall_k": -0.1,
-         "fall_at": "2026-12-01T20:00:03Z", "solar_k": 0.7, "outside_k": 0.0},
- "history": {"step_s": 900, "from": "2026-11-24T09:00:00Z", "to": "2026-12-01T09:00:03Z",
-             "points": [["2026-11-24T09:00:00Z", -0.1, 0], ["2026-11-24T09:15:00Z", null, null]]}}
-```
-
-- `use`: `control_model_use`: `off` (no planner call, no recording), `shadow` (computed and
-  recorded exactly as for `on`, never passed to the controller: its decisions are those of
-  `off`) or `on` (the slice shifts the room target; refused for now, see
-  `model_use_on_locked`).
-- `verdict`: the guards, evaluated now (also while `off`, so the owner sees what would block),
-  in this fixed order, all reported: `weather_off` (no forecast is fetched),
-  `model_missing` (no champion, or its files are refused; the next three need a champion),
-  `model_not_credible` (the champion's heat-loss or dynamics gate does not pass, as
-  re-validated by the latest run when it did),
-  `model_stale` (the learner has not re-validated the model within
-  twice its interval), `model_error_high` (the champion's room error exceeds
-  `control_model_max_rmse_k`, or is unknown: the latest re-validation's when there is one,
-  else the held-out error of its own run), `forecast_stale` (the newest stored forecast is
-  older than 3 h, or there is none), `room_untrusted` (the controller has no fresh,
-  plausible room value), `stove_active` (a wood-stove episode runs) and `stove_tail` (the
-  last episode ended less than 12 h ago, read back from the journal so a restart does not
-  forget it). No guard for weather-dependent control being off: the planner then holds the
-  loop heat instead of modelling the curve.
-- `model`, `model_rmse_k`: the champion and its held-out 24 h room error (`null` without one).
-- `bounds`: the settings of the group `model_plan`.
-- `now`: the latest planner evaluation, `null` while `use` is `off` or it never ran.
-  `status`: `issued` (a slice with a non-zero offset), `inside_dead_zone`, `crossing_zero`
-  (the rate limit holds the offset at zero), `forecast_gap`, `forecast_mismatch`,
-  `model_invalid` or `planner_error` (the planner raised; logged, no plan). `offset_k` is
-  the issued offset (0 without a slice); `applied` is true only when the controller applied
-  a model offset at its latest tick (never with `shadow`); `reason` `plan_setback` or
-  `plan_preheat`, `valid_until` and the predicted drift of the room (`rise_*`, `fall_*`,
-  `solar_k`, `outside_k`) are `null` when there is none. A guard that blocks at a later tick
-  withdraws the slice at once but leaves this evaluation as it was.
-- `history`: the computed offsets of the last 7 days from the 15 min rollups of
-  `derived/model_plan_offset_k` and `derived/model_plan_applied` (history signals written
-  only while `use` is not `off`, to the history writer only, never into the state the
-  controller reads). `points` are `[time, offset_k, applied]`: `offset_k` is `0` when the
-  planner ran and issued no slice and `null` when a guard blocked (a gap); `applied` is `1`
-  when the controller applied the offset for most of the interval; `points` is empty when
-  nothing was recorded.
-
-The planner runs every quarter hour of the service clock, with the previous slice's offset
-for its rate limit (0 after a restart, so the offset ramps from 0 again; no plan is in force
-until the first evaluation after a start).
-
-## `GET api/v1/insight/house/run` (read)
-
-The learner the service runs itself (`ovenbird.insight.learnrun`): its state, schedule
-and last result. Always `200`:
-
-```json
-{"state": "idle", "enabled": true, "started_at": null,
- "next_due_at": "2026-02-26T01:00:00Z", "interval_h": 168.0,
- "last": {"at": "2026-02-19T19:23:52+00:00", "outcome": "promoted", "message": null,
-          "runtime_s": 11.2, "model": "house-20260214"},
- "failure": {"at": "2026-02-18T02:10:00Z", "reason": "timeout", "detail": "..."}}
-```
-
-- `state`: `idle`, `running` (`started_at` set) or `unavailable` (the image lacks the
-  `learner` extra; a separate learner container can still write the models).
-- `enabled`: `house_learn_enabled`; `interval_h`: `house_learn_interval_h`.
-- `next_due_at`: the earliest start of the next scheduled run, or `null` when the
-  schedule is off, the learner is unavailable or the clock is simulated.
-- `last`: the learner's last run as `status.json` reports it (`outcome` such as
-  `promoted`, `kept_champion`, `learning` or `failed`; `message` is its message or error), or `null`.
-  It also carries `warnings` (data notes, as `data.warnings` of the insight) and
-  `champion_revalidation`: the champion after this run checked on the newest data, or
-  `null`. Its fields: `model`, `at`, `source` (`held_out`: a just-promoted model's own
-  held-out test; `revalidated`: a kept champion re-run on the newest data), `data_to` (the
-  run's data end), `fitted_to` (the end of the data the champion was fitted on), `from`,
-  `to` and `origins` (the scored span), `in_sample` (the span overlaps the champion's own
-  data), `room_rmse_k` and `persistence_room_rmse_k` (pooled to 24 h), `skill_horizon_h`
-  and `skill` (against persistence), `series_rmse_k` and `series_bias_k` (its series'
-  out-of-sample rows), `gates` (all three gates as of this run, in the format of the
-  insight's `credibility.gates`; for a kept champion: its frozen heat-loss checks with
-  the UA agreement re-checked against this run's signature, and dynamics and sun on the
-  compared days; `null` from a learner before the gates), `credible` (the heat-loss
-  gate) and `reasons` (its reasons). A malformed block is dropped (logged), the rest of
-  the status kept. The same fields are in `last_run` of `insight/house`.
-- `failure`: the service's last failed attempt (`at`, `reason` and `detail`, the tail of
-  the child's output), or `null`. `reason` is `timeout` (30 minutes), `memory` (the child
-  exceeded 512 MB), `exit` (non-zero exit) or `spawn` (it could not start, or there is no
-  history snapshot yet). It is kept across restarts and cleared by the next successful run.
-
-Scheduling: with `house_learn_enabled` a run is due when `status.json` is older than
-`house_learn_interval_h` (or after a day when the last outcome was `learning`), and it
-starts only between 02:00 and 05:00 in `control_timezone`, never within ten minutes of the
-service start, never within a day of a failure and never on a simulated clock. A run
-started through the API starts at once, whatever the schedule.
-
-## `POST api/v1/insight/house/run` (operate)
-
-Body `{}`. Starts one learner run now (audited as `house_learn_run`). `202` with the body
-of `GET api/v1/insight/house/run` (`state` `running`); the result appears in
-`insight/house` when the run ends. `409` with
-`{"detail": {"code", "message", "params": {}}}` and `code` `learner_running` (a run is in
-progress) or `learner_unavailable` (the learner is not installed in this service).
-
-## `GET api/v1/insight/house/series` (read)
-
-The champion's room temperature over the last 14 days at 15 min resolution, measured
-and as the model predicted it 24 h earlier:
-
-```json
-{"model": "house-20260214", "step_s": 900, "from": "2026-02-02T00:15:00Z",
- "to": "2026-02-15T00:00:00Z",
- "points": [["2026-02-02T00:15:00Z", 20.91, 20.77]],
- "events": [{"kind": "stove_mode", "from": "2026-02-07T17:00:00Z",
-             "to": "2026-02-07T22:00:00Z", "tail_to": "2026-02-08T10:00:00Z"}],
- "out_of_sample_from": "2026-02-01T00:00:00Z", "rmse_k": 0.11, "bias_k": -0.03,
- "compared_points": 1150}
-```
-
-`points` are `[time, measured, predicted]`, oldest first (at most 1344 rows for 14
-days), starting at the first prediction; either value is `null` where unknown. The
-prediction at `t` is the Kalman-filtered state at `t - 24 h`, run free for 24 h with the
-measured heat, outside temperature and irradiance. The learner rewrites the champion's
-series on every run: for a newly promoted model it predicts from origins in its held-out
-block only (the model fitted *before* that block); for a kept champion it predicts from
-every origin with its own parameters. `out_of_sample_from` is the first origin the
-predicting model had not seen (`null` when unknown); rows whose origin is earlier are
-in-sample. `measured` is the raw sensor, also inside wood-stove periods; `predicted` is
-`null` where its 24 h path touches an event or its recovery tail, and `events` (at most
-50; `kind` `stove`, `stove_mode` or `excluded_day`, `from`, `to`, `tail_to`) lists them
-for shading. `rmse_k` and `bias_k` (predicted minus measured, K) summarise the
-`compared_points` out-of-sample rows with both values: the typical error of a day-ahead
-prediction, to show next to the chart. All are `[]`, `null` or `0` for an older file.
-
-The learner writes the data as `models/series-<YYYYMMDD>.json` next to the model, listed
-as `series` in the model's entry of `index.json`:
-
-```json
-{"schema": "ovenbird.house-series/1", "model": "house-20260214", "step_s": 900,
- "horizon_h": 24.0, "from": "...", "to": "...", "predicted_from": "...",
- "out_of_sample_from": "...", "columns": ["ts", "room_measured", "room_predicted_24h"],
- "rows": [["2026-02-02T00:15:00+00:00", 20.91, 20.77]], "events": [],
- "rmse_k": 0.11, "bias_k": -0.03, "points": 1150}
-```
-
-The service reads it as untrusted (no links, regular file of at most 1 MiB, strict JSON,
-the champion's own model name, at most 2000 rows, increasing zoned times, temperatures
-within -40 to 60 degC or `null`, at most 50 events of a known kind with ordered zoned
-times, `rmse_k` 0 to 20, `bias_k` -20 to 20, `points` 0 to the row count); a file that
-fails any check is treated as missing.
-`404` `{"detail": {"code": "house_series_missing", "message", "params": {}}}` without a
-champion, without its series file or when the file is refused.
-
-## `GET api/v1/insight/house/whatif` (read)
-
-What the house needs to hold a comfort temperature in a scenario, from the champion's
-building parameters (the learner's `house-<date>.json`, `params.building`, read as
-untrusted and checked field by field), or without a champion from a rough model built
-from the owner's house facts (`house_build_period` with `house_floor_area_m2` or
-`house_volume_m3`; the other parameters are the learner's prior means). Query, all
-optional: `outside_c` (-30 to 30; default the measured outside temperature, 0 when
-unknown), `comfort_c` (5 to 30; default `control_comfort_c`), `sun_wm2` (0 to 1000;
-default 0), `stove_w` (0 to 15000; default 0, heat a wood stove puts into the room).
-A value outside its range is `422`.
-
-```json
-{"source": "model", "model": "house-20260214", "credible": true,
- "inputs": {"outside_c": 3.0, "comfort_c": 21.0, "sun_wm2": 0.0, "stove_w": 0.0},
- "heat_demand_w": 2368, "free_heat_w": 300, "loss_w": 2668,
- "loop_mean_c": 27.1, "supply_c": 28.2, "curve_c": 32.2, "max_supply_c": 40.0,
- "limited_by": [], "balance_outside_c": 19.3,
- "drift": {"credible": false, "hours": 8, "step_s": 900,
-           "room_c": [21.0, 20.99, "... 33 values"]},
- "time_constant_h": 52.6}
-```
-
-- `source`: `model` (the champion, also when it is not `credible`) or `estimate` (the owner's
-  facts; `model` is `null` and `credible` false). `credible` is the champion's heat-loss
-  gate (it guards the steady state: demand, loop, supply, balance temperature);
-  `drift.credible` its dynamics gate (it guards the cool-down).
-- `heat_demand_w`: the heat the loop must deliver at steady state, `max(0, loss_w -
-  free_heat_w)`. `free_heat_w`: sun (`solar aperture x sun_wm2`), mean internal gains and
-  `stove_w`. `loss_w`: `UA x (comfort - outside)`.
-- `loop_mean_c`: the loop's mean water temperature for that heat; `supply_c`: the supply
-  temperature at the nominal flow of 15 l/min (the curve proposal's assumption).
-  `curve_c`: what the owner's heating curve gives at `outside_c`; `max_supply_c`: the
-  installation's limit.
-- `limited_by`: `no_heat_needed` (the demand is 0: the gains cover the loss) and
-  `max_supply` (`supply_c` exceeds `max_supply_c`: the house cannot be held at that
-  comfort in that weather).
-- `balance_outside_c`: the outside temperature above which no heating is needed for the
-  inputs (sun and stove included).
-- `drift`: the room temperature with the loop off: starting at the steady state that holds
-  `comfort_c` (no stove), the loop heat is zero and the outside temperature, sun and mean
-  internal gains stay as given; `hours` x 3600 / `step_s` + 1 values. `credible`: the
-  dynamics gate (false for an estimate).
-- `time_constant_h`: the slowest time constant of the model (`null` when a node is
-  isolated).
-
-`404` `{"detail": {"code": "house_model_missing", "message", "params": {}}}` with neither a
-champion nor a facts estimate; `message` names the facts that would allow one.
-
-## `GET api/v1/insight/house/balance` (read)
-
-The heat balance of the house right now, for a schematic, from the same model as
-`whatif`:
-
-```json
-{"at": "2026-02-19T12:20:00Z", "source": "model", "credible": true,
- "room_c": 20.5, "outside_c": 4.0, "sun_wm2": 150.0,
- "flows": {"heat_pump_w": 4163, "loss_w": 3300, "sun_w": 450, "internal_w": 300,
-           "stove_active": false, "storage_w": 1613},
- "ua_w_per_k": 200.0, "notes": []}
-```
-
-- `room_c`, `outside_c`: the fresh room signal (`control_room_signal`) and outside
-  temperature (`control_outside_signal`, else the pump's); `null` when unknown.
-- `sun_wm2`: the irradiance of the current hour from the latest stored weather forecast
-  (only with the weather opted in), else `null`.
-- `flows` (W): `heat_pump_w` is `derived/heat_delivered_w` (0 while the compressor is
-  off, negative during a defrost, `null` during hot water or when an input is unknown);
-  `loss_w` is `ua_w_per_k x (room - outside)`; `sun_w` is the solar aperture x `sun_wm2`;
-  `internal_w` the model's internal gains at the local hour; `stove_active` is wood-stove
-  mode. `storage_w` = `heat_pump_w + sun_w + internal_w - loss_w`: positive while the
-  building warms up, negative while it cools; `null` when one of the first three is `null`,
-  a stove episode is active or its 12 h tail runs (its heat is not measured, and the
-  building still releases it afterwards).
-- `credible`: the champion's heat-loss gate (false for an estimate).
-- `notes`: codes for what limits the reading: `estimate` (the model is the facts estimate),
-  `not_credible` (the heat-loss gate does not pass), `room_unknown`, `outside_unknown`, `sun_unknown`, `dhw_active`,
-  `heat_unknown`, `defrost`, `stove_active`, `stove_tail` (the last wood-stove episode in
-  the journal ended less than 12 h ago).
-
-`404` `house_model_missing` as for `whatif`.
-
-## `POST api/v1/insight/house/proposal/draft` (operate)
-
-Body `{}`. Turns the champion's curve proposal into a configuration **draft**; nothing
-is stored or applied. The UI loads `changes` into its draft and previews and applies it
-through `config/preview` and `PUT config` like any other change (with `comment` as the
-default apply comment). `200`:
-
-```json
-{"label": "Suggested by the house model", "model": "house-20260214",
- "comment": "Suggested by the house model (house-20260214)",
- "changes": {"control_curve": [[-10.0, 37.5], [0.0, 32.0], [15.0, 25.0]]},
- "current": {"control_curve": [[-10.0, 39.0], [0.0, 34.0], [15.0, 25.0]]},
- "stale": false, "credible": false, "points": ["... as in insight/house"],
- "validation": {"valid": true, "errors": [], "warnings": [], "effective": {"...": "..."}}}
-```
-
-`validation` is the `config/validate` result of `changes` against the current
-configuration (`null` without a configuration store). `404` without a champion or
-without a proposal.
+**`by_weather`**: per 2 K bin of the daily outside mean (`from_c` included, `to_c` not),
+coldest first, over complete days with at least 80 % loop-heat data and no wood stove:
+`days`, `heat_w` (mean loop heat), `electric_w` (mean `Heat_Power_Consumption`, `null`
+without data) and `cop` = heat / electricity on the days with both. Unlike
+`insight/daily`, which uses the pump's own heat estimate, the heat here is the measured
+loop heat, so the COP can differ. `few_days`: fewer than 3 days in the bin.
 
 ## Shadow mode and the supervised trial
 
@@ -2478,7 +2238,7 @@ malformed period. Audited as `archive_delete`.
 ### `GET api/v1/system/about` (read)
 
 ```json
-{"version": "0.5.0", "api_version": 1, "service_time": "...",
+{"version": "0.6.0", "api_version": 1, "service_time": "...",
  "timezone": "Europe/Amsterdam", "started_at": "...", "uptime_s": 86400.0,
  "service_starts": 7, "previous_start": "...", "failing_components": {},
  "restored_state": true, "setpoint_register": "setcurves_target_high",

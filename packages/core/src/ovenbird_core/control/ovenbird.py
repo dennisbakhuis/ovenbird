@@ -1,7 +1,6 @@
 """The ovenbird controller: curve + room feedback + plan + start ramp, then safety.
 
-Pipeline of one tick
---------------------
+**Pipeline of one tick**
 1. **Tracking** (every tick, also when refusing): compressor start/stop detection,
    start-ramp clock (paused in defrost) and the outside-temperature filter.
 2. **Gates**: ``off`` mode, a dead HeishaMon, an unknown or wrong ``Heating_Mode``
@@ -30,8 +29,7 @@ Pipeline of one tick
    ignores the setting, so no pump-duty intent is issued (the desired duty is kept
    for after the defrost).
 
-Room value guards
------------------
+**Room value guards**
 * **Integrator dead zone**: the integrator integrates
   ``sign(e) * max(0, |e| - quantum_k)``, one full sensor step less than the error
   (the proportional part sees the full error). A room value is only known to
@@ -84,40 +82,53 @@ Room value guards
   keeps a coarse sensor's step from becoming a large bias. It is a constant,
   never integrated.
 
-Wood-stove mode
----------------
+**Plan slices**
+An active :class:`~ovenbird_core.control.types.PlanSlice` shifts the room target the PI
+works on (``room_target_c``); without a room sensor its offset maps to water through
+the curve slope (``plan_max_water_k``). A rule slice is clamped to
+``±plan_rule_max_k`` first (default 1 K, at most 1.5 K), whatever the planner sent; the
+``plan`` term and the decision note say so. An expired or future slice has no effect.
+A slice is paused (no effect, noted in the ``plan`` term) during a wood-stove episode,
+in its tail (the detection waits for the room to cool below the exit threshold after
+the cap or a manual stop) and while a room sensor exists but its value is not trusted
+(stale or implausible). A raised target lifts the stove's entry thresholds by the
+same bounded amount; the start ramp, the cycling floor, the stages, the defrost/DHW
+rules and the safety envelope apply to the shifted sum as always. The target steps
+with the slice: its P part moves the water by ``kp`` times the step at once and the
+integrator only winds while the room is more than one sensor step off the new target.
+
+**Wood-stove mode**
 See :mod:`ovenbird_core.control.stove`: while an episode is active the room PI is
 frozen with its integrator held, the plan is paused and the ``stove`` term lowers
 the curve; every other stage applies as always.
 
-Model plan
-----------
-A plan slice from the learned house model (``PlanSource.MODEL``,
-:mod:`ovenbird_core.control.planner`) is clamped to the bounds of
-:class:`~ovenbird_core.control.config.ModelPlanConfig` and only shifts the room
-target of an active room feedback. It has no effect at all (no water term, ladder and
-reason as without a plan, the reason in ``model_plan_ignored``) from the first tick
-on which the room value is not trusted, a wood-stove episode is active, the
-wood-stove detection is still waiting after an episode or a sensor fault
-(``stove_blocked``, ``stove_level_blocked``, ``stove_reentry_wait``,
-``stove_fault``), or the slice is valid for longer than ``MODEL_PLAN_MAX_SLICE_S``.
-Start ramp, cycling floor, rounding, dwell and the safety clamps act after it as
-always, and the integrator follows the shifted target under the same freezes and
-anti-windup as without a plan.
+**Manual room target and away**
+A ``room_target`` override (a manual boost or a cooler room) or an ``away`` override
+in :attr:`~ovenbird_core.control.types.ControlInputs.room_override` shifts the comfort
+room target by its value for as long as it is active, exactly as a plan slice does: the
+PI works on the shifted target, and without a trusted room value the shift maps to
+water through the curve slope (``plan_max_water_k``). It replaces the plan (a slice is
+paused meanwhile), raises the stove's entry thresholds by a positive shift, and is
+itself paused (no effect, noted in the ``room_target`` term) during a wood-stove episode
+and while the summer switch is on. Ramp, cycling floor, stages, defrost/DHW rules and
+the safety envelope apply to the shifted sum as always. Without such an override
+nothing of this appears in the record.
 
-A model *water* slice (``PlanSlice.water_offset_k``, a feed-forward from the forecast
-sun) does not shift the room target. Under the same blocks it is clamped to
-``[-max_lower_water_k, +max_raise_water_k]`` and scaled by the room authority of the
-trusted room value against comfort (full down to ``comfort - authority_full_k`` or one
-sensor step, whichever is further, none from ``comfort - authority_zero_k``, mirrored
-above comfort for a raise). The result is the ``plan`` term: added after the curve and
-the room feedback, before the start ramp, the cycling floor, rounding, dwell and the
-safety clamps, which all act after it as always. The integrator's anti-windup sees
-the summed value (``pre_clamp``) and the floor, so an offset that runs into the minimum
-setpoint or the cycling floor freezes cooling integration as any other term does; with
-a correct plan the room error stays zero and the integrator does not move. Ladder
-``model_plan`` and the plan's reason apply only while the applied water offset is
-non-zero.
+**Summer switch**
+With :class:`~ovenbird_core.control.config.SummerConfig` the controller keeps a slow
+mean of the curve's outside temperature (an exponential filter, 24 h by default). Once
+it is above ``off_c`` (after the filter has run for its time constant) the switch is on
+until the mean falls below ``off_c - hysteresis_k``. While on, no space heating is
+requested: the ``summer`` term takes the setpoint down to the safety minimum (ovenbird
+never switches the pump off), the room PI is paused with its integrator held and the
+plan and a manual room target are paused. The cycling floor and the safety envelope
+still apply, so a running compressor is not cut inside its minimum-run window.
+
+**Quiet mode after a start**
+With :class:`~ovenbird_core.control.config.QuietStartConfig` the quiet-mode intent is,
+for ``duration_s`` after a detected compressor start, the quieter (higher) of the start
+level and the scheduled level; outside that window the schedule applies (level 0
+outside its windows). During a defrost the quiet level is not changed.
 
 Because deadband and dwell keep the issued setpoint below or above ``pre_round``
 for a while, the integrator keeps integrating through them; this is intended (it
@@ -132,52 +143,50 @@ from typing import Final
 
 from ovenbird_core.catalogue import HeishaSignal
 from ovenbird_core.control import stove as stove_mode
-from ovenbird_core.control.config import MODEL_PLAN_MAX_SLICE_S, OutsideSource, OvenbirdConfig
+from ovenbird_core.control.config import OutsideSource, OvenbirdConfig
 from ovenbird_core.control.curve import filter_outside
 from ovenbird_core.control.integrator import freezes, integral_at_life, integrate, rollback
 from ovenbird_core.control.notes import (
-    BINDINGS,
-    PRE_ROUND_INPUT,
-    SECONDS_PER_HOUR,
     SECONDS_PER_MINUTE,
-    TERMS,
+    NoteInputs,
     decision_note,
-    duration_text,
     flip_distance,
-    liveness_label,
     reason_code,
-    room_status,
+    signed,
     soft_binding,
 )
 from ovenbird_core.control.observe import as_number
 from ovenbird_core.control.protocol import StepResult
 from ovenbird_core.control.record import DecisionRecord, InputRef, StateValue, Term
-from ovenbird_core.control.safety import SafetyBounds
-from ovenbird_core.control.stages import dwell_time, hard_constraints, round_half_up, soften
+from ovenbird_core.control.safety import EPSILON, SafetyBounds
+from ovenbird_core.control.stages import dwell_time, hard_constraints, soften
+from ovenbird_core.control.state import OvenbirdState, RampPhase
 from ovenbird_core.control.stove import (
-    CELSIUS,
-    REFERENCE_MAX_C,
-    REFERENCE_MIN_C,
-    StoveExit,
-    StoveSource,
     StoveStep,
-    StoveTrigger,
 )
 from ovenbird_core.control.terms import (
     HELD_INTEGRAL_FADE_S,
     Feedback,
     Floor,
-    ModelPlan,
+    PlanShift,
     Ramp,
-    RampPhase,
+    RoomShift,
+    active_room_override,
     boost_term,
+    bounded_offset,
     curve_term,
     cycling_floor,
     override_term,
+    plan_clause,
+    plan_shift,
     plan_term,
     room_feedback,
+    room_shift,
+    room_target_clause,
+    room_target_term,
     safety_term,
     start_ramp,
+    summer_term,
 )
 from ovenbird_core.control.types import (
     ActualValue,
@@ -186,7 +195,6 @@ from ovenbird_core.control.types import (
     IntentKind,
     LadderLevel,
     Mode,
-    ModelPlanBlock,
     Override,
     OverrideKind,
     PlanSlice,
@@ -204,205 +212,6 @@ STATS_SIGNAL: Final = "stats"
 CROSSCHECK_LEARN_HELD_S: Final = 6 * 3600.0
 CROSSCHECK_HYSTERESIS_K: Final = 0.5
 
-__all__ = [
-    "BINDINGS",
-    "CELSIUS",
-    "CONTROLLER_NAME",
-    "CROSSCHECK_HYSTERESIS_K",
-    "CROSSCHECK_LEARN_HELD_S",
-    "HELD_INTEGRAL_FADE_S",
-    "PRE_ROUND_INPUT",
-    "REFERENCE_MAX_C",
-    "REFERENCE_MIN_C",
-    "SECONDS_PER_HOUR",
-    "SECONDS_PER_MINUTE",
-    "STATS_SIGNAL",
-    "TERMS",
-    "OvenbirdController",
-    "OvenbirdState",
-    "RampPhase",
-    "StoveExit",
-    "StoveSource",
-    "StoveTrigger",
-    "carry_state",
-    "duration_text",
-    "liveness_label",
-    "room_status",
-    "round_half_up",
-]
-
-
-@dataclass(frozen=True, slots=True)
-class OvenbirdState:
-    """Controller state carried from tick to tick (monotonic seconds for times).
-
-    Parameters
-    ----------
-    setpoint
-        Last desired integer water setpoint.
-    last_change_at
-        When the desired setpoint last changed.
-    integral_k
-        PI integrator in K water.
-    outside_filtered
-        Filtered outside temperature.
-    outside_at
-        When the filter last took a sample.
-    last_tick_at
-        When the previous tick ran.
-    running
-        Compressor running at the previous tick (``None`` before it was known).
-    run_started_at
-        Detected start of the current run (``None`` when unknown or stopped).
-    stopped_at
-        Detected end of the previous run.
-    ramp_phase
-        Start-ramp phase.
-    ramp_elapsed_s
-        Non-defrost run time since the ramp started.
-    ramp_cap
-        Current ramp cap in °C.
-    pump_duty
-        Last desired max pump duty.
-    quiet_level
-        Last desired quiet level.
-    crosscheck_offset_k
-        Learned offset of the cross-check signal over the room value.
-    crosscheck_since
-        When the room value and the cross-check started to disagree.
-    crosscheck_latched
-        Room value at which the cross-check declared it implausible; the verdict
-        holds until the room value changes.
-    room_lost_at
-        When the room value went stale or implausible (the held offset fades
-        from then).
-    integral_at_life_k
-        Integrator at the room sensor's last proof of life (``on_change``), kept
-        while the value is lost; a device silent beyond ``alive_decay_start_s``,
-        or whose value went stale or implausible, keeps no cooling integrated
-        since then.
-    stove_source
-        Who started the active wood-stove episode (``None``: inactive).
-    stove_trigger
-        What started it.
-    stove_since
-        When it started.
-    stove_entry_c
-        Room value at the start (``None`` when unknown, e.g. a manual start).
-    stove_integral_k
-        Integrator at the start (held through the episode).
-    stove_blocked
-        The automatic detection waits until the room has cooled below the exit
-        threshold (after a manual stop).
-    stove_level_blocked
-        The level trigger waits until the room has cooled below the exit threshold
-        (after an episode reached ``max_active_s``); a new fast rise may still enter.
-    stove_reentry_wait, stove_trusted_since
-        After an episode ended because the room value lost its trust: no automatic
-        entry until the value has been trusted again for ``reentry_hold_s``, and
-        since when it is.
-    stove_low_c, stove_low_at
-        Lowest trusted room value of the fast-rise window and when it was seen.
-    stove_high_c, stove_high_at
-        Highest trusted room value of the fast-rise window and when it was seen.
-    stove_predip_c
-        Highest value of the window when its low was last set (the level before a
-        dip); a fast rise must go above it.
-    stove_step_low_c, stove_step_low_at
-        Lowest plausible room value of the sensor-fault window and when it was seen.
-    stove_fault
-        A sensor-fault step was seen: the automatic detection waits until the room has
-        cooled below the exit threshold.
-    """
-
-    setpoint: int | None = None
-    last_change_at: float | None = None
-    integral_k: float = 0.0
-    outside_filtered: float | None = None
-    outside_at: float | None = None
-    last_tick_at: float | None = None
-    running: bool | None = None
-    run_started_at: float | None = None
-    stopped_at: float | None = None
-    ramp_phase: RampPhase = RampPhase.IDLE
-    ramp_elapsed_s: float = 0.0
-    ramp_cap: float | None = None
-    pump_duty: int | None = None
-    quiet_level: int | None = None
-    crosscheck_offset_k: float | None = None
-    crosscheck_since: float | None = None
-    crosscheck_latched: float | None = None
-    room_lost_at: float | None = None
-    integral_at_life_k: float | None = None
-    stove_source: StoveSource | None = None
-    stove_trigger: StoveTrigger | None = None
-    stove_since: float | None = None
-    stove_entry_c: float | None = None
-    stove_integral_k: float | None = None
-    stove_blocked: bool = False
-    stove_level_blocked: bool = False
-    stove_reentry_wait: bool = False
-    stove_trusted_since: float | None = None
-    stove_low_c: float | None = None
-    stove_low_at: float | None = None
-    stove_high_c: float | None = None
-    stove_high_at: float | None = None
-    stove_predip_c: float | None = None
-    stove_step_low_c: float | None = None
-    stove_step_low_at: float | None = None
-    stove_fault: bool = False
-
-    @property
-    def stove_active(self) -> bool:
-        """Whether a wood-stove episode is active."""
-        return self.stove_source is not None
-
-    @property
-    def held_integral_k(self) -> float:
-        """Integrator kept when the room value is not trusted (its positive part)."""
-        return max(0.0, self.integral_k)
-
-    def as_flat(self) -> dict[str, StateValue]:
-        """Return the state as a flat, JSON-friendly mapping."""
-        return {
-            "setpoint": self.setpoint,
-            "last_change_at": self.last_change_at,
-            "integral_k": self.integral_k,
-            "outside_filtered_c": self.outside_filtered,
-            "outside_at": self.outside_at,
-            "last_tick_at": self.last_tick_at,
-            "running": self.running,
-            "run_started_at": self.run_started_at,
-            "stopped_at": self.stopped_at,
-            "ramp_phase": self.ramp_phase.value,
-            "ramp_elapsed_s": self.ramp_elapsed_s,
-            "ramp_cap_c": self.ramp_cap,
-            "pump_duty": self.pump_duty,
-            "quiet_level": self.quiet_level,
-            "crosscheck_offset_k": self.crosscheck_offset_k,
-            "crosscheck_since": self.crosscheck_since,
-            "crosscheck_latched_c": self.crosscheck_latched,
-            "room_lost_at": self.room_lost_at,
-            "integral_at_life_k": self.integral_at_life_k,
-            "stove_source": None if self.stove_source is None else self.stove_source.value,
-            "stove_trigger": None if self.stove_trigger is None else self.stove_trigger.value,
-            "stove_since": self.stove_since,
-            "stove_entry_c": self.stove_entry_c,
-            "stove_integral_k": self.stove_integral_k,
-            "stove_blocked": self.stove_blocked,
-            "stove_level_blocked": self.stove_level_blocked,
-            "stove_reentry_wait": self.stove_reentry_wait,
-            "stove_trusted_since": self.stove_trusted_since,
-            "stove_low_c": self.stove_low_c,
-            "stove_low_at": self.stove_low_at,
-            "stove_high_c": self.stove_high_c,
-            "stove_high_at": self.stove_high_at,
-            "stove_predip_c": self.stove_predip_c,
-            "stove_step_low_c": self.stove_step_low_c,
-            "stove_step_low_at": self.stove_step_low_at,
-            "stove_fault": self.stove_fault,
-        }
-
 
 def carry_state(state: OvenbirdState, old: OvenbirdConfig, new: OvenbirdConfig) -> OvenbirdState:
     """Carry the controller state over a configuration change without a setpoint jump.
@@ -414,7 +223,8 @@ def carry_state(state: OvenbirdState, old: OvenbirdConfig, new: OvenbirdConfig) 
     forgotten) when the new configuration has no integral part; a disabled start ramp
     ends a running ramp; a changed cross-check signal forgets the learned offset;
     a configuration without wood-stove mode ends an episode and forgets its state
-    (an episode otherwise continues under the new thresholds).
+    (an episode otherwise continues under the new thresholds); a configuration without
+    the summer switch forgets its slow mean and turns it off.
 
     Parameters
     ----------
@@ -444,6 +254,14 @@ def carry_state(state: OvenbirdState, old: OvenbirdConfig, new: OvenbirdConfig) 
         )
     if new.stove is None:
         carried = stove_mode.stove_cleared(carried)
+    if new.summer is None:
+        carried = replace(
+            carried,
+            summer_mean_c=None,
+            summer_mean_at=None,
+            summer_mean_from=None,
+            summer_active=False,
+        )
     return carried
 
 
@@ -518,6 +336,22 @@ def curve_outside(
 def _check_outside(
     source: OutsideSource, view: SignalView | None, pump: float | None
 ) -> float | tuple[OutsideReason, str]:
+    """Return the usable outside value of ``source`` or why it was rejected.
+
+    Parameters
+    ----------
+    source
+        Configuration of the chosen outside sensor (age and plausibility limits).
+    view
+        Latest reading of the sensor's signal.
+    pump
+        The pump's own outside temperature in °C for the deviation check, if fresh.
+
+    Returns
+    -------
+    float | tuple[OutsideReason, str]
+        The value in °C, or the rejection reason with a note.
+    """
     if view is None or view.age is None:
         return OutsideReason.MISSING, "has no value"
     if view.reason is not None:
@@ -542,6 +376,8 @@ def _check_outside(
 
 @dataclass(frozen=True, slots=True)
 class _Observed:
+    """What one tick reads from the snapshot and the caller's inputs."""
+
     outside: float | None
     curve: CurveOutside
     outlet: float | None
@@ -558,6 +394,8 @@ class _Observed:
 
 @dataclass(frozen=True, slots=True)
 class _Check:
+    """Outcome of the room plausibility cross-check: offset, onset, verdict and latch."""
+
     offset: float | None
     since: float | None
     plausible: bool
@@ -566,12 +404,14 @@ class _Check:
 
 
 def _fresh_number(view: SignalView | None) -> float | None:
+    """Return the numeric value of ``view`` when present and fresh, else ``None``."""
     if view is None or not view.fresh:
         return None
     return as_number(view.value)
 
 
 def _view_ref(snapshot: Snapshot, signal: SignalId) -> InputRef:
+    """Return the input reference recording ``signal``'s reading in ``snapshot``."""
     view = snapshot.get(signal)
     if view is None:
         return InputRef(signal, None, None, False)
@@ -579,12 +419,14 @@ def _view_ref(snapshot: Snapshot, signal: SignalId) -> InputRef:
 
 
 def _actual_ref(actual: ActualValue | None, signal: SignalId) -> InputRef:
+    """Return the input reference for the applied (read-back) value of ``signal``."""
     if actual is None:
         return InputRef(signal, None, None, False)
     return InputRef(actual.signal, actual.value, actual.age, actual.fresh, "actual")
 
 
 def _fresh_int(actual: ActualValue | None) -> int | None:
+    """Return the applied integer value when present and fresh, else ``None``."""
     return actual.value if actual is not None and actual.fresh else None
 
 
@@ -601,9 +443,10 @@ class _Tick:
     defrost: bool
     dhw: bool
     running: bool
-    plan: PlanSlice | None
-    model: ModelPlan | None
+    plan: PlanShift | None
     override: Override | None
+    room_shift: RoomShift | None
+    summer: bool
     manual_setpoint: Override | None
     boost: float
     seen: RoomInput | None
@@ -629,7 +472,10 @@ class _Sum:
     feedback: Feedback
     plan_raw: float
     plan_w: float
+    room_raw: float
+    room_w: float
     stove_value: float
+    summer_value: float
     bounds: SafetyBounds
     ramp: Ramp
     floor: Floor
@@ -651,12 +497,12 @@ class _Setpoint:
 
 _PLAN_LADDER: Final = {
     PlanSource.OPTIMISER: LadderLevel.OPTIMISER_PLAN,
-    PlanSource.MODEL: LadderLevel.MODEL_PLAN,
     PlanSource.RULE: LadderLevel.RULE_PLAN,
 }
 
 
 def _ladder(plan: PlanSlice | None, room: RoomInput | None) -> LadderLevel:
+    """Return the ladder level: the plan's source, else curve with feedback, else curve only."""
     if plan is not None:
         return _PLAN_LADDER[plan.source]
     if room is not None:
@@ -717,6 +563,18 @@ class OvenbirdController:
         return self._control(state, tracked, inputs, observed)
 
     def _observe(self, inputs: ControlInputs) -> _Observed:
+        """Read the pump states, outside and outlet values and input references of a tick.
+
+        Parameters
+        ----------
+        inputs
+            Controller inputs of this tick.
+
+        Returns
+        -------
+        _Observed
+            The values and references this tick works with, and what was missing.
+        """
         snapshot = inputs.snapshot
         actual = inputs.actual
         running = compressor_running(snapshot, min_frequency_hz=self.config.compressor_min_hz)
@@ -777,6 +635,17 @@ class OvenbirdController:
         )
 
     def _track(self, state: OvenbirdState, observed: _Observed, now: float) -> OvenbirdState:
+        """Return the state after tracking the compressor run, start-ramp clock and outside filter.
+
+        Parameters
+        ----------
+        state
+            State before this tick.
+        observed
+            What this tick read from the snapshot.
+        now
+            Monotonic time of this tick, in s.
+        """
         dt = 0.0 if state.last_tick_at is None else max(0.0, now - state.last_tick_at)
         running, started, stopped = state.running, state.run_started_at, state.stopped_at
         phase, elapsed, cap = state.ramp_phase, state.ramp_elapsed_s, state.ramp_cap
@@ -806,6 +675,7 @@ class OvenbirdController:
                 self.config.outside_filter_tau_s,
             )
             outside_at = now
+        summer = self._track_summer(state, observed, now)
         return replace(
             state,
             last_tick_at=now,
@@ -817,9 +687,51 @@ class OvenbirdController:
             ramp_cap=cap,
             outside_filtered=outside_filtered,
             outside_at=outside_at,
+            summer_mean_c=summer[0],
+            summer_mean_at=summer[1],
+            summer_mean_from=summer[2],
+            summer_active=summer[3],
         )
 
+    def _track_summer(
+        self, state: OvenbirdState, observed: _Observed, now: float
+    ) -> tuple[float | None, float | None, float | None, bool]:
+        """Advance the summer switch's slow outside mean and its on/off state.
+
+        Returns
+        -------
+        tuple
+            The mean, its sample time, the time of its first sample and whether the
+            switch is on (unchanged without a curve outside value or without the switch).
+        """
+        sc = self.config.summer
+        mean, at, since, active = (
+            state.summer_mean_c,
+            state.summer_mean_at,
+            state.summer_mean_from,
+            state.summer_active,
+        )
+        sample = observed.curve.value
+        if sc is None or sample is None:
+            return mean, at, since, active
+        mean = filter_outside(mean, at, sample, now, sc.mean_tau_s)
+        since = now if since is None else since
+        if active and mean < sc.on_c - EPSILON:
+            active = False
+        elif not active and mean > sc.off_c + EPSILON and now - since >= sc.mean_tau_s:
+            active = True
+        return mean, now, since, active
+
     def _refusal(self, inputs: ControlInputs, observed: _Observed) -> tuple[ReasonCode, str] | None:
+        """Return the reason code and detail for refusing control, ``None`` when the gates pass.
+
+        Parameters
+        ----------
+        inputs
+            Controller inputs of this tick (snapshot, applied values, mode, plan).
+        observed
+            What this tick read from the snapshot.
+        """
         if inputs.mode is Mode.OFF:
             return ReasonCode.MODE_OFF, "controller is off"
         if not observed.alive:
@@ -853,6 +765,39 @@ class OvenbirdController:
         flip: tuple[float, str] | None = None,
         actor: str | None = None,
     ) -> DecisionRecord:
+        """Build the decision record of a tick from its state, inputs and outcome.
+
+        Parameters
+        ----------
+        state
+            State whose flat form the record carries.
+        inputs
+            Controller inputs of this tick (snapshot, applied values, mode, plan).
+        observed
+            What this tick read from the snapshot.
+        ladder
+            Decision-ladder level reached.
+        reason
+            Reason code of the decision.
+        note
+            Human-readable explanation.
+        intents
+            Intents issued by the decision.
+        extra
+            Additional flat controller-state entries.
+        terms
+            Terms of the setpoint sum.
+        pre_round
+            Continuous setpoint before rounding, in °C.
+        setpoint
+            Issued integer setpoint, in °C.
+        binding
+            Constraint that bound the setpoint, if any.
+        flip
+            Distance to the nearest decision flip and the input that causes it.
+        actor
+            Who caused a manual override, if any.
+        """
         flat = state.as_flat()
         flat.update(extra or {})
         return DecisionRecord(
@@ -882,6 +827,21 @@ class OvenbirdController:
         reason: ReasonCode,
         detail: str,
     ) -> StepResult[OvenbirdState]:
+        """Return the result of refusing control: no intents and a record saying why.
+
+        Parameters
+        ----------
+        state
+            State to keep unchanged.
+        inputs
+            Controller inputs of this tick (snapshot, applied values, mode, plan).
+        observed
+            What this tick read from the snapshot.
+        reason
+            Reason code of the refusal.
+        detail
+            Explanation placed in the record's note.
+        """
         note = f"Refusing control: {detail}; no intents, integrator frozen."
         record = self._record(
             state,
@@ -912,6 +872,19 @@ class OvenbirdController:
         those are known (a held idle duty would otherwise stay while the compressor
         starts); otherwise the last duty is repeated, and during a defrost none is
         asked for.
+
+        Parameters
+        ----------
+        state
+            State after this tick's tracking.
+        inputs
+            Controller inputs of this tick (snapshot, applied values, mode, plan).
+        observed
+            What this tick read from the snapshot.
+        reason
+            Reason code of the held intents.
+        detail
+            Explanation placed in the record's note.
         """
         extra: dict[str, StateValue] = {"frozen_by": reason.value}
         binding: str | None = None
@@ -957,6 +930,17 @@ class OvenbirdController:
     def _held_intents(
         state: OvenbirdState, reason: ReasonCode, duty_reason: ReasonCode | None = None
     ) -> tuple[CommandIntent, ...]:
+        """Return the last setpoint, pump duty and quiet level of ``state`` as intents.
+
+        Parameters
+        ----------
+        state
+            State holding the last issued values.
+        reason
+            Reason code of the setpoint and quiet intents.
+        duty_reason
+            Reason code of the pump-duty intent; ``None`` asks for none.
+        """
         intents: list[CommandIntent] = []
         if state.setpoint is not None:
             intents.append(CommandIntent(IntentKind.WATER_SETPOINT, state.setpoint, reason))
@@ -973,17 +957,29 @@ class OvenbirdController:
         inputs: ControlInputs,
         observed: _Observed,
     ) -> StepResult[OvenbirdState]:
+        """Run the control stages for one tick and return the new state, intents and record.
+
+        Parameters
+        ----------
+        previous
+            State before this tick's tracking.
+        state
+            Controller state after this tick's tracking.
+        inputs
+            Controller inputs of this tick (snapshot, applied values, mode, plan).
+        observed
+            What this tick read from the snapshot.
+        """
         outside, outlet, outside_f = observed.outside, observed.outlet, state.outside_filtered
         if outside is None or outlet is None or outside_f is None:
             detail = "outside or outlet temperature unavailable"
             return self._hold(state, inputs, observed, ReasonCode.INPUTS_MISSING, detail)
-        cfg = self.config
         tick = self._tick(previous, state, inputs, observed, outside, outlet, outside_f)
         total = self._sum(state, tick)
         setpoint = self._setpoint(previous, state, inputs, tick, total)
         integral, frozen_by, at_life = self._integrator(state, tick, total, setpoint)
         duty, duty_reason = self._pump_duty(state, inputs, observed)
-        quiet = cfg.quiet.level_at(inputs.now.wall) if cfg.quiet is not None else None
+        quiet, quiet_reason = self._quiet(state, inputs, observed)
         new_state = stove_mode.with_stove(
             replace(
                 state,
@@ -1005,13 +1001,19 @@ class OvenbirdController:
         reason = reason_code(
             setpoint.binding,
             tick.override is not None,
-            tick.plan,
+            None if tick.plan is None else tick.plan.applied,
             tick.defrost,
             tick.dhw,
             tick.room,
             inputs,
             tick.implausible,
             stove=tick.stove.active,
+            summer=tick.summer,
+            room_target=(
+                tick.room_shift.override.kind
+                if tick.room_shift is not None and tick.room_shift.applied
+                else None
+            ),
         )
         intents: list[CommandIntent] = [
             CommandIntent(IntentKind.WATER_SETPOINT, setpoint.final, reason)
@@ -1019,7 +1021,7 @@ class OvenbirdController:
         if duty is not None and duty_reason is not None:
             intents.append(CommandIntent(IntentKind.MAX_PUMP_DUTY, duty, duty_reason))
         if quiet is not None:
-            intents.append(CommandIntent(IntentKind.QUIET_MODE, quiet, ReasonCode.QUIET_SCHEDULE))
+            intents.append(CommandIntent(IntentKind.QUIET_MODE, quiet, quiet_reason))
         record = self._explain(
             new_state, state, inputs, observed, tick, total, setpoint, frozen_by, reason, intents
         )
@@ -1035,7 +1037,25 @@ class OvenbirdController:
         outlet: float,
         outside_f: float,
     ) -> _Tick:
-        """Gather what this tick sees: overrides, the trusted room value and the stove."""
+        """Gather what this tick sees: overrides, the trusted room value and the stove.
+
+        Parameters
+        ----------
+        previous
+            State before this tick's tracking.
+        state
+            Controller state after this tick's tracking.
+        inputs
+            Controller inputs of this tick (snapshot, applied values, mode, plan).
+        observed
+            What this tick read from the snapshot.
+        outside
+            Raw outside temperature, in °C.
+        outlet
+            Water outlet temperature, in °C.
+        outside_f
+            Filtered outside temperature, in °C.
+        """
         cfg = self.config
         now = inputs.now.monotonic
         dt = 0.0 if previous.last_tick_at is None else max(0.0, now - previous.last_tick_at)
@@ -1045,6 +1065,8 @@ class OvenbirdController:
         )
         manual_setpoint = override if override and override.kind is OverrideKind.SETPOINT else None
         boost = override.value if override and override.kind is OverrideKind.BOOST else 0.0
+        room_override = active_room_override(inputs.room_override, inputs.now)
+        summer = cfg.summer is not None and state.summer_active
         fresh_room = inputs.room if inputs.room is not None and inputs.room.fresh else None
         check = self._crosscheck(
             state, fresh_room, inputs.snapshot, now, dt, stove=state.stove_active
@@ -1052,7 +1074,11 @@ class OvenbirdController:
         room = fresh_room if check.plausible else None
         implausible = fresh_room is not None and room is None
         reference_c = stove_mode.reference_temperature(cfg, inputs.snapshot)
-        stove = stove_mode.advance(cfg, state, room, override, now, reference_c)
+        entry_shift = 0.0 if plan is None else max(0.0, bounded_offset(cfg, plan)[0])
+        if room_override is not None:
+            entry_shift = max(0.0, room_override.value)
+        stove = stove_mode.advance(cfg, state, room, override, now, reference_c, entry_shift)
+        shift = room_shift(room_override, stove=stove.active, summer=summer)
         if stove.active and not state.stove_active:
             check = replace(check, since=None)
         stale = inputs.room is not None and fresh_room is None
@@ -1062,7 +1088,6 @@ class OvenbirdController:
             else None
         )
         lost_for = 0.0 if room_lost_at is None else now - room_lost_at
-        plan, model = self._model_plan(plan, room, stove)
         return _Tick(
             now=now,
             dt=dt,
@@ -1073,9 +1098,19 @@ class OvenbirdController:
             defrost=observed.defrost is True,
             dhw=observed.dhw is True,
             running=observed.running is True,
-            plan=plan,
-            model=model,
+            plan=plan_shift(
+                cfg,
+                plan,
+                stove=stove.active,
+                stove_tail=stove.blocked or stove.level_blocked,
+                seen=inputs.room,
+                room=room,
+                summer=summer,
+                room_target=shift is not None and shift.applied,
+            ),
             override=override,
+            room_shift=shift,
+            summer=summer,
             manual_setpoint=manual_setpoint,
             boost=boost,
             seen=inputs.room,
@@ -1085,72 +1120,36 @@ class OvenbirdController:
             implausible=implausible,
             reference_c=reference_c,
             stove=stove,
-            pi_room=None if stove.active else room,
+            pi_room=None if stove.active or summer else room,
             room_lost_at=room_lost_at,
             lost_for=lost_for,
             fade=max(0.0, 1.0 - lost_for / HELD_INTEGRAL_FADE_S),
         )
 
-    def _model_plan(
-        self, plan: PlanSlice | None, room: RoomInput | None, stove: StoveStep
-    ) -> tuple[PlanSlice | None, ModelPlan | None]:
-        """Return the plan that applies this tick and, for a model slice, what became of it.
-
-        A model slice is clamped to the model bounds and gets the reason of its sign;
-        it does not apply (``None``) while blocked or when the bounds cut it to zero.
-        A model water slice is clamped to the water bounds and scaled by the room
-        authority of the trusted room value against comfort
-        (:meth:`~ovenbird_core.control.config.ModelPlanConfig.authority`), under the
-        same blocks. Every other slice passes unchanged.
-        """
-        if plan is None or plan.source is not PlanSource.MODEL:
-            return plan, None
-        block: ModelPlanBlock | None = None
-        if stove.active:
-            block = ModelPlanBlock.STOVE_ACTIVE
-        elif room is None:
-            block = ModelPlanBlock.ROOM_UNTRUSTED
-        elif stove.blocked or stove.level_blocked or stove.reentry_wait or stove.fault:
-            block = ModelPlanBlock.STOVE_RECOVERY
-        elif plan.valid_until.since(plan.valid_from) > MODEL_PLAN_MAX_SLICE_S:
-            block = ModelPlanBlock.SLICE_TOO_LONG
-        if plan.water:
-            return self._model_water(plan, room, block)
-        applied = 0.0 if block is not None else self.config.model_plan.clamp(plan.room_offset_k)
-        model = ModelPlan(plan.room_offset_k, applied, block)
-        if applied == 0.0:
-            return None, model
-        reason = ReasonCode.PLAN_SETBACK if applied < 0.0 else ReasonCode.PLAN_PREHEAT
-        return replace(plan, room_offset_k=applied, reason=reason), model
-
-    def _model_water(
-        self, plan: PlanSlice, room: RoomInput | None, block: ModelPlanBlock | None
-    ) -> tuple[PlanSlice | None, ModelPlan]:
-        """Return a model water slice as it applies this tick (bounded, authority-scaled)."""
-        mp = self.config.model_plan
-        requested = plan.water_offset_k
-        applied = 0.0
-        authority: float | None = None
-        if block is None and room is not None:
-            authority = mp.authority(
-                room.value, self.config.comfort_room_c, requested, room.quantum_k
-            )
-            applied = mp.clamp_water(requested) * authority + 0.0
-        model = ModelPlan(plan.room_offset_k, 0.0, block, requested, applied, authority)
-        if applied == 0.0:
-            return None, model
-        reason = ReasonCode.PLAN_SETBACK if applied < 0.0 else ReasonCode.PLAN_PREHEAT
-        return replace(plan, water_offset_k=applied, reason=reason), model
-
     def _sum(self, state: OvenbirdState, tick: _Tick) -> _Sum:
-        """Add the terms up to the continuous, safety-clamped ``pre_round`` (stages 3-4)."""
+        """Add the terms up to the continuous, safety-clamped ``pre_round`` (stages 3-4).
+
+        Parameters
+        ----------
+        state
+            Controller state after this tick's tracking.
+        tick
+            What this tick sees before any term is computed.
+        """
         cfg = self.config
         raw = tick.outside if tick.curve.value is None else tick.curve.value
         curve_sp, curve = curve_term(cfg, tick.outside_f, raw, tick.curve.note)
         terms: list[Term] = [curve]
-        plan = tick.plan
-        plan_room = plan.room_offset_k if plan is not None and tick.pi_room is not None else 0.0
-        target = cfg.comfort_room_c + plan_room
+        shift = tick.plan
+        applied = shift is not None and shift.paused is None and tick.pi_room is not None
+        plan_room = shift.offset_k if applied and shift is not None else 0.0
+        manual = tick.room_shift
+        manual_room = (
+            manual.offset_k
+            if manual is not None and manual.applied and tick.pi_room is not None
+            else 0.0
+        )
+        target = cfg.comfort_room_c + plan_room + manual_room
         feedback = room_feedback(
             cfg,
             state,
@@ -1163,17 +1162,16 @@ class OvenbirdController:
             seen=tick.seen,
             fade=tick.fade,
             lost_for=tick.lost_for,
+            summer=tick.summer,
         )
         terms.append(feedback.term)
-        plan_raw, plan_w, plan_t = plan_term(
-            cfg,
-            plan,
-            tick.outside_f,
-            stove=tick.stove.active,
-            pi_room=tick.pi_room,
-            model=tick.model,
-        )
+        plan_raw, plan_w, plan_t = plan_term(cfg, shift, tick.outside_f, pi_room=tick.pi_room)
         terms.append(plan_t)
+        room_raw, room_w, room_t = room_target_term(
+            cfg, manual, tick.outside_f, pi_room=tick.pi_room
+        )
+        if room_t is not None:
+            terms.append(room_t)
         boost_t = boost_term(tick.override, tick.boost)
         if boost_t is not None:
             terms.append(boost_t)
@@ -1183,7 +1181,13 @@ class OvenbirdController:
         )
         if stove_t is not None:
             terms.append(stove_t)
-        base = curve_sp + feedback.u + plan_w + tick.boost + stove_value
+        pre_summer = curve_sp + feedback.u + plan_w + room_w + tick.boost + stove_value
+        summer_value, summer_t = summer_term(
+            cfg.summer, tick.summer, state.summer_mean_c, pre_summer, bounds
+        )
+        if summer_t is not None:
+            terms.append(summer_t)
+        base = pre_summer + summer_value
         ramp = start_ramp(
             cfg,
             state,
@@ -1223,7 +1227,10 @@ class OvenbirdController:
             feedback=feedback,
             plan_raw=plan_raw,
             plan_w=plan_w,
+            room_raw=room_raw,
+            room_w=room_w,
             stove_value=stove_value,
+            summer_value=summer_value,
             bounds=bounds,
             ramp=ramp,
             floor=floor,
@@ -1239,7 +1246,21 @@ class OvenbirdController:
         tick: _Tick,
         total: _Sum,
     ) -> _Setpoint:
-        """Turn ``pre_round`` into the issued integer setpoint (stages 5-6) and its binding."""
+        """Turn ``pre_round`` into the issued integer setpoint (stages 5-6) and its binding.
+
+        Parameters
+        ----------
+        previous
+            State before this tick's tracking.
+        state
+            Controller state after this tick's tracking.
+        inputs
+            Controller inputs of this tick (snapshot, applied values, mode, plan).
+        tick
+            What this tick sees before any term is computed.
+        total
+            Summed terms of this tick.
+        """
         cfg = self.config
         reference = previous.setpoint
         if reference is None and inputs.actual.water_target is not None:
@@ -1271,8 +1292,8 @@ class OvenbirdController:
                 feedback.u,
                 feedback.u_lim,
                 feedback.u_raw,
-                total.plan_w,
-                total.plan_raw,
+                total.plan_w + total.room_w,
+                total.plan_raw + total.room_raw,
             )
         changed = reference is None or final != reference
         last_change_at = tick.now if changed else previous.last_change_at
@@ -1282,6 +1303,17 @@ class OvenbirdController:
         self, state: OvenbirdState, tick: _Tick, total: _Sum, setpoint: _Setpoint
     ) -> tuple[float, list[str], float | None]:
         """Advance the integrator (stage 7).
+
+        Parameters
+        ----------
+        state
+            Controller state after this tick's tracking.
+        tick
+            What this tick sees before any term is computed.
+        total
+            Summed terms of this tick.
+        setpoint
+            Issued setpoint of this tick.
 
         Returns
         -------
@@ -1297,6 +1329,7 @@ class OvenbirdController:
             seen=tick.seen,
             stove=tick.stove.active,
             manual=tick.manual_setpoint is not None,
+            summer=tick.summer,
         )
         integral, frozen_by = integrate(
             cfg,
@@ -1322,7 +1355,7 @@ class OvenbirdController:
             frozen_by,
             defrost=tick.defrost,
             dhw=tick.dhw,
-            stove=tick.stove.active,
+            stove=tick.stove.active or tick.summer,
             lost=lost,
         )
         return integral, frozen_by, at_life
@@ -1340,7 +1373,31 @@ class OvenbirdController:
         reason: ReasonCode,
         intents: list[CommandIntent],
     ) -> DecisionRecord:
-        """Build the decision record (flip distance, controller state, note) of the tick."""
+        """Build the decision record (flip distance, controller state, note) of the tick.
+
+        Parameters
+        ----------
+        new_state
+            State after this tick.
+        state
+            Controller state after this tick's tracking.
+        inputs
+            Controller inputs of this tick (snapshot, applied values, mode, plan).
+        observed
+            What this tick read from the snapshot.
+        tick
+            What this tick sees before any term is computed.
+        total
+            Summed terms of this tick.
+        setpoint
+            Issued setpoint of this tick.
+        frozen_by
+            What froze the integrator.
+        reason
+            Reason code of the decision.
+        intents
+            Intents issued by the decision.
+        """
         cfg = self.config
         feedback, bounds, ramp, floor = total.feedback, total.bounds, total.ramp, total.floor
         final, binding, last_change_at = setpoint.final, setpoint.binding, setpoint.last_change_at
@@ -1376,22 +1433,16 @@ class OvenbirdController:
         extra |= stove_mode.stove_extra(
             cfg, tick.stove, tick.reference_c, total.stove_value, inputs.now
         )
+        extra |= self._manual_extra(tick)
+        extra |= self._summer_extra(tick)
+        if cfg.quiet_start is not None:
+            extra["quiet_start"] = self._quiet_window(state, inputs)
         if not cfg.weather_compensation:
             extra["base"] = "fixed"
         if cfg.outside is not None:
             extra["outside_source"] = str(tick.curve.source)
             extra["outside_fallback"] = tick.curve.fallback
             extra["outside_reason"] = None if tick.curve.reason is None else tick.curve.reason.value
-        if tick.model is not None:
-            extra["model_plan_requested_k"] = tick.model.requested_k
-            extra["model_plan_applied_k"] = tick.model.applied_k
-            extra["model_plan_ignored"] = (
-                None if tick.model.block is None else tick.model.block.value
-            )
-            if tick.model.water:
-                extra["model_plan_water_requested_k"] = tick.model.water_requested_k
-                extra["model_plan_water_applied_k"] = tick.model.water_applied_k
-                extra["model_plan_authority"] = tick.model.authority
         on_change = pi_room is not None and pi_room.profile is RoomProfile.ON_CHANGE
         stove = stove_mode.sentence(
             tick.stove,
@@ -1402,44 +1453,42 @@ class OvenbirdController:
             tick.now,
         )
         note = decision_note(
-            total.curve_sp,
-            tick.outside_f,
-            pi_room,
-            feedback.error,
-            feedback.u,
-            tick.plan,
-            total.plan_w,
-            tick.boost,
-            ramp.cap,
-            ramp.value,
-            floor.floor,
-            floor.cycling,
-            total.pre_clamp,
-            total.pre_round,
-            bounds,
-            final,
-            setpoint.reference,
-            binding,
-            dwell_left,
-            feedback.status if on_change else None,
-            tick.implausible,
-            defrost=tick.defrost,
-            dhw=tick.dhw,
-            duty_skipped=tick.defrost and cfg.pump_duty is not None,
-            integer_clamp=setpoint.integer_clamp,
-            held_offset=feedback.held_offset,
-            stove=stove,
-            fixed=not cfg.weather_compensation,
-            model_ignored=None if tick.model is None else tick.model.ignored_text(),
-            model_water=(
-                tick.model.water_text() if tick.model is not None and tick.model.water else None
-            ),
+            NoteInputs(
+                curve_sp=total.curve_sp,
+                outside_f=tick.outside_f,
+                final=final,
+                reference=setpoint.reference,
+                binding=binding,
+                pre_clamp=total.pre_clamp,
+                pre_round=total.pre_round,
+                fixed=not cfg.weather_compensation,
+                summer=self._summer_sentence(state, tick, total),
+                stove=stove,
+                room=pi_room,
+                error=feedback.error,
+                pi_k=feedback.u,
+                status=feedback.status if on_change else None,
+                implausible=tick.implausible,
+                held_offset=feedback.held_offset,
+                defrost=tick.defrost,
+                dhw=tick.dhw,
+                duty_skipped=tick.defrost and cfg.pump_duty is not None,
+                plan=plan_clause(tick.plan, total.plan_w),
+                room_target=room_target_clause(tick.room_shift, total.room_w),
+                boost=tick.boost,
+                ramp_k=ramp.value,
+                ramp_cap_c=ramp.cap,
+                floor_c=floor.floor,
+                cycling_lift_k=floor.cycling,
+                integer_clamp=setpoint.integer_clamp,
+                dwell_left_s=dwell_left,
+            )
         )
         return self._record(
             new_state,
             inputs,
             observed,
-            ladder=_ladder(tick.plan, tick.room),
+            ladder=_ladder(None if tick.plan is None else tick.plan.applied, tick.room),
             reason=reason,
             note=note,
             intents=tuple(intents),
@@ -1451,6 +1500,69 @@ class OvenbirdController:
             flip=flip,
             actor=tick.override.actor if tick.override is not None else None,
         )
+
+    @staticmethod
+    def _manual_extra(tick: _Tick) -> dict[str, StateValue]:
+        """Return the manual room target's entries of the controller state (none without one)."""
+        shift = tick.room_shift
+        if shift is None:
+            return {}
+        return {
+            "room_override": shift.override.kind.value,
+            "room_override_k": shift.offset_k,
+            "room_override_paused": None if shift.paused is None else shift.paused.value,
+        }
+
+    def _summer_extra(self, tick: _Tick) -> dict[str, StateValue]:
+        """Return the summer switch's entries of the controller state (none without it)."""
+        sc = self.config.summer
+        if sc is None:
+            return {}
+        return {
+            "summer_state": "active" if tick.summer else "inactive",
+            "summer_off_c": sc.off_c,
+            "summer_on_c": sc.on_c,
+            "summer_mean_tau_s": sc.mean_tau_s,
+        }
+
+    def _summer_sentence(self, state: OvenbirdState, tick: _Tick, total: _Sum) -> str | None:
+        """Return the first sentence of the decision note while the summer switch is on."""
+        sc = self.config.summer
+        if sc is None or not tick.summer or state.summer_mean_c is None:
+            return None
+        return (
+            f"Summer switch: slow outside mean {state.summer_mean_c:.1f} °C above "
+            f"{sc.off_c:g} °C, so no space heating is requested: the curve's "
+            f"{total.curve_sp:.1f} °C goes down to the safety minimum {total.bounds.low:.1f} °C, "
+            f"room PI paused with the integrator held at {signed(state.integral_k)} K"
+        )
+
+    def _quiet_window(self, state: OvenbirdState, inputs: ControlInputs) -> bool:
+        """Whether the tick lies in the quiet window after a compressor start."""
+        qs = self.config.quiet_start
+        started = state.run_started_at
+        if qs is None or state.running is not True or started is None:
+            return False
+        return inputs.now.monotonic - started < qs.duration_s
+
+    def _quiet(
+        self, state: OvenbirdState, inputs: ControlInputs, observed: _Observed
+    ) -> tuple[int | None, ReasonCode]:
+        """Return the desired quiet level and its reason (``None``: no quiet intent).
+
+        The schedule's level, or within the window after a compressor start the quieter
+        of it and the start level; during a defrost the previous level is kept.
+        """
+        cfg = self.config
+        scheduled = cfg.quiet.level_at(inputs.now.wall) if cfg.quiet is not None else None
+        qs = cfg.quiet_start
+        if qs is None:
+            return scheduled, ReasonCode.QUIET_SCHEDULE
+        base = scheduled or 0
+        level = max(base, qs.level) if self._quiet_window(state, inputs) else base
+        if observed.defrost is True and state.quiet_level is not None:
+            level = state.quiet_level
+        return level, ReasonCode.QUIET_START if level > base else ReasonCode.QUIET_SCHEDULE
 
     def crosscheck_threshold_k(self, stove: bool) -> float:
         """Disagreement at which the cross-check starts its timer (wider in stove mode)."""
@@ -1475,6 +1587,21 @@ class OvenbirdController:
         flagged). In stove mode (``stove``: an episode was active at the previous
         tick) the threshold is widened by the stove's ``crosscheck_allow_k`` and the
         offset is not learned.
+
+        Parameters
+        ----------
+        state
+            Controller state after this tick's tracking.
+        room
+            Trusted room value, ``None`` when unusable.
+        snapshot
+            Current signal snapshot.
+        now
+            Monotonic time of this tick, in s.
+        dt
+            Time since the previous tick, in s.
+        stove
+            A wood-stove episode was active at the previous tick.
         """
         rc = self.config.room
         if rc.crosscheck is None:
@@ -1516,6 +1643,21 @@ class OvenbirdController:
         implausible: bool,
         stove: bool = False,
     ) -> dict[str, StateValue]:
+        """Return the room-related flat controller-state entries of the record.
+
+        Parameters
+        ----------
+        room
+            Trusted room value, ``None`` when unusable.
+        authority
+            Feedback authority of the room value, 0 to 1.
+        check
+            Outcome of the plausibility cross-check.
+        implausible
+            The room value failed the plausibility cross-check.
+        stove
+            A wood-stove episode is active.
+        """
         if room is None:
             return {}
         checked = self.config.room.crosscheck is not None

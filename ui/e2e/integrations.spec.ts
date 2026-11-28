@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs';
+import { settled } from './settle';
 import { join } from 'node:path';
 import {
   expect,
@@ -319,7 +320,7 @@ async function shoot(page: Page, element: Locator, label: string, file: string):
   const size = page.viewportSize() ?? { width: 390, height: 844 };
   const height = await page.evaluate(() => document.documentElement.scrollHeight);
   await page.setViewportSize({ width: size.width, height: Math.max(height, size.height) });
-  await page.waitForTimeout(300);
+  await settled(page);
   await page.screenshot({ path });
   await page.setViewportSize(size);
 }
@@ -353,7 +354,7 @@ test.describe('integration screenshots', () => {
                 timeout: 15_000,
               });
             }
-            await page.waitForTimeout(500);
+            await settled(page);
             await noSideScroll(page, viewport.width);
             await shoot(page, card(page), viewport.label, `mqtt-${state}-${suffix}.png`);
           });
@@ -367,7 +368,7 @@ test.describe('integration screenshots', () => {
           await page.goto('./#/settings/curve');
           const outside = page.getByTestId('curve-outside');
           await expect(page.getByTestId('curve-outside-fallback')).toBeVisible();
-          await page.waitForTimeout(500);
+          await settled(page);
           await noSideScroll(page, viewport.width);
           await shoot(page, outside, viewport.label, `outside-curve-${suffix}.png`);
         });

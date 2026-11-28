@@ -1,3 +1,5 @@
+"""The history database: schema, rollups, queries, retention, snapshots and the writer thread."""
+
 from __future__ import annotations
 
 import logging
@@ -37,26 +39,31 @@ DAY = 86_400.0
 
 
 def number(ts: float, value: float, signal: str = OUTLET, hold: float = 330.0) -> Sample:
+    """Build a numeric sample (°C) at ``ts``, held for at most ``hold`` seconds."""
     return Sample(signal, "°C", SampleKind.NUMBER, ts, value, hold)
 
 
 def enum(ts: float, value: int) -> Sample:
+    """Build an enum sample of the operating mode at ``ts``."""
     return Sample(MODE, None, SampleKind.ENUM, ts, float(value), 330.0)
 
 
 @pytest.fixture
 def db_path(tmp_path: Path) -> Path:
+    """Return the path of the history database inside the temporary folder."""
     return tmp_path / "history.db"
 
 
 @pytest.fixture
 def db(db_path: Path) -> Iterator[HistoryDatabase]:
+    """Open a history database for the test and close it afterwards."""
     database = HistoryDatabase(open_history(db_path))
     yield database
     database.close()
 
 
 def rollup(path: Path, step: int, signal: str = OUTLET) -> list[tuple[int, float, float]]:
+    """Return ``(bucket, weighted sum, duration)`` rollup rows of ``signal`` at ``step`` s."""
     with sqlite3.connect(path) as conn:
         rows = conn.execute(
             "SELECT bucket, weighted_sum, duration FROM rollup "
@@ -67,17 +74,20 @@ def rollup(path: Path, step: int, signal: str = OUTLET) -> list[tuple[int, float
 
 
 def raw_count(path: Path) -> int:
+    """Return the number of raw samples stored in the database at ``path``."""
     with sqlite3.connect(path) as conn:
         return int(conn.execute("SELECT count(*) FROM sample").fetchone()[0])
 
 
 def test_bundled_migrations_are_numbered() -> None:
+    """The bundled migrations are numbered consecutively from the initial one."""
     migrations = bundled_migrations()
     assert [m.version for m in migrations] == list(range(1, len(migrations) + 1))
     assert migrations[0].name == "0001_initial.sql"
 
 
 def test_open_creates_schema_with_wal(db_path: Path) -> None:
+    """Opening creates the schema in WAL mode and reopening keeps the version."""
     conn = open_history(db_path)
     try:
         assert user_version(conn) == len(bundled_migrations())
@@ -92,6 +102,7 @@ def test_open_creates_schema_with_wal(db_path: Path) -> None:
 
 
 def test_migrations_apply_in_order_and_roll_back_on_failure(db_path: Path) -> None:
+    """Migrations run in order and a failing one is rolled back, keeping the earlier version."""
     conn = sqlite3.connect(db_path, isolation_level=None)
     first = Migration(1, "0001_a.sql", "CREATE TABLE a (x INTEGER);")
     second = Migration(2, "0002_b.sql", "CREATE TABLE b (y INTEGER);")
@@ -107,6 +118,7 @@ def test_migrations_apply_in_order_and_roll_back_on_failure(db_path: Path) -> No
 
 
 def test_newer_schema_is_refused_and_left_alone(db_path: Path) -> None:
+    """A database with a newer schema is refused and not quarantined."""
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA user_version = 99")
     conn.close()
@@ -117,6 +129,7 @@ def test_newer_schema_is_refused_and_left_alone(db_path: Path) -> None:
 
 
 def test_corrupt_database_is_quarantined(db_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """A file that is not a database is moved aside, logged as critical and replaced."""
     db_path.write_bytes(b"this is not a sqlite database at all" * 200)
     with caplog.at_level(logging.CRITICAL, logger="ovenbird.history"):
         conn = open_history(db_path)
@@ -132,6 +145,7 @@ def test_corrupt_database_is_quarantined(db_path: Path, caplog: pytest.LogCaptur
 
 
 def test_damaged_pages_are_quarantined(db_path: Path) -> None:
+    """A database with damaged pages is detected by the integrity check and quarantined."""
     db = HistoryDatabase(open_history(db_path))
     db.write_batch([number(T0 + i, float(i)) for i in range(2000)])
     db.close()
@@ -150,6 +164,7 @@ def test_damaged_pages_are_quarantined(db_path: Path) -> None:
 def test_a_locked_database_is_not_quarantined(
     db_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A database locked by another connection raises an error and is not quarantined."""
     db = HistoryDatabase(open_history(db_path))
     db.write_batch([number(T0, 30.0)])
     db.close()
@@ -170,9 +185,11 @@ def test_a_locked_database_is_not_quarantined(
 def test_a_full_disk_is_not_taken_for_corruption(
     db_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A disk-full error in the integrity check is raised and does not quarantine the database."""
     HistoryDatabase(open_history(db_path)).close()
 
     def full(conn: sqlite3.Connection) -> None:
+        """Fail the integrity check as a full disk would."""
         raise sqlite3.OperationalError("database or disk is full")
 
     monkeypatch.setattr(schema, "check_integrity", full)
@@ -183,6 +200,7 @@ def test_a_full_disk_is_not_taken_for_corruption(
 
 
 def test_raw_samples_only_on_change(db: HistoryDatabase, db_path: Path) -> None:
+    """Raw samples are stored only when the value changes and never out of order."""
     result = db.write_batch([number(T0, 30.0), number(T0 + 10, 30.0), number(T0 + 20, 31.0)])
     assert result.samples == 2
     db.write_batch([number(T0 + 30, 31.0), number(T0 + 25, 99.0)])
@@ -190,6 +208,7 @@ def test_raw_samples_only_on_change(db: HistoryDatabase, db_path: Path) -> None:
 
 
 def test_rollups_are_time_weighted_across_buckets(db: HistoryDatabase, db_path: Path) -> None:
+    """Rollups weight values by how long they were held, split across minute and hour buckets."""
     db.write_batch([number(T0, 0.0), number(T0 + 15, 60.0)])
     db.write_batch([number(T0 + 60, 60.0), number(T0 + 90, 0.0), number(T0 + 120, 0.0)])
     minutes = rollup(db_path, 60)
@@ -203,18 +222,21 @@ def test_rollups_are_time_weighted_across_buckets(db: HistoryDatabase, db_path: 
 
 
 def test_value_is_held_at_most_max_hold(db: HistoryDatabase, db_path: Path) -> None:
+    """A value counts for at most its maximum hold time."""
     db.write_batch([number(T0, 10.0, hold=120.0), number(T0 + 600, 10.0, hold=120.0)])
     total = sum(duration for _, _, duration in rollup(db_path, 60))
     assert total == pytest.approx(120.0)
 
 
 def test_enum_series_take_last_value(db: HistoryDatabase, db_path: Path) -> None:
+    """Enum series report the last value in each bucket."""
     db.write_batch([enum(T0, 0), enum(T0 + 50, 3), enum(T0 + 70, 0)])
     series = query_series(db_path, [MODE], T0, T0 + 120, 60)[MODE]
     assert series.points == ((T0, 3.0), (T0 + 60, 0.0))
 
 
 def test_query_grid_has_gaps_and_raw_points(db: HistoryDatabase, db_path: Path) -> None:
+    """Grid queries show gaps as missing values and a zero step returns the raw points."""
     db.write_batch([number(T0, 20.0, hold=60), number(T0 + 30, 21.0, hold=60)])
     db.write_batch([number(T0 + 300, 25.0, hold=60)])
     grid = query_series(db_path, [OUTLET, "unknown/signal"], T0, T0 + 360, 60)
@@ -230,6 +252,7 @@ def test_query_grid_has_gaps_and_raw_points(db: HistoryDatabase, db_path: Path) 
 
 
 def test_query_validation_and_missing_file(tmp_path: Path) -> None:
+    """Queries on a missing file give empty results and invalid steps or ranges are rejected."""
     missing = tmp_path / "none.db"
     assert query_series(missing, [OUTLET], T0, T0 + 60, 60)[OUTLET].points == ((T0, None),)
     assert query_series(missing, [OUTLET], T0, T0 + 60, 0)[OUTLET].points == ()
@@ -240,6 +263,7 @@ def test_query_validation_and_missing_file(tmp_path: Path) -> None:
 
 
 def test_default_step_targets_1500_points() -> None:
+    """The default step grows with the span to keep about 1500 points."""
     assert default_step(0, DAY) == 60
     assert default_step(0, 7 * DAY) == 900
     assert default_step(0, 60 * DAY) == 3600
@@ -247,6 +271,7 @@ def test_default_step_targets_1500_points() -> None:
 
 
 def test_retention_caps(db: HistoryDatabase, db_path: Path) -> None:
+    """Retention deletes raw, minute and hour data beyond their configured ages."""
     now = T0 + 200 * DAY
     old, middle, recent = now - 100 * DAY, now - 30 * DAY, now - 1 * DAY
     for ts in (old, middle, recent):
@@ -267,6 +292,7 @@ def test_retention_caps(db: HistoryDatabase, db_path: Path) -> None:
 
 
 def test_sample_from_reading_kinds() -> None:
+    """Readings become number, enum or bool samples; text and retained readings are skipped."""
     clock = FakeClock(T0)
     policy = StalenessPolicy()
     live = Reading(OUTLET, 31.5, "°C", clock(), SourceKind.HEISHAMON)
@@ -293,6 +319,7 @@ def test_sample_from_reading_kinds() -> None:
 
 
 def test_drop_oldest_queue_counts_overflow() -> None:
+    """A full queue drops its oldest items and counts them."""
     queue: DropOldestQueue[int] = DropOldestQueue(3)
     for item in range(5):
         queue.put(item)
@@ -302,6 +329,7 @@ def test_drop_oldest_queue_counts_overflow() -> None:
 
 
 def wait_for(condition: object, timeout: float = 5.0) -> None:
+    """Poll until ``condition`` returns true, or fail after ``timeout`` seconds."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if callable(condition) and condition():
@@ -311,6 +339,7 @@ def wait_for(condition: object, timeout: float = 5.0) -> None:
 
 
 def test_writer_thread_batches_and_flushes_on_stop(db_path: Path) -> None:
+    """The writer thread batches samples and flushes them all when stopped."""
     writer = HistoryWriter(db_path, Retention(), flush_interval=0.05)
     writer.start()
     wait_for(writer.healthy)
@@ -324,6 +353,7 @@ def test_writer_thread_batches_and_flushes_on_stop(db_path: Path) -> None:
 
 
 def test_writer_drops_oldest_on_overflow(db_path: Path) -> None:
+    """The writer keeps only the newest samples when its queue overflows."""
     writer = HistoryWriter(db_path, Retention(), queue_size=100)
     for i in range(250):
         writer.offer(number(T0 + i, float(i)))
@@ -334,6 +364,7 @@ def test_writer_drops_oldest_on_overflow(db_path: Path) -> None:
 
 
 def test_free_space_guard_pauses_and_resumes(db_path: Path) -> None:
+    """Low free disk space pauses writing and it resumes only with a safety margin."""
     free = {"bytes": 10}
     writer = HistoryWriter(
         db_path,
@@ -358,6 +389,7 @@ def test_free_space_guard_pauses_and_resumes(db_path: Path) -> None:
 
 
 def test_writer_reports_error_when_database_cannot_open(db_path: Path) -> None:
+    """A database that cannot be opened is a writer error and its batch counts as failed."""
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA user_version = 99")
     conn.close()
@@ -371,6 +403,7 @@ def test_writer_reports_error_when_database_cannot_open(db_path: Path) -> None:
 def test_raw_query_is_seeded_with_the_value_held_at_start(
     db: HistoryDatabase, db_path: Path
 ) -> None:
+    """A raw query starts with the value held at the window start, if any."""
     db.write_batch([number(T0, 20.0), number(T0 + 100, 21.0), number(T0 + 400, 21.0)])
     unchanged = query_series(db_path, [OUTLET], T0 + 200, T0 + 300, 0)[OUTLET]
     assert unchanged.points == ((T0 + 200, 21.0),)
@@ -385,6 +418,7 @@ def test_raw_query_is_seeded_with_the_value_held_at_start(
 def test_retention_keeps_the_newest_sample_of_each_signal(
     db: HistoryDatabase, db_path: Path
 ) -> None:
+    """Retention keeps each signal's newest raw sample so a held value can still seed queries."""
     now = T0 + 100 * DAY
     db.write_batch([number(T0, 1.0), number(T0 + 10, 2.0), enum(T0, 0)])
     db.forget_held()
@@ -400,6 +434,7 @@ def test_retention_keeps_the_newest_sample_of_each_signal(
 
 
 def test_gap_sample_ends_the_held_value(db: HistoryDatabase, db_path: Path) -> None:
+    """A gap sample stops the previous value from being held, and unknown signals are ignored."""
     db.write_batch([number(T0, 10.0, hold=1800.0)])
     db.write_batch([Sample(OUTLET, None, SampleKind.NUMBER, T0 + 30, None, 0.0)])
     db.write_batch([number(T0 + 600, 10.0, hold=1800.0)])
@@ -410,6 +445,7 @@ def test_gap_sample_ends_the_held_value(db: HistoryDatabase, db_path: Path) -> N
 
 
 def test_gap_sample_from_errors() -> None:
+    """Parse errors yield a gap sample at their time, except retained ones."""
     clock = FakeClock(T0)
     live = ParseError(OUTLET, ParseErrorKind.MALFORMED, "x", "bad", clock())
     gap = gap_sample(live)
@@ -422,6 +458,7 @@ def test_gap_sample_from_errors() -> None:
 def test_snapshot_is_consistent_and_restores_a_missing_database(
     db_path: Path, tmp_path: Path
 ) -> None:
+    """A snapshot is a consistent copy that restores a missing database, never an existing one."""
     snapshot = tmp_path / "history.snapshot.db"
     db = HistoryDatabase(open_history(db_path))
     db.write_batch([number(T0 + i, float(i)) for i in range(100)])
@@ -442,6 +479,7 @@ def test_snapshot_is_consistent_and_restores_a_missing_database(
 
 
 def test_writer_writes_snapshots_and_restores_from_them(db_path: Path, tmp_path: Path) -> None:
+    """The writer snapshots at its interval and restores from it when the database is gone."""
     snapshot = tmp_path / "history.snapshot.db"
     writer = HistoryWriter(
         db_path,
@@ -472,11 +510,13 @@ def test_writer_writes_snapshots_and_restores_from_them(db_path: Path, tmp_path:
 def test_writer_thread_death_is_detected_and_restarted(
     db_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A crashed writer thread is reported unhealthy and can be started again."""
     writer = HistoryWriter(db_path, Retention(), flush_interval=0.01)
     original = writer.run_once
     crashes = {"left": 1}
 
     def crash_once(batch: list[Sample]) -> None:
+        """Raise once on the first non-empty batch, then delegate to the real writer."""
         if crashes["left"] and batch:
             crashes["left"] -= 1
             raise RuntimeError("disk on fire")
@@ -497,12 +537,16 @@ def test_writer_thread_death_is_detected_and_restarted(
 
 
 class BrokenBackup:
+    """A connection stand-in whose backup fails halfway as a full disk would."""
+
     def backup(self, dest: sqlite3.Connection) -> None:
+        """Create a junk table in ``dest`` and then fail with a disk-full error."""
         dest.execute("CREATE TABLE junk (x)")
         raise sqlite3.OperationalError("database or disk is full")
 
 
 def test_failed_snapshot_removes_its_temp_file(tmp_path: Path) -> None:
+    """A snapshot that fails leaves neither its temporary file nor a snapshot."""
     snapshot = tmp_path / "history.snapshot.db"
     tmp = snapshot.with_name(snapshot.name + ".tmp")
     with pytest.raises(sqlite3.OperationalError):
@@ -514,6 +558,7 @@ def test_failed_snapshot_removes_its_temp_file(tmp_path: Path) -> None:
 def test_snapshot_is_skipped_without_room_and_leftover_temp_never_pauses(
     db_path: Path, tmp_path: Path
 ) -> None:
+    """A snapshot is skipped when space is short and never pauses writing; leftovers are removed."""
     snapshot = tmp_path / "history.snapshot.db"
     tmp = snapshot.with_name(snapshot.name + ".tmp")
     tmp.write_bytes(b"leftover")
@@ -546,6 +591,7 @@ def test_snapshot_is_skipped_without_room_and_leftover_temp_never_pauses(
 
 
 def test_first_snapshot_waits_for_the_first_commit(db_path: Path, tmp_path: Path) -> None:
+    """No snapshot is taken before the first data has been committed."""
     snapshot = tmp_path / "history.snapshot.db"
     writer = HistoryWriter(
         db_path,
@@ -566,6 +612,7 @@ def test_first_snapshot_waits_for_the_first_commit(db_path: Path, tmp_path: Path
 
 
 def test_raw_seed_respects_the_staleness_limit(db: HistoryDatabase, db_path: Path) -> None:
+    """The seed value of a raw query is dropped once older than the staleness limit."""
     db.write_batch([number(T0, 20.0)])
     fresh = query_series(db_path, [OUTLET], T0 + 300, T0 + 600, 0)[OUTLET]
     assert fresh.points == ((T0 + 300, 20.0),)
@@ -583,6 +630,7 @@ def test_raw_seed_respects_the_staleness_limit(db: HistoryDatabase, db_path: Pat
 
 
 def test_writer_health_is_starting_until_open(db_path: Path) -> None:
+    """The writer reports starting, not healthy, until its database is open."""
     writer = HistoryWriter(db_path, Retention(), disk_free=lambda _path: 10**12)
     assert writer.starting()
     assert not writer.healthy()

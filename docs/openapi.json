@@ -714,46 +714,287 @@
         ],
         "type": "string"
       },
-      "BalanceFlows": {
-        "description": "The heat flows of the house in W; ``null`` where an input is unknown.",
+      "AwayPhaseName": {
+        "enum": [
+          "away",
+          "returning"
+        ],
+        "type": "string"
+      },
+      "AwayRequest": {
+        "description": "An away period.",
         "properties": {
-          "heat_pump_w": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "actor": {
+            "type": "string"
           },
-          "internal_w": {
+          "at": {
+            "type": "string"
+          },
+          "comfort_from": {
+            "type": "string"
+          },
+          "comfort_lead_s": {
             "type": "number"
           },
-          "loss_w": {
+          "target_c": {
+            "type": "number"
+          },
+          "until": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_c",
+          "until",
+          "comfort_lead_s",
+          "comfort_from",
+          "actor",
+          "at"
+        ],
+        "type": "object"
+      },
+      "AwayResult": {
+        "description": "``PUT`` and ``DELETE control/away``: the request accepted or ended, and away.",
+        "properties": {
+          "away": {
+            "$ref": "#/components/schemas/AwayStatus"
+          },
+          "request": {
             "anyOf": [
               {
-                "type": "number"
+                "$ref": "#/components/schemas/AwayRequest"
               },
               {
                 "type": "null"
               }
             ]
-          },
-          "storage_w": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "stove_active": {
+          }
+        },
+        "required": [
+          "request",
+          "away"
+        ],
+        "type": "object"
+      },
+      "AwayStatus": {
+        "description": "Away: settings, phase (away or returning to comfort) and the request.",
+        "properties": {
+          "active": {
             "type": "boolean"
           },
-          "sun_w": {
+          "comfort_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "default_lead_s": {
+            "type": "number"
+          },
+          "default_target_c": {
+            "type": "number"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "paused": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AwayPhaseName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AwayRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "enabled",
+          "active",
+          "phase",
+          "paused",
+          "target_c",
+          "until",
+          "comfort_from",
+          "default_target_c",
+          "default_lead_s",
+          "request"
+        ],
+        "type": "object"
+      },
+      "BasicsStatusName": {
+        "enum": [
+          "collecting",
+          "provisional",
+          "credible"
+        ],
+        "type": "string"
+      },
+      "BoostRequest": {
+        "description": "A manual boost: an offset to comfort or an absolute room target, until a time.",
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string"
+          },
+          "offset_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "until": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "offset_k",
+          "target_c",
+          "until",
+          "actor",
+          "at"
+        ],
+        "type": "object"
+      },
+      "BoostResult": {
+        "description": "``POST`` and ``DELETE control/boost``: the request accepted or ended, and the boost.",
+        "properties": {
+          "boost": {
+            "$ref": "#/components/schemas/BoostStatus"
+          },
+          "request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BoostRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "request",
+          "boost"
+        ],
+        "type": "object"
+      },
+      "BoostStatus": {
+        "description": "The boost: settings, whether it runs (or is paused, and why) and the request.",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "default_k": {
+            "type": "number"
+          },
+          "default_s": {
+            "type": "number"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "paused": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "remaining_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BoostRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shift_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target_c": {
             "anyOf": [
               {
                 "type": "number"
@@ -765,29 +1006,17 @@
           }
         },
         "required": [
-          "heat_pump_w",
-          "loss_w",
-          "sun_w",
-          "internal_w",
-          "stove_active",
-          "storage_w"
+          "enabled",
+          "active",
+          "paused",
+          "shift_k",
+          "target_c",
+          "remaining_s",
+          "default_s",
+          "default_k",
+          "request"
         ],
         "type": "object"
-      },
-      "BalanceNote": {
-        "enum": [
-          "estimate",
-          "not_credible",
-          "room_unknown",
-          "outside_unknown",
-          "sun_unknown",
-          "dhw_active",
-          "heat_unknown",
-          "defrost",
-          "stove_active",
-          "stove_tail"
-        ],
-        "type": "string"
       },
       "Budget": {
         "description": "Today's write budget.",
@@ -827,207 +1056,6 @@
           "in_progress"
         ],
         "type": "string"
-      },
-      "Champion": {
-        "description": "The promoted model named by the learner's ``current.json``.",
-        "properties": {
-          "model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "promoted_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "model",
-          "promoted_at"
-        ],
-        "type": "object"
-      },
-      "ChampionRevalidation": {
-        "description": "The latest run's check of the model ``current.json`` names (``status.json``).\n\n``source`` is ``held_out`` when that run promoted the model (its own held-out\nvalidation) and ``revalidated`` when the run kept it and scored it again on the\nnewest held-out days (``from`` to ``to``; ``in_sample`` when the model had seen\npart of them). ``gates`` are the model's three gates as of that run (``null`` from\na learner before the gates); ``credible`` is its heat-loss gate and ``reasons``\nsay what fails there. Errors are room RMSE in K over the first 24 h, ``skill`` is\n``1 - model / persistence`` over ``skill_horizon_h``, ``series_*`` the 24 h-ahead\nerror and bias of the model's room series.",
-        "properties": {
-          "at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "credible": {
-            "type": "boolean"
-          },
-          "data_to": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "fitted_to": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "from": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "gates": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LearnedGates"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "in_sample": {
-            "type": "boolean"
-          },
-          "model": {
-            "type": "string"
-          },
-          "origins": {
-            "type": "integer"
-          },
-          "persistence_room_rmse_k": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "reasons": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "room_rmse_k": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "series_bias_k": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "series_rmse_k": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "skill": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "skill_horizon_h": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "source": {
-            "enum": [
-              "held_out",
-              "revalidated"
-            ],
-            "type": "string"
-          },
-          "to": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "model",
-          "at",
-          "source",
-          "data_to",
-          "fitted_to",
-          "from",
-          "to",
-          "origins",
-          "in_sample",
-          "room_rmse_k",
-          "persistence_room_rmse_k",
-          "skill_horizon_h",
-          "skill",
-          "series_rmse_k",
-          "series_bias_k",
-          "credible",
-          "reasons",
-          "gates"
-        ],
-        "type": "object"
       },
       "CheckCounts": {
         "description": "Checklist items per status.",
@@ -1662,6 +1690,12 @@
             },
             "type": "array"
           },
+          "away": {
+            "$ref": "#/components/schemas/AwayStatus"
+          },
+          "boost": {
+            "$ref": "#/components/schemas/BoostStatus"
+          },
           "config_version": {
             "anyOf": [
               {
@@ -1728,6 +1762,9 @@
           "stove": {
             "$ref": "#/components/schemas/StoveStatus"
           },
+          "summer": {
+            "$ref": "#/components/schemas/SummerStatus"
+          },
           "ticks": {
             "type": "integer"
           }
@@ -1749,7 +1786,10 @@
           "safety",
           "adapter",
           "room",
-          "stove"
+          "stove",
+          "boost",
+          "away",
+          "summer"
         ],
         "type": "object"
       },
@@ -1863,38 +1903,6 @@
         ],
         "type": "string"
       },
-      "CurveChange": {
-        "description": "A heating curve as a configuration change (``null`` when there is none).",
-        "properties": {
-          "control_curve": {
-            "anyOf": [
-              {
-                "items": {
-                  "maxItems": 2,
-                  "minItems": 2,
-                  "prefixItems": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "number"
-                    }
-                  ],
-                  "type": "array"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "control_curve"
-        ],
-        "type": "object"
-      },
       "CurveOutlook": {
         "description": "The curve's water temperature on the forecast.",
         "properties": {
@@ -1907,6 +1915,292 @@
         },
         "required": [
           "points"
+        ],
+        "type": "object"
+      },
+      "DayShift": {
+        "description": "``GET control/dayshift``: the sun day shift's mode, phase, offset and reasons.",
+        "properties": {
+          "applied_k": {
+            "type": "number"
+          },
+          "boosted_today": {
+            "type": "boolean"
+          },
+          "configured": {
+            "$ref": "#/components/schemas/DayShiftUseName"
+          },
+          "desired_k": {
+            "type": "number"
+          },
+          "evaluated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "experimental": {
+            "type": "boolean"
+          },
+          "forecast": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DayShiftForecast"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "guards": {
+            "items": {
+              "$ref": "#/components/schemas/PlanGuardName"
+            },
+            "type": "array"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/DayShiftUseName"
+          },
+          "next_change": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DayShiftNext"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "offset_k": {
+            "type": "number"
+          },
+          "on_available": {
+            "type": "boolean"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/DayShiftPhaseName"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/DayShiftReasonName"
+            },
+            "type": "array"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "windows": {
+            "$ref": "#/components/schemas/DayShiftWindows"
+          }
+        },
+        "required": [
+          "mode",
+          "configured",
+          "on_available",
+          "experimental",
+          "phase",
+          "offset_k",
+          "desired_k",
+          "applied_k",
+          "reasons",
+          "guards",
+          "evaluated_at",
+          "valid_until",
+          "next_change",
+          "boosted_today",
+          "windows",
+          "forecast"
+        ],
+        "type": "object"
+      },
+      "DayShiftForecast": {
+        "description": "What the day shift read of the forecast at its latest evaluation.",
+        "properties": {
+          "hours": {
+            "type": "integer"
+          },
+          "issued_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "night_limit_c": {
+            "type": "number"
+          },
+          "night_min_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outside_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outside_limit_c": {
+            "type": "number"
+          },
+          "outside_min_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sun_limit_wm2": {
+            "type": "number"
+          },
+          "sun_wm2": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "issued_at",
+          "hours",
+          "sun_wm2",
+          "sun_limit_wm2",
+          "outside_c",
+          "outside_min_c",
+          "outside_limit_c",
+          "night_min_c",
+          "night_limit_c"
+        ],
+        "type": "object"
+      },
+      "DayShiftNext": {
+        "description": "The next change of phase the day shift's schedule allows.",
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/DayShiftPhaseName"
+          }
+        },
+        "required": [
+          "at",
+          "phase"
+        ],
+        "type": "object"
+      },
+      "DayShiftPhaseName": {
+        "enum": [
+          "idle",
+          "boost",
+          "setback",
+          "recovery",
+          "blocked"
+        ],
+        "type": "string"
+      },
+      "DayShiftReasonName": {
+        "enum": [
+          "off",
+          "outside_windows",
+          "sun_forecast",
+          "sun_low",
+          "outside_mild",
+          "outside_cold",
+          "outside_unknown",
+          "forecast_missing",
+          "night_after_boost",
+          "no_boost_today",
+          "night_cold",
+          "recovery_lead",
+          "room_below_target",
+          "room_warm",
+          "forecast_stale",
+          "room_untrusted",
+          "stove_active",
+          "stove_tail",
+          "away"
+        ],
+        "type": "string"
+      },
+      "DayShiftUseName": {
+        "enum": [
+          "off",
+          "shadow",
+          "on"
+        ],
+        "type": "string"
+      },
+      "DayShiftWindows": {
+        "description": "The local windows of the day shift and the end of the coming set-back.",
+        "properties": {
+          "comfort_at": {
+            "type": "string"
+          },
+          "day_end": {
+            "type": "string"
+          },
+          "day_start": {
+            "type": "string"
+          },
+          "night_end": {
+            "type": "string"
+          },
+          "night_start": {
+            "type": "string"
+          },
+          "setback_end": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "day_start",
+          "day_end",
+          "night_start",
+          "night_end",
+          "comfort_at",
+          "setback_end",
+          "timezone"
         ],
         "type": "object"
       },
@@ -2974,6 +3268,202 @@
         ],
         "type": "object"
       },
+      "Emitter": {
+        "description": "The emitter figure ``Q = K x (T_water - T_room)`` and what it implies.",
+        "properties": {
+          "balance_in_range": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "balance_mean_water_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "balance_supply_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "days_used": {
+            "type": "integer"
+          },
+          "flow_l_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hours_used": {
+            "type": "integer"
+          },
+          "k_high_w_per_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "k_low_w_per_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "k_w_per_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/EmitterReasonName"
+            },
+            "type": "array"
+          },
+          "room_c": {
+            "type": "number"
+          },
+          "setpoint_max_c": {
+            "type": "number"
+          },
+          "setpoint_min_c": {
+            "type": "number"
+          },
+          "span_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/BasicsStatusName"
+          },
+          "table": {
+            "items": {
+              "$ref": "#/components/schemas/EmitterRow"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "status",
+          "reasons",
+          "k_w_per_k",
+          "k_low_w_per_k",
+          "k_high_w_per_k",
+          "hours_used",
+          "days_used",
+          "span_k",
+          "flow_l_min",
+          "room_c",
+          "setpoint_min_c",
+          "setpoint_max_c",
+          "table",
+          "balance_supply_c",
+          "balance_mean_water_c",
+          "balance_in_range"
+        ],
+        "type": "object"
+      },
+      "EmitterReasonName": {
+        "enum": [
+          "no_room_signal",
+          "too_few_hours",
+          "slope_not_positive",
+          "slope_implausible",
+          "too_uncertain",
+          "few_hours",
+          "narrow_span"
+        ],
+        "type": "string"
+      },
+      "EmitterRow": {
+        "description": "Expected steady heat at one supply temperature, next to the heat loss now.",
+        "properties": {
+          "heat_w": {
+            "type": "number"
+          },
+          "high_w": {
+            "type": "number"
+          },
+          "loss_now_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "low_w": {
+            "type": "number"
+          },
+          "margin_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mean_water_c": {
+            "type": "number"
+          },
+          "supply_c": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "supply_c",
+          "mean_water_c",
+          "heat_w",
+          "low_w",
+          "high_w",
+          "loss_now_w",
+          "margin_w"
+        ],
+        "type": "object"
+      },
       "Envelope": {
         "description": "The safety envelope around the heating curve.",
         "properties": {
@@ -3386,6 +3876,84 @@
         ],
         "type": "object"
       },
+      "FeatureEntry": {
+        "description": "One switchable feature and its state.",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "experimental": {
+            "type": "boolean"
+          },
+          "id": {
+            "$ref": "#/components/schemas/FeatureName"
+          },
+          "on_available": {
+            "type": "boolean"
+          },
+          "state": {
+            "$ref": "#/components/schemas/FeatureStateName"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "enabled",
+          "active",
+          "experimental",
+          "on_available"
+        ],
+        "type": "object"
+      },
+      "FeatureName": {
+        "enum": [
+          "weather_compensation",
+          "room_feedback",
+          "slow_start",
+          "minimum_run",
+          "pump_duty",
+          "quiet",
+          "stove",
+          "dayshift",
+          "summer",
+          "away",
+          "boost",
+          "house_basics",
+          "starts_alarm"
+        ],
+        "type": "string"
+      },
+      "FeatureStateName": {
+        "enum": [
+          "off",
+          "shadow",
+          "on",
+          "active_now"
+        ],
+        "type": "string"
+      },
+      "Features": {
+        "description": "``GET control/features``: every feature with its state.",
+        "properties": {
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/FeatureEntry"
+            },
+            "type": "array"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/ModeName"
+          }
+        },
+        "required": [
+          "mode",
+          "features"
+        ],
+        "type": "object"
+      },
       "FieldDef": {
         "description": "The schema of one configuration field.",
         "properties": {
@@ -3410,6 +3978,16 @@
           },
           "exclusive_min": {
             "type": "boolean"
+          },
+          "feature": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeatureName"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "group": {
             "type": "string"
@@ -3465,6 +4043,9 @@
             "type": "number"
           },
           "preset_default": {
+            "type": "boolean"
+          },
+          "read_only": {
             "type": "boolean"
           },
           "soft_max": {
@@ -3529,6 +4110,8 @@
           "tier",
           "group",
           "editable",
+          "read_only",
+          "feature",
           "env",
           "preset_default"
         ],
@@ -3543,7 +4126,6 @@
           "enum",
           "curve",
           "windows",
-          "dates",
           "list",
           "secret",
           "signal",
@@ -3676,30 +4258,6 @@
         "enum": [
           "json",
           "csv"
-        ],
-        "type": "string"
-      },
-      "GateNeed": {
-        "enum": [
-          "no_signature",
-          "more_heating_days",
-          "more_outside_spread",
-          "ua_interval_wide",
-          "ua_disagrees",
-          "ua_unstable",
-          "no_dynamics_skill",
-          "more_sunny_days",
-          "no_sun_skill",
-          "sun_response_off",
-          "legacy_model"
-        ],
-        "type": "string"
-      },
-      "GateSource": {
-        "enum": [
-          "fitted",
-          "revalidated",
-          "legacy"
         ],
         "type": "string"
       },
@@ -4059,6 +4617,336 @@
         ],
         "type": "object"
       },
+      "HeatDelivered": {
+        "description": "Heat into the space-heating loop now and over the last 24 h.",
+        "properties": {
+          "coverage_24h": {
+            "type": "number"
+          },
+          "mean_24h_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "now_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HeatNowReasonName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "now_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "now_w",
+          "now_reason",
+          "mean_24h_w",
+          "coverage_24h"
+        ],
+        "type": "object"
+      },
+      "HeatLoss": {
+        "description": "The heat-loss fit ``P = H x dT - G``; the figures are ``null`` while collecting.",
+        "properties": {
+          "balance_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "balance_offset_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "days_used": {
+            "type": "integer"
+          },
+          "excluded": {
+            "$ref": "#/components/schemas/HeatLossExclusions"
+          },
+          "first_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "h_high_w_per_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "h_low_w_per_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "h_w_per_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "near_balance_points": {
+            "type": "integer"
+          },
+          "offset_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outlier_points": {
+            "type": "integer"
+          },
+          "outside_max_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outside_min_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/HeatLossPoint"
+            },
+            "type": "array"
+          },
+          "points_used": {
+            "type": "integer"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/HeatLossReasonName"
+            },
+            "type": "array"
+          },
+          "residual_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "room_mean_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "span_k": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/BasicsStatusName"
+          }
+        },
+        "required": [
+          "status",
+          "reasons",
+          "h_w_per_k",
+          "h_low_w_per_k",
+          "h_high_w_per_k",
+          "offset_w",
+          "balance_offset_k",
+          "balance_c",
+          "days_used",
+          "points_used",
+          "outlier_points",
+          "near_balance_points",
+          "span_k",
+          "outside_min_c",
+          "outside_max_c",
+          "room_mean_c",
+          "residual_w",
+          "first_date",
+          "last_date",
+          "excluded",
+          "points"
+        ],
+        "type": "object"
+      },
+      "HeatLossExclusions": {
+        "description": "Complete days with data left out of the heat-loss fit, by reason.",
+        "properties": {
+          "away": {
+            "type": "integer"
+          },
+          "low_coverage": {
+            "type": "integer"
+          },
+          "no_heating": {
+            "type": "integer"
+          },
+          "stove": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "low_coverage",
+          "stove",
+          "no_heating",
+          "away"
+        ],
+        "type": "object"
+      },
+      "HeatLossPoint": {
+        "description": "One 48 h window (two consecutive local days) of the heat-loss fit.",
+        "properties": {
+          "delta_k": {
+            "type": "number"
+          },
+          "first_date": {
+            "type": "string"
+          },
+          "heat_w": {
+            "type": "number"
+          },
+          "last_date": {
+            "type": "string"
+          },
+          "outside_c": {
+            "type": "number"
+          },
+          "room_c": {
+            "type": "number"
+          },
+          "use": {
+            "$ref": "#/components/schemas/PointUseName"
+          }
+        },
+        "required": [
+          "first_date",
+          "last_date",
+          "delta_k",
+          "heat_w",
+          "outside_c",
+          "room_c",
+          "use"
+        ],
+        "type": "object"
+      },
+      "HeatLossReasonName": {
+        "enum": [
+          "no_room_signal",
+          "too_few_days",
+          "span_too_small",
+          "slope_not_positive",
+          "slope_implausible",
+          "too_uncertain",
+          "few_days",
+          "narrow_span"
+        ],
+        "type": "string"
+      },
+      "HeatNowReasonName": {
+        "enum": [
+          "hot_water",
+          "unknown"
+        ],
+        "type": "string"
+      },
+      "HeatPumpHeat": {
+        "description": "How much heat the house gets from the heat pump.",
+        "properties": {
+          "delivered": {
+            "$ref": "#/components/schemas/HeatDelivered"
+          },
+          "emitter": {
+            "$ref": "#/components/schemas/Emitter"
+          }
+        },
+        "required": [
+          "delivered",
+          "emitter"
+        ],
+        "type": "object"
+      },
       "HeishamonLink": {
         "description": "HeishaMon's heartbeat and last will.",
         "properties": {
@@ -4305,840 +5193,6 @@
         ],
         "type": "object"
       },
-      "HouseBalance": {
-        "description": "``GET insight/house/balance``: the heat balance of the house right now.\n\n``credible`` is the model's heat-loss gate.",
-        "properties": {
-          "at": {
-            "type": "string"
-          },
-          "credible": {
-            "type": "boolean"
-          },
-          "flows": {
-            "$ref": "#/components/schemas/BalanceFlows"
-          },
-          "notes": {
-            "items": {
-              "$ref": "#/components/schemas/BalanceNote"
-            },
-            "type": "array"
-          },
-          "outside_c": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "room_c": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "source": {
-            "$ref": "#/components/schemas/HouseSource"
-          },
-          "sun_wm2": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "ua_w_per_k": {
-            "type": "number"
-          }
-        },
-        "required": [
-          "at",
-          "source",
-          "credible",
-          "room_c",
-          "outside_c",
-          "sun_wm2",
-          "flows",
-          "ua_w_per_k",
-          "notes"
-        ],
-        "type": "object"
-      },
-      "HouseControl": {
-        "description": "``GET insight/house/control``: the model plan switch, its guards, latest result, history.",
-        "properties": {
-          "bounds": {
-            "$ref": "#/components/schemas/ModelPlanBounds"
-          },
-          "history": {
-            "$ref": "#/components/schemas/ModelPlanHistory"
-          },
-          "model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "model_rmse_k": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "now": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ModelPlanNow"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "use": {
-            "$ref": "#/components/schemas/ModelUse"
-          },
-          "verdict": {
-            "$ref": "#/components/schemas/ModelPlanVerdict"
-          }
-        },
-        "required": [
-          "use",
-          "verdict",
-          "model",
-          "model_rmse_k",
-          "bounds",
-          "now",
-          "history"
-        ],
-        "type": "object"
-      },
-      "HouseGates": {
-        "description": "The champion's gates now, one per use.\n\n``heat_loss`` (U) guards the insulation score, the curve proposal, the what-if\nsteady state and the live balance; ``dynamics`` (D) the what-if cool-down and the\nroom-target planner; ``sun`` (S) the water planner.",
-        "properties": {
-          "dynamics": {
-            "$ref": "#/components/schemas/ModelGate"
-          },
-          "heat_loss": {
-            "$ref": "#/components/schemas/ModelGate"
-          },
-          "sun": {
-            "$ref": "#/components/schemas/ModelGate"
-          }
-        },
-        "required": [
-          "heat_loss",
-          "dynamics",
-          "sun"
-        ],
-        "type": "object"
-      },
-      "HouseHistory": {
-        "description": "``GET insight/house/history``: every promoted model.",
-        "properties": {
-          "floor_area_m2": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "models": {
-            "items": {
-              "$ref": "#/components/schemas/HouseHistoryModel"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "floor_area_m2",
-          "models"
-        ],
-        "type": "object"
-      },
-      "HouseHistoryModel": {
-        "description": "A promoted model of the learner's index and its score at the current floor area.",
-        "properties": {
-          "champion": {
-            "type": "boolean"
-          },
-          "credible": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "data_to": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "generated": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "room_rmse_24h_k": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "score": {
-            "$ref": "#/components/schemas/HouseScore"
-          },
-          "time_constant_h": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "ua_interval_90": {
-            "anyOf": [
-              {
-                "maxItems": 2,
-                "minItems": 2,
-                "prefixItems": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "number"
-                  }
-                ],
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "ua_w_per_k": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "model",
-          "data_to",
-          "generated",
-          "champion",
-          "ua_w_per_k",
-          "ua_interval_90",
-          "time_constant_h",
-          "credible",
-          "room_rmse_24h_k",
-          "score"
-        ],
-        "type": "object"
-      },
-      "HouseReady": {
-        "description": "``GET insight/house`` with a promoted model: the learner's insight and the score.\n\nThe learner's keys are passed through; ``proposal`` gains ``current_curve`` and\n``stale`` (whether the curve changed since the run). ``revalidation`` is the last\nrun's check of this model (``null`` when the last run checked another or none).\n``gates`` are the model's three gates now (:class:`HouseGates`): the\nre-validation's when there is one, else the insight's frozen\n``credibility.gates``. ``credible`` is the heat-loss gate; the score and the\nproposal follow it. The learner's ``credibility`` holds ``credible`` (the heat-loss\ngate as fitted), ``gates`` (:class:`LearnedGates`) and the detail.",
-        "properties": {
-          "at_bound": {},
-          "balance_temperature_c": {},
-          "capacities_kwh_per_k": {},
-          "champion": {
-            "$ref": "#/components/schemas/Champion"
-          },
-          "credibility": {
-            "additionalProperties": true,
-            "type": "object"
-          },
-          "credible": {
-            "type": "boolean"
-          },
-          "daily_error": {},
-          "data": {},
-          "emitter_time_constant_h": {},
-          "error_trend": {},
-          "events": {},
-          "excitation": {
-            "additionalProperties": true,
-            "type": "object"
-          },
-          "gates": {
-            "$ref": "#/components/schemas/HouseGates"
-          },
-          "heat_capacity_kwh_per_k": {},
-          "internal_gains_w": {},
-          "last_run": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LastRun"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "learner": {
-            "$ref": "#/components/schemas/LearnerHealth"
-          },
-          "limits": {},
-          "model": {},
-          "proposal": {
-            "additionalProperties": true,
-            "type": "object"
-          },
-          "provenance": {},
-          "revalidation": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ChampionRevalidation"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "schema": {},
-          "score": {
-            "$ref": "#/components/schemas/HouseScore"
-          },
-          "signature": {},
-          "solar_aperture_m2": {},
-          "state": {
-            "const": "ready",
-            "type": "string"
-          },
-          "structure": {},
-          "time_constant_h": {},
-          "ua": {
-            "additionalProperties": true,
-            "type": "object"
-          },
-          "validation": {}
-        },
-        "required": [
-          "score",
-          "state",
-          "credible",
-          "gates",
-          "revalidation",
-          "champion",
-          "last_run",
-          "learner"
-        ],
-        "type": "object"
-      },
-      "HouseReport": {
-        "anyOf": [
-          {
-            "$ref": "#/components/schemas/HouseWaiting"
-          },
-          {
-            "$ref": "#/components/schemas/HouseReady"
-          }
-        ]
-      },
-      "HouseRun": {
-        "description": "``GET`` and ``POST insight/house/run``: the embedded learner's state and schedule.",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "failure": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/HouseRunFailure"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "interval_h": {
-            "type": "number"
-          },
-          "last": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/HouseRunLast"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "next_due_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "started_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "state": {
-            "$ref": "#/components/schemas/RunState"
-          }
-        },
-        "required": [
-          "state",
-          "enabled",
-          "started_at",
-          "next_due_at",
-          "interval_h",
-          "last",
-          "failure"
-        ],
-        "type": "object"
-      },
-      "HouseRunFailure": {
-        "description": "The service's last failed attempt to run the learner.",
-        "properties": {
-          "at": {
-            "type": "string"
-          },
-          "detail": {
-            "type": "string"
-          },
-          "reason": {
-            "$ref": "#/components/schemas/RunFailureReason"
-          }
-        },
-        "required": [
-          "at",
-          "reason",
-          "detail"
-        ],
-        "type": "object"
-      },
-      "HouseRunLast": {
-        "description": "The learner's last run as ``status.json`` reports it.",
-        "properties": {
-          "at": {
-            "type": "string"
-          },
-          "message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "outcome": {
-            "type": "string"
-          },
-          "runtime_s": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "at",
-          "outcome",
-          "message",
-          "runtime_s",
-          "model"
-        ],
-        "type": "object"
-      },
-      "HouseScore": {
-        "description": "The indicative insulation score, recomputed for the current floor area.",
-        "properties": {
-          "band": {
-            "type": "string"
-          },
-          "band_interval": {
-            "maxItems": 2,
-            "minItems": 2,
-            "prefixItems": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "string"
-              }
-            ],
-            "type": "array"
-          },
-          "bands": {
-            "items": {
-              "$ref": "#/components/schemas/ScoreBand"
-            },
-            "type": "array"
-          },
-          "design_indoor_c": {
-            "type": "number"
-          },
-          "design_outside_c": {
-            "type": "number"
-          },
-          "floor_area_m2": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "heat_loss_w": {
-            "type": "integer"
-          },
-          "indicative": {
-            "type": "boolean"
-          },
-          "interval_90": {
-            "maxItems": 2,
-            "minItems": 2,
-            "prefixItems": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "number"
-              }
-            ],
-            "type": "array"
-          },
-          "message": {
-            "type": "string"
-          },
-          "note": {
-            "type": "string"
-          },
-          "state": {
-            "$ref": "#/components/schemas/ScoreState"
-          },
-          "w_per_m2": {
-            "type": "number"
-          }
-        },
-        "required": [
-          "design_indoor_c",
-          "design_outside_c",
-          "floor_area_m2",
-          "bands",
-          "indicative",
-          "note",
-          "state"
-        ],
-        "type": "object"
-      },
-      "HouseSeries": {
-        "description": "``GET insight/house/series``: the room, measured and as predicted 24 h earlier.\n\n``points`` are ``[time, measured, predicted]`` rows, oldest first, starting at the\nfirst prediction; either value is ``null`` where it is unknown. The prediction is\nalso ``null`` where its 24 h path touches an event of ``events`` (shade them).\nPredictions from origins before ``out_of_sample_from`` are in-sample (the model had\nseen those days). ``rmse_k`` and ``bias_k`` (predicted minus measured) summarise\nthe ``compared_points`` out-of-sample points with both values; ``null`` without any\n(and for files of older learners).",
-        "properties": {
-          "bias_k": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "compared_points": {
-            "type": "integer"
-          },
-          "events": {
-            "items": {
-              "$ref": "#/components/schemas/SeriesEvent"
-            },
-            "type": "array"
-          },
-          "from": {
-            "type": "string"
-          },
-          "model": {
-            "type": "string"
-          },
-          "out_of_sample_from": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "points": {
-            "items": {
-              "maxItems": 3,
-              "minItems": 3,
-              "prefixItems": [
-                {
-                  "type": "string"
-                },
-                {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                }
-              ],
-              "type": "array"
-            },
-            "type": "array"
-          },
-          "rmse_k": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "step_s": {
-            "type": "integer"
-          },
-          "to": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "model",
-          "step_s",
-          "from",
-          "to",
-          "points",
-          "events",
-          "out_of_sample_from",
-          "rmse_k",
-          "bias_k",
-          "compared_points"
-        ],
-        "type": "object"
-      },
-      "HouseSource": {
-        "enum": [
-          "model",
-          "estimate"
-        ],
-        "type": "string"
-      },
-      "HouseWaiting": {
-        "description": "``GET insight/house`` before a model is promoted: what is missing.",
-        "properties": {
-          "last_run": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LastRun"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "learner": {
-            "$ref": "#/components/schemas/LearnerHealth"
-          },
-          "missing": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "state": {
-            "enum": [
-              "learning",
-              "not_run"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "state",
-          "missing",
-          "last_run",
-          "learner"
-        ],
-        "type": "object"
-      },
-      "HouseWhatIf": {
-        "description": "``GET insight/house/whatif``: what the house needs to hold comfort in a scenario.\n\n``credible`` is the model's heat-loss gate (the steady state);\n``drift.credible`` its dynamics gate (the cool-down).",
-        "properties": {
-          "balance_outside_c": {
-            "type": "number"
-          },
-          "credible": {
-            "type": "boolean"
-          },
-          "curve_c": {
-            "type": "number"
-          },
-          "drift": {
-            "$ref": "#/components/schemas/WhatIfDrift"
-          },
-          "free_heat_w": {
-            "type": "number"
-          },
-          "heat_demand_w": {
-            "type": "number"
-          },
-          "inputs": {
-            "$ref": "#/components/schemas/WhatIfInputs"
-          },
-          "limited_by": {
-            "items": {
-              "$ref": "#/components/schemas/WhatIfLimit"
-            },
-            "type": "array"
-          },
-          "loop_mean_c": {
-            "type": "number"
-          },
-          "loss_w": {
-            "type": "number"
-          },
-          "max_supply_c": {
-            "type": "number"
-          },
-          "model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "source": {
-            "$ref": "#/components/schemas/HouseSource"
-          },
-          "supply_c": {
-            "type": "number"
-          },
-          "time_constant_h": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "source",
-          "model",
-          "credible",
-          "inputs",
-          "heat_demand_w",
-          "free_heat_w",
-          "loss_w",
-          "loop_mean_c",
-          "supply_c",
-          "curve_c",
-          "max_supply_c",
-          "limited_by",
-          "balance_outside_c",
-          "drift",
-          "time_constant_h"
-        ],
-        "type": "object"
-      },
       "InFlight": {
         "description": "The command published and not yet verified.",
         "properties": {
@@ -5230,6 +5284,95 @@
           "fresh",
           "source",
           "issued"
+        ],
+        "type": "object"
+      },
+      "InsightBasics": {
+        "description": "``GET insight/basics``: heat loss and heat from the heat pump (``null`` parts when off).",
+        "properties": {
+          "by_weather": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/WeatherBinRow"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "computed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "design_outside_c": {
+            "type": "number"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "heat_loss": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HeatLoss"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "heat_pump": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HeatPumpHeat"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "loss_now": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LossNow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "room_signal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "computed_at",
+          "timezone",
+          "room_signal",
+          "design_outside_c",
+          "heat_loss",
+          "loss_now",
+          "heat_pump",
+          "by_weather"
         ],
         "type": "object"
       },
@@ -5556,245 +5699,12 @@
         ],
         "type": "object"
       },
-      "LastRun": {
-        "description": "The allow-listed essentials of the learner's last run (``status.json``).\n\n``warnings`` are data notes the owner should see (a wood-stove episode without a\nrecorded end that was capped); ``champion_revalidation`` is ``null`` when the run\nhad no champion or the learner wrote none that the service accepts.",
-        "properties": {
-          "at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "champion": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "champion_revalidation": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ChampionRevalidation"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "interval_h": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "missing": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "outcome": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "runtime_s": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "warnings": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "type": "object"
-      },
       "LayoutName": {
         "enum": [
           "long",
           "wide"
         ],
         "type": "string"
-      },
-      "LearnedGate": {
-        "description": "One credibility gate as the learner wrote it (checked by the service).\n\n``checks`` maps each check to ``{ok, value, limit, ...}`` (the learner's format);\n``needed`` holds the codes of what fails (codes the service does not know are\ndropped); ``uses`` names what the gate guards.",
-        "properties": {
-          "checks": {
-            "additionalProperties": true,
-            "type": "object"
-          },
-          "message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "needed": {
-            "items": {
-              "$ref": "#/components/schemas/GateNeed"
-            },
-            "type": "array"
-          },
-          "ok": {
-            "type": "boolean"
-          },
-          "reasons": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "uses": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "ok",
-          "needed",
-          "message",
-          "reasons",
-          "uses",
-          "checks"
-        ],
-        "type": "object"
-      },
-      "LearnedGates": {
-        "description": "The three credibility gates of a model as the learner judged it.",
-        "properties": {
-          "dynamics": {
-            "$ref": "#/components/schemas/LearnedGate"
-          },
-          "heat_loss": {
-            "$ref": "#/components/schemas/LearnedGate"
-          },
-          "sun": {
-            "$ref": "#/components/schemas/LearnedGate"
-          }
-        },
-        "required": [
-          "heat_loss",
-          "dynamics",
-          "sun"
-        ],
-        "type": "object"
-      },
-      "LearnerHealth": {
-        "description": "When the learner last ran and whether that is too long ago.",
-        "properties": {
-          "age_h": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "interval_h": {
-            "type": "number"
-          },
-          "last_run_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "stale": {
-            "type": "boolean"
-          },
-          "stale_after_h": {
-            "type": "number"
-          }
-        },
-        "required": [
-          "last_run_at",
-          "age_h",
-          "interval_h",
-          "stale_after_h",
-          "stale"
-        ],
-        "type": "object"
       },
       "LiveTicket": {
         "description": "``POST live/ticket``: a single-use pass for the WebSocket.",
@@ -5809,6 +5719,113 @@
         "required": [
           "ticket",
           "expires_in"
+        ],
+        "type": "object"
+      },
+      "LossEstimate": {
+        "description": "The heat loss at one outside and room temperature, with its 95 % band.",
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "beyond_data": {
+            "type": "boolean"
+          },
+          "delta_k": {
+            "type": "number"
+          },
+          "high_w": {
+            "type": "number"
+          },
+          "loss_w": {
+            "type": "number"
+          },
+          "low_w": {
+            "type": "number"
+          },
+          "outside_c": {
+            "type": "number"
+          },
+          "room_c": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "at",
+          "outside_c",
+          "room_c",
+          "delta_k",
+          "loss_w",
+          "low_w",
+          "high_w",
+          "beyond_data"
+        ],
+        "type": "object"
+      },
+      "LossNow": {
+        "description": "The heat loss now, at the coming night's forecast minimum and at the design temperature.",
+        "properties": {
+          "design": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LossEstimate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "forecast_available": {
+            "type": "boolean"
+          },
+          "night": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LossEstimate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "now": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LossEstimate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outside_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OutsideSourceName"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "room_source": {
+            "$ref": "#/components/schemas/RoomSourceName"
+          }
+        },
+        "required": [
+          "room_source",
+          "outside_source",
+          "forecast_available",
+          "now",
+          "night",
+          "design"
         ],
         "type": "object"
       },
@@ -5841,290 +5858,6 @@
           "shadow",
           "auto",
           "manual"
-        ],
-        "type": "string"
-      },
-      "ModelGate": {
-        "description": "One gate of the champion now.\n\n``source`` is ``revalidated`` (the last run's check of this model), ``fitted``\n(its own gates when it was fitted) or ``legacy`` (a model fitted before the gates:\nits old credibility as the heat-loss gate, its old prediction check as the dynamics\ngate, the sun gate not judged until the next run). ``message`` says what fails\n(``null`` when ``ok``).",
-        "properties": {
-          "message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "needed": {
-            "items": {
-              "$ref": "#/components/schemas/GateNeed"
-            },
-            "type": "array"
-          },
-          "ok": {
-            "type": "boolean"
-          },
-          "source": {
-            "$ref": "#/components/schemas/GateSource"
-          }
-        },
-        "required": [
-          "ok",
-          "needed",
-          "message",
-          "source"
-        ],
-        "type": "object"
-      },
-      "ModelGuard": {
-        "enum": [
-          "weather_off",
-          "model_missing",
-          "model_not_credible",
-          "model_stale",
-          "model_error_high",
-          "forecast_stale",
-          "room_untrusted",
-          "stove_active",
-          "stove_tail"
-        ],
-        "type": "string"
-      },
-      "ModelPlanBounds": {
-        "description": "The model plan bounds, the planner horizon and the error limit of the model.",
-        "properties": {
-          "horizon_h": {
-            "type": "number"
-          },
-          "max_preheat_k": {
-            "type": "number"
-          },
-          "max_rmse_k": {
-            "type": "number"
-          },
-          "max_setback_k": {
-            "type": "number"
-          }
-        },
-        "required": [
-          "max_setback_k",
-          "max_preheat_k",
-          "horizon_h",
-          "max_rmse_k"
-        ],
-        "type": "object"
-      },
-      "ModelPlanHistory": {
-        "description": "The computed offsets of the last 7 days from the 15 min rollups.\n\n``points`` are ``[time, offset_k, applied]`` rows, oldest first: ``offset_k`` is\n``null`` where a guard blocked or nothing was recorded, ``applied`` is ``1`` when the\ncontroller applied the offset for most of the interval, else ``0``; empty when\nnothing was recorded.",
-        "properties": {
-          "from": {
-            "type": "string"
-          },
-          "points": {
-            "items": {
-              "maxItems": 3,
-              "minItems": 3,
-              "prefixItems": [
-                {
-                  "type": "string"
-                },
-                {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                {
-                  "anyOf": [
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                }
-              ],
-              "type": "array"
-            },
-            "type": "array"
-          },
-          "step_s": {
-            "type": "integer"
-          },
-          "to": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "step_s",
-          "from",
-          "to",
-          "points"
-        ],
-        "type": "object"
-      },
-      "ModelPlanNow": {
-        "description": "The latest planner evaluation.\n\n``offset_k`` is the offset the planner issued (``0`` without a slice); ``applied`` is\ntrue only when the controller applied a model offset at its latest tick (never in\n``shadow``). ``rise_*``, ``fall_*``, ``solar_k`` and ``outside_k`` are the predicted\ndrift of the room (K) and when it peaks; ``null`` when the planner could not predict.",
-        "properties": {
-          "applied": {
-            "type": "boolean"
-          },
-          "at": {
-            "type": "string"
-          },
-          "fall_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "fall_k": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "offset_k": {
-            "type": "number"
-          },
-          "outside_k": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "reason": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ModelPlanReason"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "rise_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "rise_k": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "solar_k": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "status": {
-            "$ref": "#/components/schemas/ModelPlanStatus"
-          },
-          "valid_until": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "at",
-          "status",
-          "offset_k",
-          "applied",
-          "reason",
-          "valid_until",
-          "rise_k",
-          "rise_at",
-          "fall_k",
-          "fall_at",
-          "solar_k",
-          "outside_k"
-        ],
-        "type": "object"
-      },
-      "ModelPlanReason": {
-        "enum": [
-          "plan_setback",
-          "plan_preheat"
-        ],
-        "type": "string"
-      },
-      "ModelPlanStatus": {
-        "enum": [
-          "issued",
-          "inside_dead_zone",
-          "crossing_zero",
-          "forecast_gap",
-          "forecast_mismatch",
-          "model_invalid",
-          "planner_error"
-        ],
-        "type": "string"
-      },
-      "ModelPlanVerdict": {
-        "description": "The guards of the model plan: ``ok`` when none blocks, else the failing ones in order.",
-        "properties": {
-          "blocks": {
-            "items": {
-              "$ref": "#/components/schemas/ModelGuard"
-            },
-            "type": "array"
-          },
-          "ok": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "ok",
-          "blocks"
-        ],
-        "type": "object"
-      },
-      "ModelUse": {
-        "enum": [
-          "off",
-          "shadow",
-          "on"
         ],
         "type": "string"
       },
@@ -6858,6 +6591,13 @@
         ],
         "type": "string"
       },
+      "OutsideSourceName": {
+        "enum": [
+          "filtered",
+          "measured"
+        ],
+        "type": "string"
+      },
       "OwnerName": {
         "enum": [
           "operator",
@@ -6884,6 +6624,24 @@
           "points"
         ],
         "type": "object"
+      },
+      "PlanGuardName": {
+        "enum": [
+          "forecast_stale",
+          "room_untrusted",
+          "stove_active",
+          "stove_tail",
+          "away"
+        ],
+        "type": "string"
+      },
+      "PointUseName": {
+        "enum": [
+          "used",
+          "outlier",
+          "near_balance"
+        ],
+        "type": "string"
       },
       "PresetName": {
         "enum": [
@@ -6962,55 +6720,6 @@
           "errors",
           "warnings",
           "effective"
-        ],
-        "type": "object"
-      },
-      "ProposalDraft": {
-        "description": "``POST insight/house/proposal/draft``: the proposal as a configuration draft.\n\n``points`` is the learner's; ``validation`` is ``null`` without a configuration store.",
-        "properties": {
-          "changes": {
-            "$ref": "#/components/schemas/CurveChange"
-          },
-          "comment": {
-            "type": "string"
-          },
-          "credible": {
-            "type": "boolean"
-          },
-          "current": {
-            "$ref": "#/components/schemas/CurveChange"
-          },
-          "label": {
-            "type": "string"
-          },
-          "model": {
-            "type": "string"
-          },
-          "points": {},
-          "stale": {
-            "type": "boolean"
-          },
-          "validation": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ValidateResult"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "label",
-          "model",
-          "comment",
-          "changes",
-          "current",
-          "stale",
-          "credible",
-          "points",
-          "validation"
         ],
         "type": "object"
       },
@@ -8589,6 +8298,13 @@
         ],
         "type": "object"
       },
+      "RoomSourceName": {
+        "enum": [
+          "measured",
+          "comfort"
+        ],
+        "type": "string"
+      },
       "RoomStatus": {
         "description": "The room input: profile, held and alive ages, link.",
         "properties": {
@@ -8873,23 +8589,6 @@
         ],
         "type": "object"
       },
-      "RunFailureReason": {
-        "enum": [
-          "timeout",
-          "memory",
-          "exit",
-          "spawn"
-        ],
-        "type": "string"
-      },
-      "RunState": {
-        "enum": [
-          "idle",
-          "running",
-          "unavailable"
-        ],
-        "type": "string"
-      },
       "RunStats": {
         "description": "Compressor run statistics of a span.",
         "properties": {
@@ -9063,69 +8762,6 @@
           "fields"
         ],
         "type": "object"
-      },
-      "ScoreBand": {
-        "description": "An indicative band and the heat loss per m2 it lies below.",
-        "properties": {
-          "band": {
-            "type": "string"
-          },
-          "below_w_per_m2": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "band",
-          "below_w_per_m2"
-        ],
-        "type": "object"
-      },
-      "ScoreState": {
-        "enum": [
-          "learning",
-          "no_floor_area",
-          "ready"
-        ],
-        "type": "string"
-      },
-      "SeriesEvent": {
-        "description": "A known event in reach of the series: the anomaly ``from``-``to`` and its tail.",
-        "properties": {
-          "from": {
-            "type": "string"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/SeriesEventKind"
-          },
-          "tail_to": {
-            "type": "string"
-          },
-          "to": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "from",
-          "to",
-          "tail_to"
-        ],
-        "type": "object"
-      },
-      "SeriesEventKind": {
-        "enum": [
-          "stove",
-          "stove_mode",
-          "excluded_day"
-        ],
-        "type": "string"
       },
       "ServerMessage": {
         "discriminator": {
@@ -9955,6 +9591,70 @@
         ],
         "type": "string"
       },
+      "SummerStatus": {
+        "description": "The summer switch: settings, the slow outside mean and whether heating is off.",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "mean_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mean_tau_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "off_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "on_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warming_up": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "active",
+          "mean_c",
+          "off_c",
+          "on_c",
+          "mean_tau_s",
+          "warming_up"
+        ],
+        "type": "object"
+      },
       "SystemAbout": {
         "description": "``GET system/about``: version, uptime, connections and the control state.",
         "properties": {
@@ -10608,6 +10308,56 @@
         ],
         "type": "object"
       },
+      "WeatherBinRow": {
+        "description": "Heat production in one 2 K bin of the daily outside mean.",
+        "properties": {
+          "cop": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "days": {
+            "type": "integer"
+          },
+          "electric_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "few_days": {
+            "type": "boolean"
+          },
+          "from_c": {
+            "type": "number"
+          },
+          "heat_w": {
+            "type": "number"
+          },
+          "to_c": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "from_c",
+          "to_c",
+          "days",
+          "heat_w",
+          "electric_w",
+          "cop",
+          "few_days"
+        ],
+        "type": "object"
+      },
       "WeatherLocation": {
         "description": "The forecast location (rounded to 0.01°) and where it came from.",
         "properties": {
@@ -10830,64 +10580,6 @@
             "$ref": "#/components/schemas/WeatherOn"
           }
         ]
-      },
-      "WhatIfDrift": {
-        "description": "The room temperature with the heating off, from the comfort steady state.\n\n``credible`` is the model's dynamics gate (always ``false`` for an estimate).",
-        "properties": {
-          "credible": {
-            "type": "boolean"
-          },
-          "hours": {
-            "type": "integer"
-          },
-          "room_c": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array"
-          },
-          "step_s": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "credible",
-          "hours",
-          "step_s",
-          "room_c"
-        ],
-        "type": "object"
-      },
-      "WhatIfInputs": {
-        "description": "The scenario of a what-if, with the defaults filled in.",
-        "properties": {
-          "comfort_c": {
-            "type": "number"
-          },
-          "outside_c": {
-            "type": "number"
-          },
-          "stove_w": {
-            "type": "number"
-          },
-          "sun_wm2": {
-            "type": "number"
-          }
-        },
-        "required": [
-          "outside_c",
-          "comfort_c",
-          "sun_wm2",
-          "stove_w"
-        ],
-        "type": "object"
-      },
-      "WhatIfLimit": {
-        "enum": [
-          "max_supply",
-          "no_heat_needed"
-        ],
-        "type": "string"
       }
     }
   },
@@ -10899,6 +10591,7 @@
   "paths": {
     "/api/v1/alarms": {
       "get": {
+        "description": "Return the journalled alarm transitions of a window as JSON or CSV.",
         "operationId": "alarms_api_v1_alarms_get",
         "parameters": [
           {
@@ -11209,6 +10902,7 @@
     },
     "/api/v1/commands": {
       "get": {
+        "description": "Return the journalled command events of a window as JSON or CSV.",
         "operationId": "commands_api_v1_commands_get",
         "parameters": [
           {
@@ -11289,6 +10983,7 @@
     },
     "/api/v1/config": {
       "get": {
+        "description": "Return the effective configuration document.",
         "operationId": "current_api_v1_config_get",
         "responses": {
           "200": {
@@ -11305,6 +11000,7 @@
         "summary": "Current"
       },
       "put": {
+        "description": "Apply changes as a new configuration version.",
         "operationId": "apply_api_v1_config_put",
         "responses": {
           "200": {
@@ -11323,6 +11019,7 @@
     },
     "/api/v1/config/export": {
       "get": {
+        "description": "Return the configuration document as a download, secrets left out.",
         "operationId": "export_api_v1_config_export_get",
         "responses": {
           "200": {
@@ -11341,6 +11038,7 @@
     },
     "/api/v1/config/ha": {
       "put": {
+        "description": "Store the Home Assistant URL and token.",
         "operationId": "ha_connection_api_v1_config_ha_put",
         "responses": {
           "200": {
@@ -11359,6 +11057,7 @@
     },
     "/api/v1/config/ha/test": {
       "post": {
+        "description": "Test a Home Assistant connection and its signals.",
         "operationId": "ha_test_api_v1_config_ha_test_post",
         "responses": {
           "200": {
@@ -11377,6 +11076,7 @@
     },
     "/api/v1/config/mqtt": {
       "get": {
+        "description": "Return the state of the MQTT ingest connection.",
         "operationId": "mqtt_status_api_v1_config_mqtt_get",
         "responses": {
           "200": {
@@ -11393,6 +11093,7 @@
         "summary": "Mqtt Status"
       },
       "put": {
+        "description": "Store and apply the MQTT broker connection.",
         "operationId": "mqtt_connection_api_v1_config_mqtt_put",
         "responses": {
           "200": {
@@ -11411,6 +11112,7 @@
     },
     "/api/v1/config/mqtt/test": {
       "post": {
+        "description": "Test an MQTT broker connection without storing it.",
         "operationId": "mqtt_test_api_v1_config_mqtt_test_post",
         "responses": {
           "200": {
@@ -11429,6 +11131,7 @@
     },
     "/api/v1/config/preview": {
       "post": {
+        "description": "Validate proposed changes and replay recent decisions with them.",
         "operationId": "preview_api_v1_config_preview_post",
         "responses": {
           "200": {
@@ -11447,6 +11150,7 @@
     },
     "/api/v1/config/reset-ack": {
       "post": {
+        "description": "Acknowledge a lost or reset stored configuration.",
         "operationId": "reset_ack_api_v1_config_reset_ack_post",
         "responses": {
           "200": {
@@ -11465,6 +11169,7 @@
     },
     "/api/v1/config/rollback": {
       "post": {
+        "description": "Apply an older version's document as a new version.",
         "operationId": "rollback_api_v1_config_rollback_post",
         "responses": {
           "200": {
@@ -11483,6 +11188,7 @@
     },
     "/api/v1/config/schema": {
       "get": {
+        "description": "Return the configuration schema with the effective limits.",
         "operationId": "schema_api_v1_config_schema_get",
         "responses": {
           "200": {
@@ -11501,6 +11207,7 @@
     },
     "/api/v1/config/signals": {
       "get": {
+        "description": "Return the signals the configuration can pick from.",
         "operationId": "signal_candidates_api_v1_config_signals_get",
         "responses": {
           "200": {
@@ -11519,6 +11226,7 @@
     },
     "/api/v1/config/validate": {
       "post": {
+        "description": "Validate proposed changes without applying them.",
         "operationId": "validate_api_v1_config_validate_post",
         "responses": {
           "200": {
@@ -11537,6 +11245,7 @@
     },
     "/api/v1/config/versions": {
       "get": {
+        "description": "Return the newest configuration versions.",
         "operationId": "versions_api_v1_config_versions_get",
         "parameters": [
           {
@@ -11578,6 +11287,7 @@
     },
     "/api/v1/config/versions/{number}": {
       "get": {
+        "description": "Return one configuration version with its values.",
         "operationId": "version_api_v1_config_versions__number__get",
         "parameters": [
           {
@@ -11612,6 +11322,150 @@
           }
         },
         "summary": "Version"
+      }
+    },
+    "/api/v1/control/away": {
+      "delete": {
+        "description": "``DELETE control/away``: end the away period now (comfort applies again).",
+        "operationId": "away_delete_api_v1_control_away_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwayResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Away Delete"
+      },
+      "get": {
+        "description": "``GET control/away``: the away period, if any, and its settings.",
+        "operationId": "away_get_api_v1_control_away_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwayStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Away Get"
+      },
+      "put": {
+        "description": "``PUT control/away``: set an away period until a time.",
+        "operationId": "away_put_api_v1_control_away_put",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwayResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Away Put"
+      }
+    },
+    "/api/v1/control/boost": {
+      "delete": {
+        "description": "``DELETE control/boost``: end the boost now.",
+        "operationId": "boost_delete_api_v1_control_boost_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoostResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Boost Delete"
+      },
+      "get": {
+        "description": "``GET control/boost``: the boost in force, if any, and its settings.",
+        "operationId": "boost_get_api_v1_control_boost_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoostStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Boost Get"
+      },
+      "post": {
+        "description": "``POST control/boost``: raise (or lower) the room target for a while.",
+        "operationId": "boost_post_api_v1_control_boost_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoostResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Boost Post"
+      }
+    },
+    "/api/v1/control/dayshift": {
+      "get": {
+        "description": "``GET control/dayshift``: the sun day shift's mode, phase, offset, reasons and guards.",
+        "operationId": "dayshift_api_v1_control_dayshift_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DayShift"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Dayshift"
+      }
+    },
+    "/api/v1/control/features": {
+      "get": {
+        "description": "``GET control/features``: every switchable feature with its state.",
+        "operationId": "features_api_v1_control_features_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Features"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Features"
       }
     },
     "/api/v1/control/pause": {
@@ -11774,6 +11628,7 @@
     },
     "/api/v1/decisions": {
       "get": {
+        "description": "Return the journalled control decisions of a window as JSON or CSV.",
         "operationId": "decisions_api_v1_decisions_get",
         "parameters": [
           {
@@ -11854,6 +11709,7 @@
     },
     "/api/v1/decisions/latest": {
       "get": {
+        "description": "Return the latest control decision and the control status.",
         "operationId": "decisions_latest_api_v1_decisions_latest_get",
         "responses": {
           "200": {
@@ -12195,6 +12051,7 @@
     },
     "/api/v1/health": {
       "get": {
+        "description": "Return the service health.",
         "operationId": "health_api_v1_health_get",
         "responses": {
           "200": {
@@ -12213,6 +12070,7 @@
     },
     "/api/v1/history": {
       "get": {
+        "description": "Return the history of the requested signals as JSON or CSV.",
         "operationId": "history_api_v1_history_get",
         "parameters": [
           {
@@ -12360,8 +12218,28 @@
         "summary": "History Storage"
       }
     },
+    "/api/v1/insight/basics": {
+      "get": {
+        "description": "``GET insight/basics``: heat loss and heat from the heat pump.",
+        "operationId": "basics_api_v1_insight_basics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsightBasics"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Basics"
+      }
+    },
     "/api/v1/insight/daily": {
       "get": {
+        "description": "``GET insight/daily``: the last ``days`` local days.",
         "operationId": "daily_api_v1_insight_daily_get",
         "parameters": [
           {
@@ -12399,234 +12277,6 @@
           }
         },
         "summary": "Daily"
-      }
-    },
-    "/api/v1/insight/house": {
-      "get": {
-        "operationId": "house_model_api_v1_insight_house_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HouseReport"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "House Model"
-      }
-    },
-    "/api/v1/insight/house/balance": {
-      "get": {
-        "operationId": "house_balance_api_v1_insight_house_balance_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HouseBalance"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "House Balance"
-      }
-    },
-    "/api/v1/insight/house/control": {
-      "get": {
-        "operationId": "house_control_api_v1_insight_house_control_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HouseControl"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "House Control"
-      }
-    },
-    "/api/v1/insight/house/history": {
-      "get": {
-        "operationId": "house_history_api_v1_insight_house_history_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HouseHistory"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "House History"
-      }
-    },
-    "/api/v1/insight/house/proposal/draft": {
-      "post": {
-        "operationId": "proposal_draft_api_v1_insight_house_proposal_draft_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProposalDraft"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Proposal Draft"
-      }
-    },
-    "/api/v1/insight/house/run": {
-      "get": {
-        "operationId": "house_run_api_v1_insight_house_run_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HouseRun"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "House Run"
-      },
-      "post": {
-        "operationId": "start_house_run_api_v1_insight_house_run_post",
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HouseRun"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Start House Run"
-      }
-    },
-    "/api/v1/insight/house/series": {
-      "get": {
-        "operationId": "house_series_api_v1_insight_house_series_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HouseSeries"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "House Series"
-      }
-    },
-    "/api/v1/insight/house/whatif": {
-      "get": {
-        "operationId": "house_whatif_api_v1_insight_house_whatif_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "outside_c",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "maximum": 30.0,
-                  "minimum": -30.0,
-                  "type": "number"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          {
-            "in": "query",
-            "name": "comfort_c",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "maximum": 30.0,
-                  "minimum": 5.0,
-                  "type": "number"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          {
-            "in": "query",
-            "name": "sun_wm2",
-            "required": false,
-            "schema": {
-              "default": 0.0,
-              "maximum": 1000.0,
-              "minimum": 0.0,
-              "type": "number"
-            }
-          },
-          {
-            "in": "query",
-            "name": "stove_w",
-            "required": false,
-            "schema": {
-              "default": 0.0,
-              "maximum": 15000.0,
-              "minimum": 0.0,
-              "type": "number"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HouseWhatIf"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "House Whatif"
       }
     },
     "/api/v1/insight/runs": {
@@ -12673,6 +12323,7 @@
     },
     "/api/v1/live/ticket": {
       "post": {
+        "description": "Issue a short-lived ticket for opening the WebSocket.",
         "operationId": "live_ticket_api_v1_live_ticket_post",
         "responses": {
           "200": {
@@ -12729,6 +12380,7 @@
     },
     "/api/v1/pump/settings": {
       "get": {
+        "description": "Return the pump settings payload.",
         "operationId": "read_api_v1_pump_settings_get",
         "responses": {
           "200": {
@@ -12747,6 +12399,7 @@
     },
     "/api/v1/pump/settings/{setting_id}": {
       "post": {
+        "description": "Write one pump setting as an operator, or answer why it was refused.",
         "operationId": "write_api_v1_pump_settings__setting_id__post",
         "parameters": [
           {
@@ -13049,6 +12702,7 @@
     },
     "/api/v1/snapshot": {
       "get": {
+        "description": "Return the latest value of every signal.",
         "operationId": "snapshot_api_v1_snapshot_get",
         "responses": {
           "200": {
@@ -13177,6 +12831,7 @@
     },
     "/api/v1/weather": {
       "get": {
+        "description": "Return the measured, forecast and filtered outside temperature around now.",
         "operationId": "read_api_v1_weather_get",
         "parameters": [
           {

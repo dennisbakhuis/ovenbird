@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -41,6 +42,11 @@ from ovenbird.weather import OpenMeteoProvider, WeatherService
 
 DEFAULT_PATH: Final = Path(__file__).resolve().parents[5] / "docs" / "openapi.json"
 REF_TEMPLATE: Final = REF_PREFIX + "{model}"
+NUMPY_SECTION: Final = re.compile(
+    r"\n*^(?:Parameters|Other Parameters|Returns|Yields|Raises|Warns|See Also|Notes|Examples)"
+    r"\n-{3,}\n",
+    re.MULTILINE,
+)
 EMPTY_SIGNALS: Final[dict[str, Any]] = {
     "ha": {"enabled": False, "link_up": False},
     "room": [],
@@ -50,10 +56,11 @@ EMPTY_SIGNALS: Final[dict[str, Any]] = {
 
 
 async def _no_sleep(_: float) -> None:
-    return None
+    """Skip a wait, so the contract app never delays."""
 
 
 def _no_network(_: str) -> bytes:
+    """Refuse any forecast fetch."""
     raise OSError("the contract app never fetches a forecast")
 
 
@@ -114,6 +121,24 @@ def untitled(node: Any, *, names: bool = False) -> None:
             untitled(item)
 
 
+def trim_descriptions(paths: dict[str, Any]) -> None:
+    """Cut every operation description at its first numpy section (in place).
+
+    FastAPI copies the whole route docstring into the description; the ``Parameters``
+    and ``Returns`` sections are for readers of the code, not of the contract.
+    """
+    for operations in paths.values():
+        for operation in operations.values():
+            description = operation.get("description") if isinstance(operation, dict) else None
+            if not isinstance(description, str):
+                continue
+            trimmed = NUMPY_SECTION.split(description, maxsplit=1)[0].rstrip()
+            if trimmed:
+                operation["description"] = trimmed
+            else:
+                del operation["description"]
+
+
 def component(schemas: dict[str, Any], name: str, kind: Any) -> None:
     """Add ``kind`` (and the models it uses) to ``schemas`` as the component ``name``.
 
@@ -143,6 +168,7 @@ def contract() -> dict[str, Any]:
     component(schemas, "ServerMessage", ServerMessage)
     for model in KEPT_MODELS:
         component(schemas, model.__name__, model)
+    trim_descriptions(document["paths"])
     untitled(document["paths"])
     untitled(schemas)
     return document

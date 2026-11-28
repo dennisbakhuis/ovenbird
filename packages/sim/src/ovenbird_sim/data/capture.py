@@ -39,12 +39,14 @@ _SKIP_SUFFIXES: Final = ("/alias", "/LWT")
 
 
 def _open(path: Path) -> TextIO:
+    """Open a capture file for text reading, decompressing it when it ends in ``.gz``."""
     if path.suffix == ".gz":
         return gzip.open(path, "rt", encoding="utf-8")
     return path.open("r", encoding="utf-8")
 
 
 def _number(text: str) -> float | None:
+    """Parse ``text`` as a finite float, returning ``None`` for anything else."""
     try:
         value = float(text)
     except ValueError:
@@ -53,6 +55,7 @@ def _number(text: str) -> float | None:
 
 
 def _setcurves_high(payload: str) -> float | None:
+    """Return the heating-curve upper target (degC) of a set-curves payload, or ``None``."""
     try:
         obj = json.loads(payload)
         value = obj["zone1"]["heat"]["target"]["high"]
@@ -151,16 +154,19 @@ def parse_lines(lines: Iterator[str]) -> dict[str, Series]:
 
 
 def _cache_path(path: Path) -> Path:
+    """Return the path of the ``.npz`` cache that belongs to the capture file ``path``."""
     stem = path.name.removesuffix(".gz").removesuffix(".jsonl")
     return path.parent.parent / "cache" / path.parent.name / f"{stem}.npz"
 
 
 def _fingerprint(path: Path) -> np.ndarray:
+    """Return the version, size and mtime of ``path``, which identify a cache as current."""
     stat = path.stat()
     return np.array([CACHE_VERSION, stat.st_size, stat.st_mtime_ns], dtype=np.int64)
 
 
 def _read_cache(cache: Path, fingerprint: np.ndarray) -> dict[str, Series] | None:
+    """Return the cached series when ``cache`` matches ``fingerprint``, otherwise ``None``."""
     if not cache.exists():
         return None
     try:
@@ -174,6 +180,7 @@ def _read_cache(cache: Path, fingerprint: np.ndarray) -> dict[str, Series] | Non
 
 
 def _write_cache(cache: Path, fingerprint: np.ndarray, series: dict[str, Series]) -> None:
+    """Write ``series`` and ``fingerprint`` to ``cache`` atomically (temp file, then rename)."""
     cache.parent.mkdir(parents=True, exist_ok=True)
     keys = sorted(series)
     arrays: dict[str, np.ndarray] = {

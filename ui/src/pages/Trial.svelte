@@ -5,6 +5,7 @@
   line instead of that part. Nothing is started automatically.
 -->
 <script lang="ts">
+  import { poll } from '$lib/core/poll.svelte';
   import { untrack } from 'svelte';
   import Card from '$ui/Card.svelte';
   import Checklist from '$components/trial/Checklist.svelte';
@@ -57,25 +58,22 @@
 
   $effect(() => {
     void reloads;
-    const controller = new AbortController();
-    const refresh = () =>
-      untrack(() => {
-        const signal = controller.signal;
-        void load(fetchTrialStatus, signal, (p) => (status = p), status.phase === 'ok');
-        void load(
-          (s) => fetchRuns(RUN_DAYS, s),
-          signal,
-          (p) => (runs = p),
-          runs.phase === 'ok',
-        );
-        void load(fetchSnapshotState, signal, (p) => (snapshot = p), snapshot.phase === 'ok');
-      });
-    refresh();
-    const timer = window.setInterval(refresh, REFRESH_MS);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
+    return poll(
+      (signal) =>
+        untrack(() =>
+          Promise.all([
+            load(fetchTrialStatus, signal, (p) => (status = p), status.phase === 'ok'),
+            load(
+              (s) => fetchRuns(RUN_DAYS, s),
+              signal,
+              (p) => (runs = p),
+              runs.phase === 'ok',
+            ),
+            load(fetchSnapshotState, signal, (p) => (snapshot = p), snapshot.phase === 'ok'),
+          ]),
+        ),
+      { intervalMs: REFRESH_MS },
+    );
   });
 
   $effect(() => {

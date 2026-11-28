@@ -9,7 +9,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Alarms */
+    /**
+     * Alarms
+     * @description Return the journalled alarm transitions of a window as JSON or CSV.
+     */
     get: operations['alarms_api_v1_alarms_get'];
     put?: never;
     post?: never;
@@ -146,7 +149,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Commands */
+    /**
+     * Commands
+     * @description Return the journalled command events of a window as JSON or CSV.
+     */
     get: operations['commands_api_v1_commands_get'];
     put?: never;
     post?: never;
@@ -163,9 +169,15 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Current */
+    /**
+     * Current
+     * @description Return the effective configuration document.
+     */
     get: operations['current_api_v1_config_get'];
-    /** Apply */
+    /**
+     * Apply
+     * @description Apply changes as a new configuration version.
+     */
     put: operations['apply_api_v1_config_put'];
     post?: never;
     delete?: never;
@@ -181,7 +193,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Export */
+    /**
+     * Export
+     * @description Return the configuration document as a download, secrets left out.
+     */
     get: operations['export_api_v1_config_export_get'];
     put?: never;
     post?: never;
@@ -199,7 +214,10 @@ export interface paths {
       cookie?: never;
     };
     get?: never;
-    /** Ha Connection */
+    /**
+     * Ha Connection
+     * @description Store the Home Assistant URL and token.
+     */
     put: operations['ha_connection_api_v1_config_ha_put'];
     post?: never;
     delete?: never;
@@ -217,7 +235,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Ha Test */
+    /**
+     * Ha Test
+     * @description Test a Home Assistant connection and its signals.
+     */
     post: operations['ha_test_api_v1_config_ha_test_post'];
     delete?: never;
     options?: never;
@@ -232,9 +253,15 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Mqtt Status */
+    /**
+     * Mqtt Status
+     * @description Return the state of the MQTT ingest connection.
+     */
     get: operations['mqtt_status_api_v1_config_mqtt_get'];
-    /** Mqtt Connection */
+    /**
+     * Mqtt Connection
+     * @description Store and apply the MQTT broker connection.
+     */
     put: operations['mqtt_connection_api_v1_config_mqtt_put'];
     post?: never;
     delete?: never;
@@ -252,7 +279,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Mqtt Test */
+    /**
+     * Mqtt Test
+     * @description Test an MQTT broker connection without storing it.
+     */
     post: operations['mqtt_test_api_v1_config_mqtt_test_post'];
     delete?: never;
     options?: never;
@@ -269,7 +299,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Preview */
+    /**
+     * Preview
+     * @description Validate proposed changes and replay recent decisions with them.
+     */
     post: operations['preview_api_v1_config_preview_post'];
     delete?: never;
     options?: never;
@@ -286,7 +319,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Reset Ack */
+    /**
+     * Reset Ack
+     * @description Acknowledge a lost or reset stored configuration.
+     */
     post: operations['reset_ack_api_v1_config_reset_ack_post'];
     delete?: never;
     options?: never;
@@ -303,7 +339,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Rollback */
+    /**
+     * Rollback
+     * @description Apply an older version's document as a new version.
+     */
     post: operations['rollback_api_v1_config_rollback_post'];
     delete?: never;
     options?: never;
@@ -318,7 +357,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Schema */
+    /**
+     * Schema
+     * @description Return the configuration schema with the effective limits.
+     */
     get: operations['schema_api_v1_config_schema_get'];
     put?: never;
     post?: never;
@@ -335,7 +377,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Signal Candidates */
+    /**
+     * Signal Candidates
+     * @description Return the signals the configuration can pick from.
+     */
     get: operations['signal_candidates_api_v1_config_signals_get'];
     put?: never;
     post?: never;
@@ -354,7 +399,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Validate */
+    /**
+     * Validate
+     * @description Validate proposed changes without applying them.
+     */
     post: operations['validate_api_v1_config_validate_post'];
     delete?: never;
     options?: never;
@@ -369,7 +417,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Versions */
+    /**
+     * Versions
+     * @description Return the newest configuration versions.
+     */
     get: operations['versions_api_v1_config_versions_get'];
     put?: never;
     post?: never;
@@ -386,8 +437,107 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Version */
+    /**
+     * Version
+     * @description Return one configuration version with its values.
+     */
     get: operations['version_api_v1_config_versions__number__get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/control/away': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Away Get
+     * @description ``GET control/away``: the away period, if any, and its settings.
+     */
+    get: operations['away_get_api_v1_control_away_get'];
+    /**
+     * Away Put
+     * @description ``PUT control/away``: set an away period until a time.
+     */
+    put: operations['away_put_api_v1_control_away_put'];
+    post?: never;
+    /**
+     * Away Delete
+     * @description ``DELETE control/away``: end the away period now (comfort applies again).
+     */
+    delete: operations['away_delete_api_v1_control_away_delete'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/control/boost': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Boost Get
+     * @description ``GET control/boost``: the boost in force, if any, and its settings.
+     */
+    get: operations['boost_get_api_v1_control_boost_get'];
+    put?: never;
+    /**
+     * Boost Post
+     * @description ``POST control/boost``: raise (or lower) the room target for a while.
+     */
+    post: operations['boost_post_api_v1_control_boost_post'];
+    /**
+     * Boost Delete
+     * @description ``DELETE control/boost``: end the boost now.
+     */
+    delete: operations['boost_delete_api_v1_control_boost_delete'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/control/dayshift': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Dayshift
+     * @description ``GET control/dayshift``: the sun day shift's mode, phase, offset, reasons and guards.
+     */
+    get: operations['dayshift_api_v1_control_dayshift_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/control/features': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Features
+     * @description ``GET control/features``: every switchable feature with its state.
+     */
+    get: operations['features_api_v1_control_features_get'];
     put?: never;
     post?: never;
     delete?: never;
@@ -531,7 +681,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Decisions */
+    /**
+     * Decisions
+     * @description Return the journalled control decisions of a window as JSON or CSV.
+     */
     get: operations['decisions_api_v1_decisions_get'];
     put?: never;
     post?: never;
@@ -548,7 +701,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Decisions Latest */
+    /**
+     * Decisions Latest
+     * @description Return the latest control decision and the control status.
+     */
     get: operations['decisions_latest_api_v1_decisions_latest_get'];
     put?: never;
     post?: never;
@@ -665,7 +821,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Health */
+    /**
+     * Health
+     * @description Return the service health.
+     */
     get: operations['health_api_v1_health_get'];
     put?: never;
     post?: never;
@@ -682,7 +841,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** History */
+    /**
+     * History
+     * @description Return the history of the requested signals as JSON or CSV.
+     */
     get: operations['history_api_v1_history_get'];
     put?: never;
     post?: never;
@@ -752,6 +914,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/insight/basics': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Basics
+     * @description ``GET insight/basics``: heat loss and heat from the heat pump.
+     */
+    get: operations['basics_api_v1_insight_basics_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/insight/daily': {
     parameters: {
       query?: never;
@@ -759,145 +941,11 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Daily */
+    /**
+     * Daily
+     * @description ``GET insight/daily``: the last ``days`` local days.
+     */
     get: operations['daily_api_v1_insight_daily_get'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/insight/house': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** House Model */
-    get: operations['house_model_api_v1_insight_house_get'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/insight/house/balance': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** House Balance */
-    get: operations['house_balance_api_v1_insight_house_balance_get'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/insight/house/control': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** House Control */
-    get: operations['house_control_api_v1_insight_house_control_get'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/insight/house/history': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** House History */
-    get: operations['house_history_api_v1_insight_house_history_get'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/insight/house/proposal/draft': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /** Proposal Draft */
-    post: operations['proposal_draft_api_v1_insight_house_proposal_draft_post'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/insight/house/run': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** House Run */
-    get: operations['house_run_api_v1_insight_house_run_get'];
-    put?: never;
-    /** Start House Run */
-    post: operations['start_house_run_api_v1_insight_house_run_post'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/insight/house/series': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** House Series */
-    get: operations['house_series_api_v1_insight_house_series_get'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/insight/house/whatif': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** House Whatif */
-    get: operations['house_whatif_api_v1_insight_house_whatif_get'];
     put?: never;
     post?: never;
     delete?: never;
@@ -935,7 +983,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Live Ticket */
+    /**
+     * Live Ticket
+     * @description Issue a short-lived ticket for opening the WebSocket.
+     */
     post: operations['live_ticket_api_v1_live_ticket_post'];
     delete?: never;
     options?: never;
@@ -990,7 +1041,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Read */
+    /**
+     * Read
+     * @description Return the pump settings payload.
+     */
     get: operations['read_api_v1_pump_settings_get'];
     put?: never;
     post?: never;
@@ -1009,7 +1063,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Write */
+    /**
+     * Write
+     * @description Write one pump setting as an operator, or answer why it was refused.
+     */
     post: operations['write_api_v1_pump_settings__setting_id__post'];
     delete?: never;
     options?: never;
@@ -1146,7 +1203,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Snapshot */
+    /**
+     * Snapshot
+     * @description Return the latest value of every signal.
+     */
     get: operations['snapshot_api_v1_snapshot_get'];
     put?: never;
     post?: never;
@@ -1203,7 +1263,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Read */
+    /**
+     * Read
+     * @description Return the measured, forecast and filtered outside temperature around now.
+     */
     get: operations['read_api_v1_weather_get'];
     put?: never;
     post?: never;
@@ -1371,27 +1434,62 @@ export interface components {
     };
     /** @enum {string} */
     AutoVacuumName: 'none' | 'full' | 'incremental';
-    /** @description The heat flows of the house in W; ``null`` where an input is unknown. */
-    BalanceFlows: {
-      heat_pump_w: number | null;
-      internal_w: number;
-      loss_w: number | null;
-      storage_w: number | null;
-      stove_active: boolean;
-      sun_w: number | null;
+    /** @enum {string} */
+    AwayPhaseName: 'away' | 'returning';
+    /** @description An away period. */
+    AwayRequest: {
+      actor: string;
+      at: string;
+      comfort_from: string;
+      comfort_lead_s: number;
+      target_c: number;
+      until: string;
+    };
+    /** @description ``PUT`` and ``DELETE control/away``: the request accepted or ended, and away. */
+    AwayResult: {
+      away: components['schemas']['AwayStatus'];
+      request: components['schemas']['AwayRequest'] | null;
+    };
+    /** @description Away: settings, phase (away or returning to comfort) and the request. */
+    AwayStatus: {
+      active: boolean;
+      comfort_from: string | null;
+      default_lead_s: number;
+      default_target_c: number;
+      enabled: boolean;
+      paused: string | null;
+      phase: components['schemas']['AwayPhaseName'] | null;
+      request: components['schemas']['AwayRequest'] | null;
+      target_c: number | null;
+      until: string | null;
     };
     /** @enum {string} */
-    BalanceNote:
-      | 'estimate'
-      | 'not_credible'
-      | 'room_unknown'
-      | 'outside_unknown'
-      | 'sun_unknown'
-      | 'dhw_active'
-      | 'heat_unknown'
-      | 'defrost'
-      | 'stove_active'
-      | 'stove_tail';
+    BasicsStatusName: 'collecting' | 'provisional' | 'credible';
+    /** @description A manual boost: an offset to comfort or an absolute room target, until a time. */
+    BoostRequest: {
+      actor: string;
+      at: string;
+      offset_k: number | null;
+      target_c: number | null;
+      until: string;
+    };
+    /** @description ``POST`` and ``DELETE control/boost``: the request accepted or ended, and the boost. */
+    BoostResult: {
+      boost: components['schemas']['BoostStatus'];
+      request: components['schemas']['BoostRequest'] | null;
+    };
+    /** @description The boost: settings, whether it runs (or is paused, and why) and the request. */
+    BoostStatus: {
+      active: boolean;
+      default_k: number;
+      default_s: number;
+      enabled: boolean;
+      paused: string | null;
+      remaining_s: number | null;
+      request: components['schemas']['BoostRequest'] | null;
+      shift_k: number | null;
+      target_c: number | null;
+    };
     /** @description Today's write budget. */
     Budget: {
       day: string | null;
@@ -1401,44 +1499,6 @@ export interface components {
     };
     /** @enum {string} */
     CaptureRefusalName: 'controlling' | 'in_use' | 'in_progress';
-    /** @description The promoted model named by the learner's ``current.json``. */
-    Champion: {
-      model: string | null;
-      promoted_at: string | null;
-    };
-    /**
-     * @description The latest run's check of the model ``current.json`` names (``status.json``).
-     *
-     *     ``source`` is ``held_out`` when that run promoted the model (its own held-out
-     *     validation) and ``revalidated`` when the run kept it and scored it again on the
-     *     newest held-out days (``from`` to ``to``; ``in_sample`` when the model had seen
-     *     part of them). ``gates`` are the model's three gates as of that run (``null`` from
-     *     a learner before the gates); ``credible`` is its heat-loss gate and ``reasons``
-     *     say what fails there. Errors are room RMSE in K over the first 24 h, ``skill`` is
-     *     ``1 - model / persistence`` over ``skill_horizon_h``, ``series_*`` the 24 h-ahead
-     *     error and bias of the model's room series.
-     */
-    ChampionRevalidation: {
-      at: string | null;
-      credible: boolean;
-      data_to: string | null;
-      fitted_to: string | null;
-      from: string | null;
-      gates: components['schemas']['LearnedGates'] | null;
-      in_sample: boolean;
-      model: string;
-      origins: number;
-      persistence_room_rmse_k: number | null;
-      reasons: string[];
-      room_rmse_k: number | null;
-      series_bias_k: number | null;
-      series_rmse_k: number | null;
-      skill: number | null;
-      skill_horizon_h: number | null;
-      /** @enum {string} */
-      source: 'held_out' | 'revalidated';
-      to: string | null;
-    };
     /** @description Checklist items per status. */
     CheckCounts: {
       fail: number;
@@ -1605,6 +1665,8 @@ export interface components {
     ControlStatus: {
       adapter: components['schemas']['AdapterStatus'] | null;
       alarms: components['schemas']['Alarm'][];
+      away: components['schemas']['AwayStatus'];
+      boost: components['schemas']['BoostStatus'];
       config_version: number | null;
       configured_mode: components['schemas']['ModeName'];
       controller: string;
@@ -1619,6 +1681,7 @@ export interface components {
       room: components['schemas']['RoomStatus'] | null;
       safety: components['schemas']['Safety'] | null;
       stove: components['schemas']['StoveStatus'];
+      summer: components['schemas']['SummerStatus'];
       ticks: number;
     };
     /** @description Recent corrective writes against their limit. */
@@ -1646,13 +1709,80 @@ export interface components {
     };
     /** @enum {string} */
     CriterionStatusName: 'ok' | 'fail' | 'info' | 'unknown';
-    /** @description A heating curve as a configuration change (``null`` when there is none). */
-    CurveChange: {
-      control_curve: [number, number][] | null;
-    };
     /** @description The curve's water temperature on the forecast. */
     CurveOutlook: {
       points: components['schemas']['WeatherPoint'][];
+    };
+    /** @description ``GET control/dayshift``: the sun day shift's mode, phase, offset and reasons. */
+    DayShift: {
+      applied_k: number;
+      boosted_today: boolean;
+      configured: components['schemas']['DayShiftUseName'];
+      desired_k: number;
+      evaluated_at: string | null;
+      experimental: boolean;
+      forecast: components['schemas']['DayShiftForecast'] | null;
+      guards: components['schemas']['PlanGuardName'][];
+      mode: components['schemas']['DayShiftUseName'];
+      next_change: components['schemas']['DayShiftNext'] | null;
+      offset_k: number;
+      on_available: boolean;
+      phase: components['schemas']['DayShiftPhaseName'];
+      reasons: components['schemas']['DayShiftReasonName'][];
+      valid_until: string | null;
+      windows: components['schemas']['DayShiftWindows'];
+    };
+    /** @description What the day shift read of the forecast at its latest evaluation. */
+    DayShiftForecast: {
+      hours: number;
+      issued_at: string | null;
+      night_limit_c: number;
+      night_min_c: number | null;
+      outside_c: number | null;
+      outside_limit_c: number;
+      outside_min_c: number | null;
+      sun_limit_wm2: number;
+      sun_wm2: number | null;
+    };
+    /** @description The next change of phase the day shift's schedule allows. */
+    DayShiftNext: {
+      at: string;
+      phase: components['schemas']['DayShiftPhaseName'];
+    };
+    /** @enum {string} */
+    DayShiftPhaseName: 'idle' | 'boost' | 'setback' | 'recovery' | 'blocked';
+    /** @enum {string} */
+    DayShiftReasonName:
+      | 'off'
+      | 'outside_windows'
+      | 'sun_forecast'
+      | 'sun_low'
+      | 'outside_mild'
+      | 'outside_cold'
+      | 'outside_unknown'
+      | 'forecast_missing'
+      | 'night_after_boost'
+      | 'no_boost_today'
+      | 'night_cold'
+      | 'recovery_lead'
+      | 'room_below_target'
+      | 'room_warm'
+      | 'forecast_stale'
+      | 'room_untrusted'
+      | 'stove_active'
+      | 'stove_tail'
+      | 'away';
+    /** @enum {string} */
+    DayShiftUseName: 'off' | 'shadow' | 'on';
+    /** @description The local windows of the day shift and the end of the coming set-back. */
+    DayShiftWindows: {
+      comfort_at: string;
+      day_end: string;
+      day_start: string;
+      night_end: string;
+      night_start: string;
+      setback_end: string | null;
+      timezone: string;
     };
     /** @description The dead-man ping; only ``configured`` without a notifier. */
     DeadmanStatus: {
@@ -1832,6 +1962,44 @@ export interface components {
       mean_abs_k: number | null;
       minutes: number;
     };
+    /** @description The emitter figure ``Q = K x (T_water - T_room)`` and what it implies. */
+    Emitter: {
+      balance_in_range: boolean | null;
+      balance_mean_water_c: number | null;
+      balance_supply_c: number | null;
+      days_used: number;
+      flow_l_min: number | null;
+      hours_used: number;
+      k_high_w_per_k: number | null;
+      k_low_w_per_k: number | null;
+      k_w_per_k: number | null;
+      reasons: components['schemas']['EmitterReasonName'][];
+      room_c: number;
+      setpoint_max_c: number;
+      setpoint_min_c: number;
+      span_k: number | null;
+      status: components['schemas']['BasicsStatusName'];
+      table: components['schemas']['EmitterRow'][];
+    };
+    /** @enum {string} */
+    EmitterReasonName:
+      | 'no_room_signal'
+      | 'too_few_hours'
+      | 'slope_not_positive'
+      | 'slope_implausible'
+      | 'too_uncertain'
+      | 'few_hours'
+      | 'narrow_span';
+    /** @description Expected steady heat at one supply temperature, next to the heat loss now. */
+    EmitterRow: {
+      heat_w: number;
+      high_w: number;
+      loss_now_w: number | null;
+      low_w: number;
+      margin_w: number | null;
+      mean_water_c: number;
+      supply_c: number;
+    };
     /** @description The safety envelope around the heating curve. */
     Envelope: {
       above_k: number;
@@ -1909,6 +2077,37 @@ export interface components {
     ExplainResult: {
       explained: components['schemas']['EpisodeMark'] | null;
     };
+    /** @description One switchable feature and its state. */
+    FeatureEntry: {
+      active: boolean;
+      enabled: boolean;
+      experimental: boolean;
+      id: components['schemas']['FeatureName'];
+      on_available: boolean;
+      state: components['schemas']['FeatureStateName'];
+    };
+    /** @enum {string} */
+    FeatureName:
+      | 'weather_compensation'
+      | 'room_feedback'
+      | 'slow_start'
+      | 'minimum_run'
+      | 'pump_duty'
+      | 'quiet'
+      | 'stove'
+      | 'dayshift'
+      | 'summer'
+      | 'away'
+      | 'boost'
+      | 'house_basics'
+      | 'starts_alarm';
+    /** @description ``GET control/features``: every feature with its state. */
+    Features: {
+      features: components['schemas']['FeatureEntry'][];
+      mode: components['schemas']['ModeName'];
+    };
+    /** @enum {string} */
+    FeatureStateName: 'off' | 'shadow' | 'on' | 'active_now';
     /** @description The schema of one configuration field. */
     FieldDef: {
       display: string | null;
@@ -1916,6 +2115,7 @@ export interface components {
       env: string;
       exclusive_max: boolean;
       exclusive_min: boolean;
+      feature: components['schemas']['FeatureName'] | null;
       group: string;
       level_max?: number;
       level_min?: number;
@@ -1929,6 +2129,7 @@ export interface components {
       outside_max?: number;
       outside_min?: number;
       preset_default: boolean;
+      read_only: boolean;
       soft_max: number | null;
       soft_min: number | null;
       step: number | null;
@@ -1945,7 +2146,6 @@ export interface components {
       | 'enum'
       | 'curve'
       | 'windows'
-      | 'dates'
       | 'list'
       | 'secret'
       | 'signal'
@@ -1967,21 +2167,6 @@ export interface components {
     };
     /** @enum {string} */
     Format: 'json' | 'csv';
-    /** @enum {string} */
-    GateNeed:
-      | 'no_signature'
-      | 'more_heating_days'
-      | 'more_outside_spread'
-      | 'ua_interval_wide'
-      | 'ua_disagrees'
-      | 'ua_unstable'
-      | 'no_dynamics_skill'
-      | 'more_sunny_days'
-      | 'no_sun_skill'
-      | 'sun_response_off'
-      | 'legacy_model';
-    /** @enum {string} */
-    GateSource: 'fitted' | 'revalidated' | 'legacy';
     /** @description The Home Assistant link (``connected`` ``null`` when not configured). */
     HaConnection: {
       configured: boolean;
@@ -2062,6 +2247,71 @@ export interface components {
        */
       type: 'health';
     };
+    /** @description Heat into the space-heating loop now and over the last 24 h. */
+    HeatDelivered: {
+      coverage_24h: number;
+      mean_24h_w: number | null;
+      now_reason: components['schemas']['HeatNowReasonName'] | null;
+      now_w: number | null;
+    };
+    /** @description The heat-loss fit ``P = H x dT - G``; the figures are ``null`` while collecting. */
+    HeatLoss: {
+      balance_c: number | null;
+      balance_offset_k: number | null;
+      days_used: number;
+      excluded: components['schemas']['HeatLossExclusions'];
+      first_date: string | null;
+      h_high_w_per_k: number | null;
+      h_low_w_per_k: number | null;
+      h_w_per_k: number | null;
+      last_date: string | null;
+      near_balance_points: number;
+      offset_w: number | null;
+      outlier_points: number;
+      outside_max_c: number | null;
+      outside_min_c: number | null;
+      points: components['schemas']['HeatLossPoint'][];
+      points_used: number;
+      reasons: components['schemas']['HeatLossReasonName'][];
+      residual_w: number | null;
+      room_mean_c: number | null;
+      span_k: number | null;
+      status: components['schemas']['BasicsStatusName'];
+    };
+    /** @description Complete days with data left out of the heat-loss fit, by reason. */
+    HeatLossExclusions: {
+      away: number;
+      low_coverage: number;
+      no_heating: number;
+      stove: number;
+    };
+    /** @description One 48 h window (two consecutive local days) of the heat-loss fit. */
+    HeatLossPoint: {
+      delta_k: number;
+      first_date: string;
+      heat_w: number;
+      last_date: string;
+      outside_c: number;
+      room_c: number;
+      use: components['schemas']['PointUseName'];
+    };
+    /** @enum {string} */
+    HeatLossReasonName:
+      | 'no_room_signal'
+      | 'too_few_days'
+      | 'span_too_small'
+      | 'slope_not_positive'
+      | 'slope_implausible'
+      | 'too_uncertain'
+      | 'few_days'
+      | 'narrow_span';
+    /** @enum {string} */
+    HeatNowReasonName: 'hot_water' | 'unknown';
+    /** @description How much heat the house gets from the heat pump. */
+    HeatPumpHeat: {
+      delivered: components['schemas']['HeatDelivered'];
+      emitter: components['schemas']['Emitter'];
+    };
     /** @description HeishaMon's heartbeat and last will. */
     HeishamonLink: {
       alive: boolean;
@@ -2106,213 +2356,6 @@ export interface components {
       setting: 'auto' | 'on' | 'off';
       shown: boolean;
     };
-    /**
-     * @description ``GET insight/house/balance``: the heat balance of the house right now.
-     *
-     *     ``credible`` is the model's heat-loss gate.
-     */
-    HouseBalance: {
-      at: string;
-      credible: boolean;
-      flows: components['schemas']['BalanceFlows'];
-      notes: components['schemas']['BalanceNote'][];
-      outside_c: number | null;
-      room_c: number | null;
-      source: components['schemas']['HouseSource'];
-      sun_wm2: number | null;
-      ua_w_per_k: number;
-    };
-    /** @description ``GET insight/house/control``: the model plan switch, its guards, latest result, history. */
-    HouseControl: {
-      bounds: components['schemas']['ModelPlanBounds'];
-      history: components['schemas']['ModelPlanHistory'];
-      model: string | null;
-      model_rmse_k: number | null;
-      now: components['schemas']['ModelPlanNow'] | null;
-      use: components['schemas']['ModelUse'];
-      verdict: components['schemas']['ModelPlanVerdict'];
-    };
-    /**
-     * @description The champion's gates now, one per use.
-     *
-     *     ``heat_loss`` (U) guards the insulation score, the curve proposal, the what-if
-     *     steady state and the live balance; ``dynamics`` (D) the what-if cool-down and the
-     *     room-target planner; ``sun`` (S) the water planner.
-     */
-    HouseGates: {
-      dynamics: components['schemas']['ModelGate'];
-      heat_loss: components['schemas']['ModelGate'];
-      sun: components['schemas']['ModelGate'];
-    };
-    /** @description ``GET insight/house/history``: every promoted model. */
-    HouseHistory: {
-      floor_area_m2: number | null;
-      models: components['schemas']['HouseHistoryModel'][];
-    };
-    /** @description A promoted model of the learner's index and its score at the current floor area. */
-    HouseHistoryModel: {
-      champion: boolean;
-      credible: boolean | null;
-      data_to: string | null;
-      generated: string | null;
-      model: string | null;
-      room_rmse_24h_k: number | null;
-      score: components['schemas']['HouseScore'];
-      time_constant_h: number | null;
-      ua_interval_90: [number, number] | null;
-      ua_w_per_k: number | null;
-    };
-    /**
-     * @description ``GET insight/house`` with a promoted model: the learner's insight and the score.
-     *
-     *     The learner's keys are passed through; ``proposal`` gains ``current_curve`` and
-     *     ``stale`` (whether the curve changed since the run). ``revalidation`` is the last
-     *     run's check of this model (``null`` when the last run checked another or none).
-     *     ``gates`` are the model's three gates now (:class:`HouseGates`): the
-     *     re-validation's when there is one, else the insight's frozen
-     *     ``credibility.gates``. ``credible`` is the heat-loss gate; the score and the
-     *     proposal follow it. The learner's ``credibility`` holds ``credible`` (the heat-loss
-     *     gate as fitted), ``gates`` (:class:`LearnedGates`) and the detail.
-     */
-    HouseReady: {
-      at_bound?: unknown;
-      balance_temperature_c?: unknown;
-      capacities_kwh_per_k?: unknown;
-      champion: components['schemas']['Champion'];
-      credibility?: {
-        [key: string]: unknown;
-      };
-      credible: boolean;
-      daily_error?: unknown;
-      data?: unknown;
-      emitter_time_constant_h?: unknown;
-      error_trend?: unknown;
-      events?: unknown;
-      excitation?: {
-        [key: string]: unknown;
-      };
-      gates: components['schemas']['HouseGates'];
-      heat_capacity_kwh_per_k?: unknown;
-      internal_gains_w?: unknown;
-      last_run: components['schemas']['LastRun'] | null;
-      learner: components['schemas']['LearnerHealth'];
-      limits?: unknown;
-      model?: unknown;
-      proposal?: {
-        [key: string]: unknown;
-      };
-      provenance?: unknown;
-      revalidation: components['schemas']['ChampionRevalidation'] | null;
-      schema?: unknown;
-      score: components['schemas']['HouseScore'];
-      signature?: unknown;
-      solar_aperture_m2?: unknown;
-      /** @constant */
-      state: 'ready';
-      structure?: unknown;
-      time_constant_h?: unknown;
-      ua?: {
-        [key: string]: unknown;
-      };
-      validation?: unknown;
-    };
-    HouseReport: components['schemas']['HouseWaiting'] | components['schemas']['HouseReady'];
-    /** @description ``GET`` and ``POST insight/house/run``: the embedded learner's state and schedule. */
-    HouseRun: {
-      enabled: boolean;
-      failure: components['schemas']['HouseRunFailure'] | null;
-      interval_h: number;
-      last: components['schemas']['HouseRunLast'] | null;
-      next_due_at: string | null;
-      started_at: string | null;
-      state: components['schemas']['RunState'];
-    };
-    /** @description The service's last failed attempt to run the learner. */
-    HouseRunFailure: {
-      at: string;
-      detail: string;
-      reason: components['schemas']['RunFailureReason'];
-    };
-    /** @description The learner's last run as ``status.json`` reports it. */
-    HouseRunLast: {
-      at: string;
-      message: string | null;
-      model: string | null;
-      outcome: string;
-      runtime_s: number | null;
-    };
-    /** @description The indicative insulation score, recomputed for the current floor area. */
-    HouseScore: {
-      band?: string;
-      band_interval?: [string, string];
-      bands: components['schemas']['ScoreBand'][];
-      design_indoor_c: number;
-      design_outside_c: number;
-      floor_area_m2: number | null;
-      heat_loss_w?: number;
-      indicative: boolean;
-      interval_90?: [number, number];
-      message?: string;
-      note: string;
-      state: components['schemas']['ScoreState'];
-      w_per_m2?: number;
-    };
-    /**
-     * @description ``GET insight/house/series``: the room, measured and as predicted 24 h earlier.
-     *
-     *     ``points`` are ``[time, measured, predicted]`` rows, oldest first, starting at the
-     *     first prediction; either value is ``null`` where it is unknown. The prediction is
-     *     also ``null`` where its 24 h path touches an event of ``events`` (shade them).
-     *     Predictions from origins before ``out_of_sample_from`` are in-sample (the model had
-     *     seen those days). ``rmse_k`` and ``bias_k`` (predicted minus measured) summarise
-     *     the ``compared_points`` out-of-sample points with both values; ``null`` without any
-     *     (and for files of older learners).
-     */
-    HouseSeries: {
-      bias_k: number | null;
-      compared_points: number;
-      events: components['schemas']['SeriesEvent'][];
-      from: string;
-      model: string;
-      out_of_sample_from: string | null;
-      points: [string, number | null, number | null][];
-      rmse_k: number | null;
-      step_s: number;
-      to: string;
-    };
-    /** @enum {string} */
-    HouseSource: 'model' | 'estimate';
-    /** @description ``GET insight/house`` before a model is promoted: what is missing. */
-    HouseWaiting: {
-      last_run: components['schemas']['LastRun'] | null;
-      learner: components['schemas']['LearnerHealth'];
-      missing: string[];
-      /** @enum {string} */
-      state: 'learning' | 'not_run';
-    };
-    /**
-     * @description ``GET insight/house/whatif``: what the house needs to hold comfort in a scenario.
-     *
-     *     ``credible`` is the model's heat-loss gate (the steady state);
-     *     ``drift.credible`` its dynamics gate (the cool-down).
-     */
-    HouseWhatIf: {
-      balance_outside_c: number;
-      credible: boolean;
-      curve_c: number;
-      drift: components['schemas']['WhatIfDrift'];
-      free_heat_w: number;
-      heat_demand_w: number;
-      inputs: components['schemas']['WhatIfInputs'];
-      limited_by: components['schemas']['WhatIfLimit'][];
-      loop_mean_c: number;
-      loss_w: number;
-      max_supply_c: number;
-      model: string | null;
-      source: components['schemas']['HouseSource'];
-      supply_c: number;
-      time_constant_h: number | null;
-    };
     HTTPValidationError: {
       detail?: components['schemas']['ValidationError'][];
     };
@@ -2332,6 +2375,18 @@ export interface components {
       signal: string;
       source: string | null;
       value: number | string | boolean | null;
+    };
+    /** @description ``GET insight/basics``: heat loss and heat from the heat pump (``null`` parts when off). */
+    InsightBasics: {
+      by_weather: components['schemas']['WeatherBinRow'][] | null;
+      computed_at: string | null;
+      design_outside_c: number;
+      enabled: boolean;
+      heat_loss: components['schemas']['HeatLoss'] | null;
+      heat_pump: components['schemas']['HeatPumpHeat'] | null;
+      loss_now: components['schemas']['LossNow'] | null;
+      room_signal: string | null;
+      timezone: string;
     };
     /** @description ``GET insight/daily``: the last days, oldest first. */
     InsightDaily: {
@@ -2383,156 +2438,38 @@ export interface components {
       reason: string;
       value: number;
     };
-    /**
-     * @description The allow-listed essentials of the learner's last run (``status.json``).
-     *
-     *     ``warnings`` are data notes the owner should see (a wood-stove episode without a
-     *     recorded end that was capped); ``champion_revalidation`` is ``null`` when the run
-     *     had no champion or the learner wrote none that the service accepts.
-     */
-    LastRun: {
-      at?: string | null;
-      champion?: string | null;
-      champion_revalidation?: components['schemas']['ChampionRevalidation'] | null;
-      error?: string | null;
-      interval_h?: number | null;
-      message?: string | null;
-      missing?: string[] | null;
-      model?: string | null;
-      outcome?: string | null;
-      runtime_s?: number | null;
-      warnings?: string[] | null;
-    };
     /** @enum {string} */
     LayoutName: 'long' | 'wide';
-    /**
-     * @description One credibility gate as the learner wrote it (checked by the service).
-     *
-     *     ``checks`` maps each check to ``{ok, value, limit, ...}`` (the learner's format);
-     *     ``needed`` holds the codes of what fails (codes the service does not know are
-     *     dropped); ``uses`` names what the gate guards.
-     */
-    LearnedGate: {
-      checks: {
-        [key: string]: unknown;
-      };
-      message: string | null;
-      needed: components['schemas']['GateNeed'][];
-      ok: boolean;
-      reasons: string[];
-      uses: string[];
-    };
-    /** @description The three credibility gates of a model as the learner judged it. */
-    LearnedGates: {
-      dynamics: components['schemas']['LearnedGate'];
-      heat_loss: components['schemas']['LearnedGate'];
-      sun: components['schemas']['LearnedGate'];
-    };
-    /** @description When the learner last ran and whether that is too long ago. */
-    LearnerHealth: {
-      age_h: number | null;
-      interval_h: number;
-      last_run_at: string | null;
-      stale: boolean;
-      stale_after_h: number;
-    };
     /** @description ``POST live/ticket``: a single-use pass for the WebSocket. */
     LiveTicket: {
       expires_in: number;
       ticket: string;
+    };
+    /** @description The heat loss at one outside and room temperature, with its 95 % band. */
+    LossEstimate: {
+      at: string | null;
+      beyond_data: boolean;
+      delta_k: number;
+      high_w: number;
+      loss_w: number;
+      low_w: number;
+      outside_c: number;
+      room_c: number;
+    };
+    /** @description The heat loss now, at the coming night's forecast minimum and at the design temperature. */
+    LossNow: {
+      design: components['schemas']['LossEstimate'] | null;
+      forecast_available: boolean;
+      night: components['schemas']['LossEstimate'] | null;
+      now: components['schemas']['LossEstimate'] | null;
+      outside_source: components['schemas']['OutsideSourceName'] | null;
+      room_source: components['schemas']['RoomSourceName'];
     };
     /** @description ``POST control/pause`` and ``control/resume``: the new mode and the control state. */
     ModeChange: {
       control: components['schemas']['ControlStatus'] | null;
       mode: components['schemas']['ConfigMode'];
     };
-    /**
-     * @description One gate of the champion now.
-     *
-     *     ``source`` is ``revalidated`` (the last run's check of this model), ``fitted``
-     *     (its own gates when it was fitted) or ``legacy`` (a model fitted before the gates:
-     *     its old credibility as the heat-loss gate, its old prediction check as the dynamics
-     *     gate, the sun gate not judged until the next run). ``message`` says what fails
-     *     (``null`` when ``ok``).
-     */
-    ModelGate: {
-      message: string | null;
-      needed: components['schemas']['GateNeed'][];
-      ok: boolean;
-      source: components['schemas']['GateSource'];
-    };
-    /** @enum {string} */
-    ModelGuard:
-      | 'weather_off'
-      | 'model_missing'
-      | 'model_not_credible'
-      | 'model_stale'
-      | 'model_error_high'
-      | 'forecast_stale'
-      | 'room_untrusted'
-      | 'stove_active'
-      | 'stove_tail';
-    /** @description The model plan bounds, the planner horizon and the error limit of the model. */
-    ModelPlanBounds: {
-      horizon_h: number;
-      max_preheat_k: number;
-      max_rmse_k: number;
-      max_setback_k: number;
-    };
-    /**
-     * @description The computed offsets of the last 7 days from the 15 min rollups.
-     *
-     *     ``points`` are ``[time, offset_k, applied]`` rows, oldest first: ``offset_k`` is
-     *     ``null`` where a guard blocked or nothing was recorded, ``applied`` is ``1`` when the
-     *     controller applied the offset for most of the interval, else ``0``; empty when
-     *     nothing was recorded.
-     */
-    ModelPlanHistory: {
-      from: string;
-      points: [string, number | null, number | null][];
-      step_s: number;
-      to: string;
-    };
-    /**
-     * @description The latest planner evaluation.
-     *
-     *     ``offset_k`` is the offset the planner issued (``0`` without a slice); ``applied`` is
-     *     true only when the controller applied a model offset at its latest tick (never in
-     *     ``shadow``). ``rise_*``, ``fall_*``, ``solar_k`` and ``outside_k`` are the predicted
-     *     drift of the room (K) and when it peaks; ``null`` when the planner could not predict.
-     */
-    ModelPlanNow: {
-      applied: boolean;
-      at: string;
-      fall_at: string | null;
-      fall_k: number | null;
-      offset_k: number;
-      outside_k: number | null;
-      reason: components['schemas']['ModelPlanReason'] | null;
-      rise_at: string | null;
-      rise_k: number | null;
-      solar_k: number | null;
-      status: components['schemas']['ModelPlanStatus'];
-      valid_until: string | null;
-    };
-    /** @enum {string} */
-    ModelPlanReason: 'plan_setback' | 'plan_preheat';
-    /** @enum {string} */
-    ModelPlanStatus:
-      | 'issued'
-      | 'inside_dead_zone'
-      | 'crossing_zero'
-      | 'forecast_gap'
-      | 'forecast_mismatch'
-      | 'model_invalid'
-      | 'planner_error';
-    /** @description The guards of the model plan: ``ok`` when none blocks, else the failing ones in order. */
-    ModelPlanVerdict: {
-      blocks: components['schemas']['ModelGuard'][];
-      ok: boolean;
-    };
-    /** @enum {string} */
-    ModelUse: 'off' | 'shadow' | 'on';
     /** @enum {string} */
     ModeName: 'off' | 'shadow' | 'auto' | 'manual';
     /** @description The result of one safety monitor. */
@@ -2700,12 +2637,18 @@ export interface components {
     /** @enum {string} */
     OriginName: 'ui' | 'rollback' | 'seed' | 'reset';
     /** @enum {string} */
+    OutsideSourceName: 'filtered' | 'measured';
+    /** @enum {string} */
     OwnerName: 'operator' | 'controller' | 'pump';
     /** @description What the forecast said at a fixed lead for the hours that passed. */
     PastForecast: {
       lead_h: number;
       points: components['schemas']['WeatherPoint'][];
     };
+    /** @enum {string} */
+    PlanGuardName: 'forecast_stale' | 'room_untrusted' | 'stove_active' | 'stove_tail' | 'away';
+    /** @enum {string} */
+    PointUseName: 'used' | 'outlier' | 'near_balance';
     /** @enum {string} */
     PresetName: 'short' | 'standard' | 'long' | 'unlimited';
     /** @description The current tick decided with the active and the candidate configuration. */
@@ -2728,22 +2671,6 @@ export interface components {
       open_loop_run?: components['schemas']['OpenLoopRun'];
       valid: boolean;
       warnings: components['schemas']['ValidationIssue'][];
-    };
-    /**
-     * @description ``POST insight/house/proposal/draft``: the proposal as a configuration draft.
-     *
-     *     ``points`` is the learner's; ``validation`` is ``null`` without a configuration store.
-     */
-    ProposalDraft: {
-      changes: components['schemas']['CurveChange'];
-      comment: string;
-      credible: boolean;
-      current: components['schemas']['CurveChange'];
-      label: string;
-      model: string;
-      points: unknown;
-      stale: boolean;
-      validation: components['schemas']['ValidateResult'] | null;
     };
     /** @description The model profile matched by ``Heat_Pump_Model``. */
     PumpProfileInfo: {
@@ -3052,6 +2979,8 @@ export interface components {
         [key: string]: number;
       };
     };
+    /** @enum {string} */
+    RoomSourceName: 'measured' | 'comfort';
     /** @description The room input: profile, held and alive ages, link. */
     RoomStatus: {
       alive_by: string | null;
@@ -3093,10 +3022,6 @@ export interface components {
       short_share: number | null;
       to: string;
     };
-    /** @enum {string} */
-    RunFailureReason: 'timeout' | 'memory' | 'exit' | 'spawn';
-    /** @enum {string} */
-    RunState: 'idle' | 'running' | 'unavailable';
     /** @description Compressor run statistics of a span. */
     RunStats: {
       censored: number;
@@ -3130,22 +3055,6 @@ export interface components {
       fields: string[];
       id: string;
     };
-    /** @description An indicative band and the heat loss per m2 it lies below. */
-    ScoreBand: {
-      band: string;
-      below_w_per_m2: number | null;
-    };
-    /** @enum {string} */
-    ScoreState: 'learning' | 'no_floor_area' | 'ready';
-    /** @description A known event in reach of the series: the anomaly ``from``-``to`` and its tail. */
-    SeriesEvent: {
-      from: string;
-      kind: components['schemas']['SeriesEventKind'];
-      tail_to: string;
-      to: string;
-    };
-    /** @enum {string} */
-    SeriesEventKind: 'stove' | 'stove_mode' | 'excluded_day';
     ServerMessage:
       | components['schemas']['SnapshotMessage']
       | components['schemas']['HealthMessage']
@@ -3312,6 +3221,16 @@ export interface components {
     StoveTriggerName: 'level' | 'rise' | 'manual' | 'handover';
     /** @enum {string} */
     StreamFormat: 'csv' | 'ndjson';
+    /** @description The summer switch: settings, the slow outside mean and whether heating is off. */
+    SummerStatus: {
+      active: boolean;
+      enabled: boolean;
+      mean_c: number | null;
+      mean_tau_s: number | null;
+      off_c: number | null;
+      on_c: number | null;
+      warming_up: boolean;
+    };
     /** @description ``GET system/about``: version, uptime, connections and the control state. */
     SystemAbout: {
       api_version: number;
@@ -3446,6 +3365,16 @@ export interface components {
       ticks: number;
       version: number | null;
     };
+    /** @description Heat production in one 2 K bin of the daily outside mean. */
+    WeatherBinRow: {
+      cop: number | null;
+      days: number;
+      electric_w: number | null;
+      few_days: boolean;
+      from_c: number;
+      heat_w: number;
+      to_c: number;
+    };
     /** @description The forecast location (rounded to 0.01°) and where it came from. */
     WeatherLocation: {
       latitude: number;
@@ -3486,26 +3415,6 @@ export interface components {
     };
     WeatherPoint: [string, number | null];
     WeatherReport: components['schemas']['WeatherOff'] | components['schemas']['WeatherOn'];
-    /**
-     * @description The room temperature with the heating off, from the comfort steady state.
-     *
-     *     ``credible`` is the model's dynamics gate (always ``false`` for an estimate).
-     */
-    WhatIfDrift: {
-      credible: boolean;
-      hours: number;
-      room_c: number[];
-      step_s: number;
-    };
-    /** @description The scenario of a what-if, with the defaults filled in. */
-    WhatIfInputs: {
-      comfort_c: number;
-      outside_c: number;
-      stove_w: number;
-      sun_wm2: number;
-    };
-    /** @enum {string} */
-    WhatIfLimit: 'max_supply' | 'no_heat_needed';
   };
   responses: never;
   parameters: never;
@@ -4092,6 +4001,166 @@ export interface operations {
       };
     };
   };
+  away_get_api_v1_control_away_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AwayStatus'];
+        };
+      };
+    };
+  };
+  away_put_api_v1_control_away_put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AwayResult'];
+        };
+      };
+    };
+  };
+  away_delete_api_v1_control_away_delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AwayResult'];
+        };
+      };
+    };
+  };
+  boost_get_api_v1_control_boost_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BoostStatus'];
+        };
+      };
+    };
+  };
+  boost_post_api_v1_control_boost_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BoostResult'];
+        };
+      };
+    };
+  };
+  boost_delete_api_v1_control_boost_delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['BoostResult'];
+        };
+      };
+    };
+  };
+  dayshift_api_v1_control_dayshift_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DayShift'];
+        };
+      };
+    };
+  };
+  features_api_v1_control_features_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Features'];
+        };
+      };
+    };
+  };
   pause_api_v1_control_pause_post: {
     parameters: {
       query?: never;
@@ -4586,6 +4655,26 @@ export interface operations {
       };
     };
   };
+  basics_api_v1_insight_basics_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['InsightBasics'];
+        };
+      };
+    };
+  };
   daily_api_v1_insight_daily_get: {
     parameters: {
       query?: {
@@ -4604,200 +4693,6 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['InsightDaily'];
-        };
-      };
-      /** @description Validation Error */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HTTPValidationError'];
-        };
-      };
-    };
-  };
-  house_model_api_v1_insight_house_get: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HouseReport'];
-        };
-      };
-    };
-  };
-  house_balance_api_v1_insight_house_balance_get: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HouseBalance'];
-        };
-      };
-    };
-  };
-  house_control_api_v1_insight_house_control_get: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HouseControl'];
-        };
-      };
-    };
-  };
-  house_history_api_v1_insight_house_history_get: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HouseHistory'];
-        };
-      };
-    };
-  };
-  proposal_draft_api_v1_insight_house_proposal_draft_post: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProposalDraft'];
-        };
-      };
-    };
-  };
-  house_run_api_v1_insight_house_run_get: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HouseRun'];
-        };
-      };
-    };
-  };
-  start_house_run_api_v1_insight_house_run_post: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      202: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HouseRun'];
-        };
-      };
-    };
-  };
-  house_series_api_v1_insight_house_series_get: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HouseSeries'];
-        };
-      };
-    };
-  };
-  house_whatif_api_v1_insight_house_whatif_get: {
-    parameters: {
-      query?: {
-        comfort_c?: number | null;
-        outside_c?: number | null;
-        stove_w?: number;
-        sun_wm2?: number;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Successful Response */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['HouseWhatIf'];
         };
       };
       /** @description Validation Error */

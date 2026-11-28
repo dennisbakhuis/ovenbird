@@ -19,12 +19,14 @@ DAY = 86_400.0
 
 
 def journal(tmp_path: Path, rows: list[tuple[float, str]]) -> list[AlarmRow]:
+    """Return the stove-mode alarm rows for ``rows`` of ``(time, event)``."""
     return [AlarmRow(ts, "stove_mode", "info", event, "", "{}") for ts, event in rows]
 
 
 def read(
     tmp_path: Path, rows: list[tuple[float, str]], end: float
 ) -> tuple[tuple[ev.Event, ...], list[float]]:
+    """Write ``rows`` to a history database; return the stove episodes read and the capped ones."""
     conn = open_history(tmp_path / "history.db")
     try:
         write_journal(conn, [], [], journal(tmp_path, rows))
@@ -36,6 +38,7 @@ def read(
 
 
 def test_normal_pairs_are_unchanged(tmp_path: Path) -> None:
+    """Started and ended pairs become episodes unchanged."""
     found, capped = read(
         tmp_path,
         [
@@ -55,6 +58,7 @@ def test_normal_pairs_are_unchanged(tmp_path: Path) -> None:
 
 
 def test_an_orphan_started_is_closed_at_the_next_started(tmp_path: Path) -> None:
+    """A started event without an end is closed at the next started event and counted as capped."""
     found, capped = read(
         tmp_path,
         [(T0 + HOUR, "started"), (T0 + 3 * HOUR, "started"), (T0 + 6 * HOUR, "expired")],
@@ -68,6 +72,7 @@ def test_an_orphan_started_is_closed_at_the_next_started(tmp_path: Path) -> None
 
 
 def test_an_orphan_started_masks_at_most_a_day_plus_the_tail(tmp_path: Path) -> None:
+    """A started event without an end masks at most the maximum episode length plus the tail."""
     found, capped = read(
         tmp_path,
         [(T0 + HOUR, "started"), (T0 + 20 * DAY, "started"), (T0 + 20 * DAY + HOUR, "expired")],
@@ -80,12 +85,14 @@ def test_an_orphan_started_masks_at_most_a_day_plus_the_tail(tmp_path: Path) -> 
 
 
 def test_an_open_episode_at_the_dataset_end_is_capped(tmp_path: Path) -> None:
+    """An open episode at the end of the dataset is capped at the maximum length."""
     found, capped = read(tmp_path, [(T0 + HOUR, "started")], T0 + 30 * DAY)
     assert found[0].end == T0 + HOUR + OPEN_EPISODE_MAX_S
     assert capped == [T0 + HOUR]
 
 
 def test_a_running_episode_at_the_dataset_end_keeps_the_end(tmp_path: Path) -> None:
+    """A recent episode still running at the end of the dataset keeps the dataset end."""
     found, capped = read(tmp_path, [(T0 + HOUR, "started")], T0 + 3 * HOUR)
     assert found[0].end == T0 + 3 * HOUR
     assert capped == []

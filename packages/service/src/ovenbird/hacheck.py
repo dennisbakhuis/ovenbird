@@ -66,8 +66,10 @@ type HttpGet = Callable[[str, str, float], Awaitable[tuple[int, bytes]]]
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Redirect handler that follows nothing, so the token never leaves the given host."""
+
     def redirect_request(self, *args: Any, **kwargs: Any) -> None:
-        return None
+        """Refuse every redirect."""
 
 
 def rest_url(base_url: str) -> str:
@@ -81,6 +83,7 @@ def rest_url(base_url: str) -> str:
 
 
 def _get(url: str, token: str, timeout: float) -> tuple[int, bytes]:
+    """Return the status and the capped body of an authorised GET, without proxy or redirects."""
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
     request = urllib.request.Request(  # noqa: S310
         url,
@@ -105,7 +108,10 @@ def check_deadline(limit_s: float) -> float:
 
 
 def _connector(timeout: float) -> Connector:
+    """Return a WebSocket connector with the given timeout, without proxy or redirects."""
+
     def open_connection(url: str) -> Any:
+        """Open a WebSocket connection to ``url``."""
         return NoRedirectConnect(
             url,
             open_timeout=timeout,
@@ -191,12 +197,26 @@ class CheckResult:
 
 
 def _scrubbed(text: str, token: str) -> str:
+    """Return ``text`` with the token replaced."""
     return text.replace(token, "[token]") if token else text
 
 
 def _entity_check(
     signal: str, states: dict[str, EntityState], temperature: bool, unit_system: str | None
 ) -> EntityCheck:
+    """Check one configured signal against the entity states Home Assistant reports.
+
+    Parameters
+    ----------
+    signal
+        Configured signal id: an entity id, optionally with an attribute.
+    states
+        Entity states by entity id.
+    temperature
+        Whether the signal must be a temperature.
+    unit_system
+        Temperature unit system Home Assistant reports, if known.
+    """
     parts = split_ha_signal(signal)
     entity_id, attribute = parts if parts is not None else (signal, None)
     check = EntityCheck(signal, entity_id)
@@ -244,6 +264,23 @@ async def _websocket(
     temperature: frozenset[str],
     connector: Connector,
 ) -> None:
+    """Run the WebSocket steps of the connection test and record them in ``result``.
+
+    Parameters
+    ----------
+    result
+        Test result to fill in.
+    url
+        Home Assistant base URL.
+    token
+        Long-lived access token.
+    signals
+        Signals to check.
+    temperature
+        Signals that must be temperatures.
+    connector
+        Opens the WebSocket connection.
+    """
     async with connector(websocket_url(url)) as ws:
         hello = json.loads(await ws.recv())
         if not isinstance(hello, dict) or hello.get("type") != "auth_required":
@@ -352,6 +389,27 @@ async def _steps(
     fetch: HttpGet,
     connector: Connector | None,
 ) -> None:
+    """Run every step of the connection test within the time limit and record them in ``result``.
+
+    Parameters
+    ----------
+    result
+        Test result to fill in.
+    base
+        Home Assistant base URL.
+    secret
+        Long-lived access token.
+    signals
+        Signals to check.
+    temperature
+        Signals that must be temperatures.
+    limit_s
+        Total time limit, in seconds.
+    fetch
+        Performs the REST GET.
+    connector
+        Opens the WebSocket connection; ``None`` for the default.
+    """
     started = time.monotonic()
     try:
         status, _ = await asyncio.wait_for(fetch(rest_url(base), secret, limit_s), limit_s + 1.0)

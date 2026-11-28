@@ -1,7 +1,8 @@
 """Decisions, alarms, commands and the control state: the models several routers share.
 
 Also the bodies of the control router (:mod:`ovenbird.api.control_api`): pause and
-resume, wood-stove mode, releasing a hold, the audit trail and the decision series.
+resume, wood-stove mode, boost, away, the feature list, releasing a hold, the audit
+trail and the decision series.
 """
 
 from __future__ import annotations
@@ -19,6 +20,49 @@ type AlarmEventName = Literal["raised", "cleared", "started", "expired", "releas
 type StoveSourceName = Literal["auto", "manual"]
 type StoveTriggerName = Literal["level", "rise", "manual", "handover"]
 type DirectionName = Literal["above", "below"]
+type DayShiftUseName = Literal["off", "shadow", "on"]
+type DayShiftPhaseName = Literal["idle", "boost", "setback", "recovery", "blocked"]
+type DayShiftReasonName = Literal[
+    "off",
+    "outside_windows",
+    "sun_forecast",
+    "sun_low",
+    "outside_mild",
+    "outside_cold",
+    "outside_unknown",
+    "forecast_missing",
+    "night_after_boost",
+    "no_boost_today",
+    "night_cold",
+    "recovery_lead",
+    "room_below_target",
+    "room_warm",
+    "forecast_stale",
+    "room_untrusted",
+    "stove_active",
+    "stove_tail",
+    "away",
+]
+type AwayPhaseName = Literal["away", "returning"]
+type FeatureName = Literal[
+    "weather_compensation",
+    "room_feedback",
+    "slow_start",
+    "minimum_run",
+    "pump_duty",
+    "quiet",
+    "stove",
+    "dayshift",
+    "summer",
+    "away",
+    "boost",
+    "house_basics",
+    "starts_alarm",
+]
+type FeatureStateName = Literal["off", "shadow", "on", "active_now"]
+type PlanGuardName = Literal[
+    "forecast_stale", "room_untrusted", "stove_active", "stove_tail", "away"
+]
 
 
 class Term(ApiModel):
@@ -256,6 +300,68 @@ class StoveStatus(ApiModel):
     request: StoveRequest | None
 
 
+class BoostRequest(ApiModel):
+    """A manual boost: an offset to comfort or an absolute room target, until a time."""
+
+    offset_k: Number | None
+    target_c: Number | None
+    until: str
+    actor: str
+    at: str
+
+
+class BoostStatus(ApiModel):
+    """The boost: settings, whether it runs (or is paused, and why) and the request."""
+
+    enabled: bool
+    active: bool
+    paused: str | None
+    shift_k: Number | None
+    target_c: Number | None
+    remaining_s: Number | None
+    default_s: Number
+    default_k: Number
+    request: BoostRequest | None
+
+
+class AwayRequest(ApiModel):
+    """An away period."""
+
+    target_c: Number
+    until: str
+    comfort_lead_s: Number
+    comfort_from: str
+    actor: str
+    at: str
+
+
+class AwayStatus(ApiModel):
+    """Away: settings, phase (away or returning to comfort) and the request."""
+
+    enabled: bool
+    active: bool
+    phase: AwayPhaseName | None
+    paused: str | None
+    target_c: Number | None
+    until: str | None
+    comfort_from: str | None
+    default_target_c: Number
+    default_lead_s: Number
+    request: AwayRequest | None
+
+
+class SummerStatus(ApiModel):
+    """The summer switch: settings, the slow outside mean and whether heating is off."""
+
+    enabled: bool
+    active: bool
+    mean_c: Number | None
+    off_c: Number | None
+    on_c: Number | None
+    mean_tau_s: Number | None
+    warming_up: bool
+
+
 class ControlStatus(ApiModel):
     """The control loop's state."""
 
@@ -276,6 +382,9 @@ class ControlStatus(ApiModel):
     adapter: AdapterStatus | None
     room: RoomStatus | None
     stove: StoveStatus
+    boost: BoostStatus
+    away: AwayStatus
+    summer: SummerStatus
 
 
 class ConfigMode(ApiModel):
@@ -299,6 +408,38 @@ class StoveResult(ApiModel):
 
     request: StoveRequest
     stove: StoveStatus
+
+
+class BoostResult(ApiModel):
+    """``POST`` and ``DELETE control/boost``: the request accepted or ended, and the boost."""
+
+    request: BoostRequest | None
+    boost: BoostStatus
+
+
+class AwayResult(ApiModel):
+    """``PUT`` and ``DELETE control/away``: the request accepted or ended, and away."""
+
+    request: AwayRequest | None
+    away: AwayStatus
+
+
+class FeatureEntry(ApiModel):
+    """One switchable feature and its state."""
+
+    id: FeatureName
+    state: FeatureStateName
+    enabled: bool
+    active: bool
+    experimental: bool
+    on_available: bool
+
+
+class Features(ApiModel):
+    """``GET control/features``: every feature with its state."""
+
+    mode: ModeName
+    features: list[FeatureEntry]
 
 
 class ReleasedHold(ApiModel):
@@ -362,3 +503,57 @@ class DecisionSeries(ApiModel):
     binding: list[str | None]
     ladder: list[str | None]
     config_version: list[int | None]
+
+
+class DayShiftNext(ApiModel):
+    """The next change of phase the day shift's schedule allows."""
+
+    at: str
+    phase: DayShiftPhaseName
+
+
+class DayShiftWindows(ApiModel):
+    """The local windows of the day shift and the end of the coming set-back."""
+
+    day_start: str
+    day_end: str
+    night_start: str
+    night_end: str
+    comfort_at: str
+    setback_end: str | None
+    timezone: str
+
+
+class DayShiftForecast(ApiModel):
+    """What the day shift read of the forecast at its latest evaluation."""
+
+    issued_at: str | None
+    hours: int
+    sun_wm2: Number | None
+    sun_limit_wm2: Number
+    outside_c: Number | None
+    outside_min_c: Number | None
+    outside_limit_c: Number
+    night_min_c: Number | None
+    night_limit_c: Number
+
+
+class DayShift(ApiModel):
+    """``GET control/dayshift``: the sun day shift's mode, phase, offset and reasons."""
+
+    mode: DayShiftUseName
+    configured: DayShiftUseName
+    on_available: bool
+    experimental: bool
+    phase: DayShiftPhaseName
+    offset_k: Number
+    desired_k: Number
+    applied_k: Number
+    reasons: list[DayShiftReasonName]
+    guards: list[PlanGuardName]
+    evaluated_at: str | None
+    valid_until: str | None
+    next_change: DayShiftNext | None
+    boosted_today: bool
+    windows: DayShiftWindows
+    forecast: DayShiftForecast | None

@@ -311,6 +311,7 @@ class ConfigManager:
         self.store.close()
 
     def _reset_message(self) -> str:
+        """Return the alarm text explaining why the stored configuration was reset."""
         why = self.store.runtime_get(RESET_KEY) or "lost"
         return (
             f"the stored configuration was {why}; running in shadow with the installation's "
@@ -318,6 +319,7 @@ class ConfigManager:
         )
 
     def _applied(self, version: int | None, at: Instant) -> None:
+        """Record the applied version and tell the listeners."""
         self.applied_version = version
         if version is not None:
             self.store.mark_applied(version, at.wall.timestamp())
@@ -325,6 +327,7 @@ class ConfigManager:
             listener(version, at)
 
     def _doc(self) -> dict[str, Any]:
+        """Return the values of the latest stored version, or an empty document."""
         latest = self.store.latest()
         return {} if latest is None else dict(latest.values)
 
@@ -411,6 +414,7 @@ class ConfigManager:
         )
 
     def _check_rate(self, now: float) -> None:
+        """Refuse with 429 when the last apply was less than the spacing ago."""
         last = self.store.last_created(APPLY_ORIGINS)
         if last is not None and now - last < APPLY_SPACING_S:
             raise ConfigRefusedError(
@@ -553,6 +557,19 @@ class ConfigManager:
         acknowledge: Sequence[str] = (),
     ) -> dict[str, Any]:
         """Apply the document of an older version as a new version.
+
+        Parameters
+        ----------
+        version
+            Number of the version whose document is applied again.
+        base_version
+            Version the caller last saw; a newer one means a conflict.
+        actor
+            Who rolls back, for the audit trail.
+        comment
+            Optional note stored with the new version.
+        acknowledge
+            Ids of the warnings the caller accepts.
 
         Raises
         ------
@@ -827,6 +844,7 @@ class ConfigManager:
         last = chosen[-1] if chosen else None
 
         def public(values: Mapping[str, Any]) -> dict[str, Any]:
+            """Return ``values`` without the secret fields."""
             return {key: value for key, value in values.items() if key not in SECRET_FIELDS}
 
         return {
@@ -884,6 +902,7 @@ class ConfigManager:
         return {"mode": self.mode_payload(), "config": self.payload()}
 
     def _require_auto(self) -> None:
+        """Refuse with 409 unless the installation's mode is auto."""
         if self.configured_mode is not Mode.AUTO:
             raise ConfigRefusedError(
                 409,
@@ -954,6 +973,19 @@ def _checked(
     values: Mapping[str, Any],
     connection: Mapping[str, str] | None = None,
 ) -> Settings:
+    """Merge the values over the base settings and return them, or raise the validation refusal.
+
+    Parameters
+    ----------
+    base
+        Installation settings the values go over.
+    locked
+        Fields fixed by the environment, with their source.
+    values
+        Configuration document values.
+    connection
+        Stored connection values (URLs, tokens) merged in.
+    """
     try:
         merged = merge(base, locked, values, connection)
     except ValidationError as exc:

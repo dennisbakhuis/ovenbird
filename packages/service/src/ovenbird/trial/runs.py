@@ -68,6 +68,7 @@ class Run:
 
 
 def _signal_id(conn: sqlite3.Connection, name: str) -> int | None:
+    """Return the id of a signal that has rollups, or ``None``."""
     if (
         conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'rollup'"
@@ -80,6 +81,19 @@ def _signal_id(conn: sqlite3.Connection, name: str) -> int | None:
 
 
 def _running(minimum: float, maximum: float, weighted: float, duration: float) -> float:
+    """Return the seconds of a bucket the compressor ran, from its minimum, maximum and mean.
+
+    Parameters
+    ----------
+    minimum
+        Lowest compressor frequency in the bucket, in Hz.
+    maximum
+        Highest compressor frequency in the bucket, in Hz.
+    weighted
+        Time-weighted sum of the frequency, in Hz times seconds.
+    duration
+        Covered length of the bucket, in seconds.
+    """
     if minimum >= RUNNING_HZ:
         return duration
     if maximum < RUNNING_HZ or duration <= 0 or maximum <= 0:
@@ -134,6 +148,7 @@ def find_runs(data: dict[int, float], start: float, end: float) -> list[Run]:
     previous_complete = False
 
     def close(clean_end: bool) -> None:
+        """End the current run and start the next."""
         nonlocal current, seconds, off_s, previous_complete
         complete = starts_clean and clean_end
         off = off_s if complete and previous_complete else None
@@ -250,6 +265,17 @@ def signal_period(path: Path, signal: str | None, start: float, end: float) -> d
     """Return the time-weighted mean, the minimum and the covered hours of ``signal``.
 
     From the 1 min rollups over ``[start, end)``; ``None`` figures without data.
+
+    Parameters
+    ----------
+    path
+        History database file.
+    signal
+        Signal to summarise; ``None`` gives no data.
+    start
+        Start of the period, Unix time.
+    end
+        End of the period, Unix time.
     """
     empty: dict[str, Any] = {"mean": None, "min": None, "hours": 0.0}
     if signal is None or not path.exists():

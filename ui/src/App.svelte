@@ -7,6 +7,7 @@
   import Icon from '$ui/Icon.svelte';
   import Segmented from '$ui/Segmented.svelte';
   import Logo from '$components/brand/Logo.svelte';
+  import VersionLink from '$components/shell/VersionLink.svelte';
   import StatusStrip from '$components/shell/StatusStrip.svelte';
   import Why from '$ui/Why.svelte';
   import { cfg } from '$lib/core/cfg.svelte';
@@ -140,9 +141,12 @@
 
 <div class="topbar-box">
   <div class="topbar" class:framed={settings.framed} data-testid="topbar">
-    <a class="brand" href="#/home" aria-label={t('appName')}>
-      <Logo size={34} wordmark />
-    </a>
+    <div class="brand-box">
+      <a class="brand" href="#/home" aria-label={t('appName')}>
+        <Logo size={34} wordmark />
+      </a>
+      <VersionLink version={appVersion} testid="app-version" />
+    </div>
 
     <nav class="top" aria-label={t('navMain')} data-testid="top-nav">
       <ul>
@@ -384,8 +388,13 @@
     border-bottom: 1px solid var(--border);
     padding: 0 var(--space-4);
   }
-  .brand {
+  .brand-box {
     grid-area: brand;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .brand {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
@@ -552,7 +561,7 @@
     display: none;
   }
 
-  :global(html[data-framed]) .brand {
+  :global(html[data-framed]) .brand-box {
     display: none;
   }
   .topbar.framed {
@@ -596,6 +605,9 @@
     nav.top a:not([aria-current]) {
       padding: 0 var(--space-2);
     }
+    .brand-box :global(.slot) {
+      display: none;
+    }
   }
 
   @media (--narrow) {
@@ -606,7 +618,7 @@
       padding: 0 var(--space-2) 0 var(--space-3);
       column-gap: var(--space-2);
     }
-    .brand,
+    .brand-box,
     nav.top,
     .tools .desk {
       display: none;

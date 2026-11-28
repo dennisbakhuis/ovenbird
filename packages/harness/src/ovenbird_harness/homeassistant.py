@@ -183,12 +183,23 @@ class DeviceFeed:
         self.biased.append((offset_k, start, end))
 
     def _offset(self, t: float) -> float:
+        """Return the summed bias (K) active at ``t``."""
         return sum(offset for offset, a, b in self.biased if a <= t < b)
 
     def _silent(self, t: float) -> bool:
+        """Return whether the device is muted at ``t``."""
         return any(a <= t < b for a, b in self.muted)
 
     def _room(self, t: float, room_c: float) -> list[SensorReport]:
+        """Return the temperature reports at ``t`` for the true room temperature ``room_c`` (°C).
+
+        Parameters
+        ----------
+        t
+            Simulation time in unix seconds.
+        room_c
+            True room temperature in °C.
+        """
         device = self.device
         assert device is not None
         assert self._rng is not None
@@ -214,6 +225,7 @@ class DeviceFeed:
         return [] if sent is None else [SensorReport(self.room_entity, f"{sent:.1f}")]
 
     def _humidity(self, t: float) -> list[SensorReport]:
+        """Return the humidity report due at ``t``, replayed from the track or modelled."""
         track = self.humidity_track
         if track is None:
             assert self.device is not None
@@ -288,21 +300,26 @@ def room_feed(
 
 
 def _iso(t: float) -> str:
+    """Return the ISO timestamp of unix time ``t``."""
     return datetime.fromtimestamp(t, UTC).isoformat()
 
 
 @dataclass
 class _EntityState:
+    """One entity's state as Home Assistant holds it, with its change and report times."""
+
     state: str
     unit: str | None
     last_changed: float
     last_reported: float
 
     def compressed(self) -> dict[str, Any]:
+        """Return the entity in the compressed form of the subscription's snapshot."""
         attributes = {} if self.unit is None else {"unit_of_measurement": self.unit}
         return {"s": self.state, "a": attributes, "lc": self.last_changed}
 
     def full(self, entity_id: str) -> dict[str, Any]:
+        """Return the entity as ``get_states`` lists it for ``entity_id``."""
         attributes = {} if self.unit is None else {"unit_of_measurement": self.unit}
         return {
             "entity_id": entity_id,
@@ -390,6 +407,7 @@ class FakeHomeAssistant:
         self.input = None
 
     def _send_event(self, event: dict[str, Any]) -> None:
+        """Deliver a subscription event to the service's input, if a session is open."""
         if self.input is None:
             return
         self.input.handle({"id": SUBSCRIBE_ID, "type": "event", "event": event})

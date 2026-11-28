@@ -51,6 +51,7 @@ ENVELOPE_ALARM: Final = "envelope_correction"
 
 
 def _register(run: FullRun) -> int:
+    """Return the board register that holds the water setpoint ovenbird writes."""
     registers = run.board.registers
     if run.system.adapter.config.setpoint_register == "setcurves_target_high":
         return registers.curve_target_high
@@ -58,6 +59,7 @@ def _register(run: FullRun) -> int:
 
 
 def _back_in_effect(scenario: Scenario, run: FullRun, expired: float) -> list[Check]:
+    """Return verdicts that the foreign-writer alarm cleared and ovenbird's intent is in effect."""
     cleared = [
         a
         for a in scenario.alarms
@@ -80,6 +82,7 @@ def _back_in_effect(scenario: Scenario, run: FullRun, expired: float) -> list[Ch
 
 
 def _verified_setpoint(run: FullRun) -> int | None:
+    """Return the setpoint verified on the pump, or ``None`` while a command is pending."""
     status = run.system.adapter.status(run.clock())
     if status["in_flight"] is not None or status["queued"]:
         return None
@@ -101,6 +104,7 @@ class ForeignWriter(Scenario):
     written_at: float | None = None
 
     def _alarm(self, row: AlarmRow) -> None:
+        """Record the alarm; at a foreign-writer clear in the window, note register and intent."""
         super()._alarm(row)
         run = self.run
         cleared = row.code == "foreign_writer" and row.event == "cleared"
@@ -113,6 +117,15 @@ class ForeignWriter(Scenario):
         self._try(run, self.start)
 
     def _try(self, run: FullRun, t: float) -> None:
+        """Write the foreign setpoint once ovenbird has a verified value; else wait or retry.
+
+        Parameters
+        ----------
+        run
+            The running full run.
+        t
+            Current time, unix seconds.
+        """
         if self.written_at is not None:
             self._overwritten(run, t)
             return
@@ -157,7 +170,18 @@ class ForeignWriter(Scenario):
             self.at(t - self.start + TICK_S / 12, lambda r, tt: self._try(r, tt))
 
     def checks(self, run: FullRun) -> list[Check]:
-        """Alarm and hold, nothing sent while held, expiry, ovenbird's value back."""
+        """Alarm and hold, nothing sent while held, expiry, ovenbird's value back.
+
+        Parameters
+        ----------
+        run
+            The finished full run.
+
+        Returns
+        -------
+        list[Check]
+            One verdict per checked behaviour.
+        """
         if self.written_at is None:
             return [Check("foreign write injected", "fail", "no verified setpoint to overwrite")]
         t0 = self.written_at
@@ -229,6 +253,7 @@ class CommandLost(Scenario):
         self.at(0.0, self._arm)
 
     def _arm(self, run: FullRun, t: float) -> None:
+        """Wait for a queued command (nudging comfort after a delay), then start losing commands."""
         status = run.system.adapter.status(run.clock())
         if status["queued"] and status["in_flight"] is None:
             self._lose(run, t)
@@ -239,6 +264,7 @@ class CommandLost(Scenario):
             self.at(t - self.start + CYCLE_S, self._arm)
 
     def _configure(self, run: FullRun, comfort: float | None, comment: str) -> None:
+        """Set the comfort temperature (``None`` removes the override) through the config store."""
         manager = run.system.config
         changes = {"control_comfort_c": comfort}
         warnings = [w.code for w in manager.validate(changes).warnings]
@@ -247,6 +273,7 @@ class CommandLost(Scenario):
         )
 
     def _nudge(self, run: FullRun, t: float) -> None:
+        """Raise the comfort temperature so the controller asks for a higher setpoint."""
         comfort = round(run.system.config.settings.control_comfort_c + self.nudge_k, 1)
         self._configure(run, comfort, "harness command_lost nudge")
         self.nudged = True
@@ -254,6 +281,7 @@ class CommandLost(Scenario):
         self.notes["nudged_comfort_c"] = comfort
 
     def _lose(self, run: FullRun, t: float) -> None:
+        """Start dropping commands at the board and begin watching for the failure."""
         run.commands_lost = True
         self.lost_from = t
         self.notes["lost_from"] = _iso(t)
@@ -261,6 +289,7 @@ class CommandLost(Scenario):
         self._watch(run, t)
 
     def _watch(self, run: FullRun, t: float) -> None:
+        """Restore commands once one has failed or the loss lasted too long, reverting any nudge."""
         failed = any(c.status == "failed" for c in self.commands)
         if failed or t - (self.lost_from or self.start) >= self.max_loss_s:
             run.commands_lost = False
@@ -343,6 +372,7 @@ class SetpointAboveMax(Scenario):
         self._try(run, self.start)
 
     def _try(self, run: FullRun, t: float) -> None:
+        """Write a setpoint above the maximum supply once ovenbird has a verified value."""
         if self.written_at is not None:
             return
         verified = _verified_setpoint(run)
@@ -358,6 +388,7 @@ class SetpointAboveMax(Scenario):
         self.notes["foreign_value"] = value
 
     def _alarm(self, row: AlarmRow) -> None:
+        """Record the alarm; at a foreign-writer clear in the window, note register and intent."""
         super()._alarm(row)
         run = self.run
         cleared = row.code == "foreign_writer" and row.event == "cleared"
@@ -366,6 +397,7 @@ class SetpointAboveMax(Scenario):
             self.notes.setdefault("intent_at_clear", run.system.loop.desired_setpoint)
 
     def _cycle(self, run: FullRun, t: float) -> None:
+        """Note when the register is back within the limit after the write."""
         super()._cycle(run, t)
         high = run.system.adapter.config.setpoint_range[1]
         written = self.written_at
@@ -445,6 +477,7 @@ class EnvelopeCorrection(Scenario):
 
     @staticmethod
     def _declare(run: FullRun, *, installed: bool) -> None:
+        """Install or remove the envelope rule in the adapter and the envelope watch."""
         adapter = run.system.adapter
         safety = run.system.loop.controller.config.safety
         adapter.config = replace(adapter.config, envelope_rule=safety if installed else None)
@@ -455,6 +488,7 @@ class EnvelopeCorrection(Scenario):
             run.board.overrides.pop(OUTSIDE_TOPIC, None)
 
     def _outside(self, run: FullRun) -> float | None:
+        """Return the outside temperature the board currently publishes, or ``None`` if unknown."""
         published = run.board.overrides.get(OUTSIDE_TOPIC)
         if published is not None:
             return float(published)
@@ -462,6 +496,22 @@ class EnvelopeCorrection(Scenario):
         return None if observation is None else float(observation.outside_temp)
 
     def _shift(self, run: FullRun, verified: int, outside: float) -> float | None:
+        """Return an outside temperature that puts the verified setpoint outside the envelope band.
+
+        Parameters
+        ----------
+        run
+            The running full run.
+        verified
+            Verified water setpoint in °C.
+        outside
+            Current outside temperature in °C.
+
+        Returns
+        -------
+        float | None
+            Shifted outside temperature in °C, or ``None`` if no shift within the limit works.
+        """
         safety = run.system.loop.controller.config.safety
         for step in range(1, MAX_SHIFT_K + 1):
             for shifted in (outside + step, outside - step):
@@ -474,6 +524,15 @@ class EnvelopeCorrection(Scenario):
         return None
 
     def _try(self, run: FullRun, t: float) -> None:
+        """Shift the outside sensor once the setpoint is verified and a control tick has passed.
+
+        Parameters
+        ----------
+        run
+            The running full run.
+        t
+            Current time, unix seconds.
+        """
         if self.shifted_at is not None:
             return
         verified = _verified_setpoint(run)
@@ -496,9 +555,11 @@ class EnvelopeCorrection(Scenario):
 
     @staticmethod
     def _unshift(run: FullRun) -> None:
+        """Restore the real outside temperature."""
         run.board.overrides.pop(OUTSIDE_TOPIC, None)
 
     def _cycle(self, run: FullRun, t: float) -> None:
+        """Run the emulated rule and note when ovenbird's intent is back in the register."""
         super()._cycle(run, t)
         if not self._inside(t) or self.shifted_at is None:
             return
@@ -509,6 +570,7 @@ class EnvelopeCorrection(Scenario):
                 self.notes["in_effect_after"] = t - self.corrected_at
 
     def _rule(self, run: FullRun, t: float) -> None:
+        """Emulate the HeishaMon rule: write the curve value if the register is out of band."""
         if t - self.rule_wrote_at < RULE_PERIOD_S:
             return
         outside = self._outside(run)
@@ -526,6 +588,7 @@ class EnvelopeCorrection(Scenario):
         self.notes["rule_writes"] = int(self.notes.get("rule_writes", 0)) + 1
 
     def _alarm(self, row: AlarmRow) -> None:
+        """Note the first envelope-correction alarm inside the window."""
         super()._alarm(row)
         if row.code == ENVELOPE_ALARM and self._inside(row.ts) and self.corrected_at is None:
             self.corrected_at = row.ts

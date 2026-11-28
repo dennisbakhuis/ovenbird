@@ -58,11 +58,7 @@ describe('draft', () => {
   it('keeps the origin of a loaded suggestion until the draft is edited or cleared', () => {
     const store = memory();
     const draft = new DraftStore(store);
-    const origin = {
-      label: 'Suggested by the house model',
-      comment: 'house-1',
-      kind: 'house' as const,
-    };
+    const origin = { label: 'Suggested curve', comment: 'suggestion-1' };
     const curve = [
       [-10, 40],
       [0, 35],

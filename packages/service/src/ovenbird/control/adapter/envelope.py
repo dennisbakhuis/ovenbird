@@ -50,6 +50,7 @@ class EnvelopeMixin(AdapterBase):
 
     @staticmethod
     def _inside(value: float, low: float, high: float) -> bool:
+        """Return whether ``value`` lies in ``[low, high]``, within the band tolerance."""
         return low - BAND_EPSILON_K <= value <= high + BAND_EPSILON_K
 
     def _watch_envelope(self, now: Instant, read: Reader) -> None:
@@ -85,6 +86,15 @@ class EnvelopeMixin(AdapterBase):
         the pump now reports what the rule writes there. When ovenbird's value already
         lay outside the band at the outside temperature it was set at, the controller
         did not clamp to the envelope: ``envelope_mismatch`` is raised (once).
+
+        Parameters
+        ----------
+        own
+            Water setpoint ovenbird last set.
+        seen
+            Water setpoint the pump reports now.
+        now
+            Time of the observation.
 
         Returns
         -------

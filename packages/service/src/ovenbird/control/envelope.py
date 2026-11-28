@@ -76,12 +76,14 @@ class EnvelopeWatch:
         loop.tick_hooks.append(self.on_tick)
 
     def _on_command(self, event: CommandEvent) -> None:
+        """Remember water setpoints ovenbird sent, to tell its own writes from the rule's."""
         if event.kind is IntentKind.WATER_SETPOINT and event.status is CommandStatus.SENT:
             stamp = event.at.wall.timestamp()
             self._sent = [(t, v) for t, v in self._sent if stamp - t <= OWN_WINDOW_S]
             self._sent.append((stamp, event.value))
 
     def _on_alarm(self, event: AlarmEvent) -> None:
+        """Take the evidence of an envelope journal row into the stored count."""
         if event.code != ENVELOPE_JOURNAL_CODE:
             return
         detail = event.detail
@@ -95,10 +97,12 @@ class EnvelopeWatch:
         self._record(event.at.wall.timestamp(), before, after, outside, low, high)
 
     def _band(self, outside_c: float) -> tuple[float, float]:
+        """Return the envelope band ``(low, high)`` in degrees Celsius at ``outside_c``."""
         bounds = self.loop.controller.config.safety.bounds(outside_c)
         return bounds.low, bounds.high
 
     def _readings(self, now: Instant) -> tuple[float, float] | None:
+        """Return the fresh water setpoint and outside temperature, or ``None``."""
         store = self.loop.runtime.store
         target = store.view(HeishaSignal.Z1_WATER_TARGET_TEMP, now)
         outside = store.view(HeishaSignal.OUTSIDE_TEMP, now)
@@ -111,7 +115,15 @@ class EnvelopeWatch:
         return float(value), float(temp)
 
     def on_tick(self, now: Instant, mode: Mode) -> None:
-        """Compare the pump's setpoint with the previous tick's (a control-loop hook)."""
+        """Compare the pump's setpoint with the previous tick's (a control-loop hook).
+
+        Parameters
+        ----------
+        now
+            Time of the tick.
+        mode
+            Control mode of the tick.
+        """
         readings = self._readings(now)
         if readings is None:
             self._previous = None
@@ -134,11 +146,29 @@ class EnvelopeWatch:
             self._record(stamp, before, value, outside, low, high)
 
     def _rule_values(self, outside_c: float) -> frozenset[int]:
+        """Return the setpoints the envelope rule can write at ``outside_c``."""
         return self.loop.controller.config.safety.fallback_values(outside_c)
 
     def _record(
         self, stamp: float, before: float, after: float, outside: float, low: float, high: float
     ) -> None:
+        """Count one observed rule correction and store the evidence.
+
+        Parameters
+        ----------
+        stamp
+            Unix time of the observation.
+        before
+            Setpoint before the correction, in degrees Celsius.
+        after
+            Setpoint after the correction, in degrees Celsius.
+        outside
+            Outside temperature, in degrees Celsius.
+        low
+            Lower band edge at that outside temperature, in degrees Celsius.
+        high
+            Upper band edge at that outside temperature, in degrees Celsius.
+        """
         stored = self.facts.get(EVIDENCE_KEY)
         count = int(stored.get("count", 0)) if isinstance(stored, dict) else 0
         first = stored.get("first_ts") if isinstance(stored, dict) else None
@@ -184,7 +214,13 @@ class EnvelopeWatch:
         }
 
     def status(self, now: Instant | None = None) -> dict[str, Any]:
-        """Return the ``safety_net`` block of ``GET api/v1/system/about``."""
+        """Return the ``safety_net`` block of ``GET api/v1/system/about``.
+
+        Parameters
+        ----------
+        now
+            Time to evaluate at; the service clock when omitted.
+        """
         moment = now or self.loop.runtime.clock()
         evidence = self.evidence()
         if not self.installed:

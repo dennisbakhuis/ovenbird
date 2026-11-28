@@ -115,7 +115,7 @@ export const fields = {
   'cfg.control_emitter.opt.radiators': 'Radiators',
   'cfg.weather_enabled.label': 'Weather forecast',
   'cfg.weather_enabled.help':
-    'Fetch an outside temperature forecast for the weather page. Only the model plan (House → Control) uses it, and while that plan is Off or in Shadow the forecast changes nothing in the control.',
+    'Fetch an outside temperature forecast for the weather page. It is for your information and changes nothing in the control.',
   'cfg.weather_latitude.label': 'Latitude',
   'cfg.weather_latitude.help': 'Degrees north, rounded to 0.01°.',
   'cfg.weather_longitude.label': 'Longitude',
@@ -277,21 +277,18 @@ export const fields = {
   'cfg.control_stove_reference_band_k.label': 'Reference band',
   'cfg.control_stove_reference_band_k.help':
     'Over this many K below the floor the back-off shrinks to zero.',
+  'cfg.house_basics_enabled.label': 'Collect the heat-loss estimate',
+  'cfg.house_basics_enabled.help':
+    'Let ovenbird collect the data for the heat-loss estimate on the House page. It changes nothing in the control.',
   'cfg.house_floor_area_m2.label': 'Heated floor area',
   'cfg.house_floor_area_m2.help':
-    'The heated floor area of the house in m², for the indicative insulation score on the House page (heat loss per m²). Leave empty to see only the heat loss in W/K.',
-  'cfg.house_learn_enabled.label': 'Learn the house model',
-  'cfg.house_learn_enabled.help':
-    'Lets ovenbird fit the house model itself, on its own history. Switch it off to stop new runs; the model in use stays.',
-  'cfg.house_learn_interval_h.label': 'Learning interval',
-  'cfg.house_learn_interval_h.help':
-    'Hours between two learning runs, from 24 (daily) to 720 (monthly). The default is 168, once a week. A run starts at night, between 02:00 and 05:00.',
+    'The heated floor area of the house in m², a starting point for the heat-loss estimate on the House page. Leave it empty if you do not know it.',
   'cfg.house_volume_m3.label': 'Heated volume',
   'cfg.house_volume_m3.help':
-    'The heated volume of the house in m³, roughly the floor area times the room height. A starting point for the model: the measurements overrule it when they disagree.',
+    'The heated volume of the house in m³, roughly the floor area times the room height. A starting point for the heat-loss estimate.',
   'cfg.house_build_period.label': 'Build period',
   'cfg.house_build_period.help':
-    'When the house was built. Older houses usually lose more heat; the model uses this as a starting point and the measurements overrule it. Leave it unset if you are not sure.',
+    'When the house was built. Older houses usually lose more heat; it is a starting point for the heat-loss estimate. Leave it unset if you are not sure.',
   'cfg.house_build_period.opt.before_1945': 'Before 1945',
   'cfg.house_build_period.opt.1945_1974': '1945–1974',
   'cfg.house_build_period.opt.1975_1991': '1975–1991',
@@ -300,7 +297,7 @@ export const fields = {
   'cfg.house_build_period.opt.2015_later': '2015 or later',
   'cfg.house_window_area_m2.label': 'Window area',
   'cfg.house_window_area_m2.help':
-    'The total glass area in m². It tells the model how much sun can come in; the measurements overrule it.',
+    'The total glass area in m². It tells roughly how much sun can come in.',
   'cfg.house_window_orientation.label': 'Main window orientation',
   'cfg.house_window_orientation.help':
     'The side most of the glass faces. Choose Mixed when it is spread over several sides.',
@@ -311,43 +308,7 @@ export const fields = {
   'cfg.house_window_orientation.opt.mixed': 'Mixed',
   'cfg.house_occupants.label': 'Occupants',
   'cfg.house_occupants.help':
-    'How many people live in the house. People give off heat, which the model counts as a starting point for the net free heat.',
-  'cfg.house_ua_min_w_per_k.label': 'Heat loss, at least',
-  'cfg.house_ua_min_w_per_k.help':
-    'The learned heat loss will not go below this value (30 to 1500 W/K). Set minimum and maximum equal to pin it. Applies at the next learner run.',
-  'cfg.house_ua_max_w_per_k.label': 'Heat loss, at most',
-  'cfg.house_ua_max_w_per_k.help':
-    'The learned heat loss will not go above this value (30 to 1500 W/K). Applies at the next learner run.',
-  'cfg.house_time_constant_min_h.label': 'Time constant, at least',
-  'cfg.house_time_constant_min_h.help':
-    'The learned time constant, how slowly the house cools, will not go below this value (5 to 500 h). Equal minimum and maximum pin it. Applies at the next learner run.',
-  'cfg.house_time_constant_max_h.label': 'Time constant, at most',
-  'cfg.house_time_constant_max_h.help':
-    'The learned time constant will not go above this value (5 to 500 h). Applies at the next learner run.',
-  'cfg.house_solar_aperture_min_m2.label': 'Solar aperture, at least',
-  'cfg.house_solar_aperture_min_m2.help':
-    'The learned solar aperture, the glass area the sun effectively heats through, will not go below this value (0 to 40 m²). Applies at the next learner run.',
-  'cfg.house_solar_aperture_max_m2.label': 'Solar aperture, at most',
-  'cfg.house_solar_aperture_max_m2.help':
-    'The learned solar aperture will not go above this value (0 to 40 m²). Equal minimum and maximum pin it. Applies at the next learner run.',
-  'cfg.house_internal_gain_min_w.label': 'Net free heat, at least',
-  'cfg.house_internal_gain_min_w.help':
-    'The learned net free heat (people, appliances and other sources) will not go below this value (0 to 2000 W). Applies at the next learner run.',
-  'cfg.house_internal_gain_max_w.label': 'Net free heat, at most',
-  'cfg.house_internal_gain_max_w.help':
-    'The learned net free heat (people, appliances and other sources) will not go above this value (0 to 2000 W). Equal minimum and maximum pin it. Applies at the next learner run.',
-  'cfg.house_learn_fit_days.label': 'Days to learn from',
-  'cfg.house_learn_fit_days.help':
-    'How many days of history the learner fits on, from 21 to 90. The default is 60. It must be at least 8 days more than the days kept for testing.',
-  'cfg.house_learn_test_days.label': 'Days kept for testing',
-  'cfg.house_learn_test_days.help':
-    'The most recent days the learner does not fit on but uses to test a new model, from 7 to 21. The default is 14.',
-  'cfg.house_learn_tolerance_k.label': 'Tolerance for a new model',
-  'cfg.house_learn_tolerance_k.help':
-    'How much worse than the model in use a new model may predict the room, in K, and still be taken. 0 means at least as good; a negative value asks for a clearly better one. From −0.1 to 0.2.',
-  'cfg.house_learn_excluded_days.label': 'Days left out',
-  'cfg.house_learn_excluded_days.help':
-    'Days the learner skips: a holiday, windows open all day, visitors. At most 60. Applies at the next learner run.',
+    'How many people live in the house. People give off heat, which is a starting point for the heat-loss estimate.',
   'cfg.mqtt_host.help':
     'Host name or IP address of the MQTT broker HeishaMon publishes to, such as 192.0.2.20 or mosquitto.',
   'cfg.mqtt_port.help': "The broker's port: usually 1883, or 8883 with TLS.",
@@ -378,22 +339,4 @@ export const fields = {
   'cfg.control_outside_max_deviation_k.label': 'Outside sensor may differ from the pump by',
   'cfg.control_outside_max_deviation_k.help':
     "How far the chosen sensor may be from the pump's own outside sensor. Further apart, one of the two is wrong and the curve uses the pump's sensor until they agree again.",
-  'cfg.control_model_use.label': 'Controller use of the house model',
-  'cfg.control_model_use.help':
-    'Off: the controller ignores the model. Shadow: it computes every 15 minutes how sun and the forecast would move the room and records what it would do, but changes nothing. On: it shifts the room target a little within the bounds. On is locked until an evaluation and a shadow period are done.',
-  'cfg.control_model_use.opt.off': 'Off',
-  'cfg.control_model_use.opt.shadow': 'Shadow (computes only)',
-  'cfg.control_model_use.opt.on': 'On (locked for now)',
-  'cfg.control_model_max_setback_k.label': 'Largest shift down',
-  'cfg.control_model_max_setback_k.help':
-    'How far the model plan may lower the room target before free heat arrives, in K.',
-  'cfg.control_model_max_preheat_k.label': 'Largest shift up',
-  'cfg.control_model_max_preheat_k.help':
-    'How far the model plan may raise the room target before a cold turn, in K.',
-  'cfg.control_model_horizon_h.label': 'Hours looked ahead',
-  'cfg.control_model_horizon_h.help':
-    'How far ahead the planner predicts the room from the sun and the outside forecast, in hours.',
-  'cfg.control_model_max_rmse_k.label': 'Largest model error accepted',
-  'cfg.control_model_max_rmse_k.help':
-    'The planner stays out while the model’s typical room error is above this, in K.',
 };

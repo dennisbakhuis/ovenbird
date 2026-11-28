@@ -38,24 +38,31 @@ from ovenbird_core.control import (
     Mode,
     OvenbirdController,
     ReasonCode,
+    control_inputs,
 )
 
 T0 = 1_800_000_000.0
 
 
 class Sink:
+    """Journal sink that records offered decision and command rows in memory."""
+
     def __init__(self) -> None:
+        """Start with empty decision and command lists."""
         self.decisions: list[DecisionRow] = []
         self.commands: list[CommandRow] = []
 
     def offer_decision(self, row: DecisionRow) -> None:
+        """Record a decision row."""
         self.decisions.append(row)
 
     def offer_command(self, row: CommandRow) -> None:
+        """Record a command row."""
         self.commands.append(row)
 
 
 def decision_row(ts: float, setpoint: int = 30) -> DecisionRow:
+    """Build a shadow-mode curve-only decision row with the given setpoint."""
     record = DecisionRecord(
         at=Instant(ts, datetime.fromtimestamp(ts, UTC)),
         controller="ovenbird",
@@ -77,12 +84,31 @@ def decision_row(ts: float, setpoint: int = 30) -> DecisionRow:
 
 
 def command_row(ts: float, status: str = "sent") -> CommandRow:
+    """Build a water setpoint command row with the given status."""
     return CommandRow(ts, "water_setpoint", 31, status, 1, "t", "31", "detail")
 
 
 def make_loop(
     settings: Settings, clock: FakeClock, sink: Sink | None = None, **kwargs: Any
 ) -> tuple[ControlLoop, Runtime]:
+    """Build a control loop and its runtime from settings.
+
+    Parameters
+    ----------
+    settings
+        Service settings that select mode, guard and room signal.
+    clock
+        Fake clock driving the runtime.
+    sink
+        Optional journal sink receiving decisions and commands.
+    **kwargs
+        Extra ``ControlLoop`` arguments such as ``on_decision`` or ``adapter``.
+
+    Returns
+    -------
+    tuple[ControlLoop, Runtime]
+        The loop and the runtime it reads from.
+    """
     runtime = Runtime(clock=clock)
     loop = ControlLoop(
         runtime,
@@ -98,12 +124,14 @@ def make_loop(
 
 
 def feed(settings: Settings, runtime: Runtime, **overrides: str) -> None:
+    """Ingest the standard simulated pump messages, with optional payload overrides."""
     ingest = MqttIngest(settings, runtime)
     for message in pump_messages(**overrides):
         ingest.ingest(message)
 
 
 def test_migration_adds_decision_and_command_tables(tmp_path: Path) -> None:
+    """Opening a history database creates the journal tables at the latest schema version."""
     conn = open_history(tmp_path / "history.db")
     tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"decision", "command", "sample", "signal", "rollup"} <= tables
@@ -112,6 +140,7 @@ def test_migration_adds_decision_and_command_tables(tmp_path: Path) -> None:
 
 
 def test_writer_stores_journal_rows_and_applies_retention(tmp_path: Path) -> None:
+    """The writer stores journal rows and prunes decisions older than the journal retention."""
     path = tmp_path / "history.db"
     writer = HistoryWriter(
         path, Retention(), min_free_bytes=0, wall=lambda: T0 + 40 * 86_400, journal_days=30
@@ -140,12 +169,14 @@ def test_writer_stores_journal_rows_and_applies_retention(tmp_path: Path) -> Non
 
 
 def test_queries_on_a_missing_database(tmp_path: Path) -> None:
+    """Journal queries on a missing database return empty results."""
     assert query_decisions(tmp_path / "none.db", 0, 1, 10) == []
     assert latest_decision(tmp_path / "none.db") is None
     assert query_commands(tmp_path / "none.db", 0, 1, 10) == []
 
 
 def test_tick_records_a_decision_and_broadcasts_it(make_settings: Callable[..., Settings]) -> None:
+    """A tick journals and pushes a decision, and reports refusals while not publishing."""
     settings = make_settings()
     clock = FakeClock(T0)
     sink = Sink()
@@ -178,6 +209,7 @@ def test_tick_records_a_decision_and_broadcasts_it(make_settings: Callable[..., 
 
 
 def test_room_signal_is_used(make_settings: Callable[..., Settings]) -> None:
+    """A configured room signal moves the ladder to feedback and is listed among the inputs used."""
     settings = make_settings(
         control_room_signal="room_temperature",
         mqtt_inputs=[{"topic": "sim/room", "signal": "room_temperature", "unit": "°C"}],
@@ -194,6 +226,7 @@ def test_room_signal_is_used(make_settings: Callable[..., Settings]) -> None:
 
 
 def test_loop_rejects_an_adapter_without_permission(make_settings: Callable[..., Settings]) -> None:
+    """A loop refuses an adapter when no adapter is permitted by the settings."""
     settings = make_settings()
     with pytest.raises(ValueError, match="adapter"):
         make_loop(settings, FakeClock(), adapter=object())
@@ -203,6 +236,7 @@ def test_loop_rejects_an_adapter_without_permission(make_settings: Callable[...,
 def api(
     make_settings: Callable[..., Settings], tmp_path: Path
 ) -> Iterator[tuple[TestClient, ControlLoop, Settings]]:
+    """Yield a test client, loop and settings over a journal seeded with decisions and commands."""
     settings = make_settings()
     clock = FakeClock(T0 + 3600)
     loop, runtime = make_loop(settings, clock)
@@ -218,6 +252,7 @@ def api(
 
 
 def test_decisions_endpoint(api: tuple[TestClient, ControlLoop, Settings]) -> None:
+    """The decisions endpoint serves windowed rows with limits and rejects invalid parameters."""
     client, _, _ = api
     body = client.get("/api/v1/decisions").json()
     assert body["to"] == "2027-01-15T09:00:00Z"
@@ -255,6 +290,7 @@ def test_decisions_endpoint(api: tuple[TestClient, ControlLoop, Settings]) -> No
 def test_latest_prefers_the_live_loop_then_the_database(
     api: tuple[TestClient, ControlLoop, Settings],
 ) -> None:
+    """The latest decision comes from the database until the live loop has ticked."""
     client, loop, _ = api
     body = client.get("/api/v1/decisions/latest").json()
     assert body["decision"]["at"] == "2027-01-15T08:29:00Z"
@@ -267,6 +303,7 @@ def test_latest_prefers_the_live_loop_then_the_database(
 
 
 def test_commands_endpoint(api: tuple[TestClient, ControlLoop, Settings]) -> None:
+    """The commands endpoint lists journalled commands in time order."""
     client, _, _ = api
     body = client.get("/api/v1/commands").json()
     assert [c["status"] for c in body["commands"]] == ["sent", "verified"]
@@ -276,6 +313,7 @@ def test_commands_endpoint(api: tuple[TestClient, ControlLoop, Settings]) -> Non
 def test_latest_without_a_control_loop(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """Without a control loop the decision endpoints answer empty."""
     settings = make_settings()
     with TestClient(create_app(Runtime(), settings)) as client:
         assert client.get("/api/v1/decisions/latest").json() == {"decision": None, "control": None}
@@ -283,6 +321,7 @@ def test_latest_without_a_control_loop(
 
 
 def test_decisions_are_pushed_on_the_websocket() -> None:
+    """A published decision is queued on websocket channels as a decision message."""
     broadcaster = Broadcaster(Runtime())
     channel = Channel()
     broadcaster.channels.add(channel)
@@ -291,6 +330,7 @@ def test_decisions_are_pushed_on_the_websocket() -> None:
 
 
 def test_scaled_clock() -> None:
+    """A scaled clock multiplies elapsed time and validates its speed and construction."""
     real = [100.0]
     start = datetime(2026, 11, 7, tzinfo=UTC)
     clock = ScaledClock(60.0, start, monotonic=lambda: real[0])
@@ -307,6 +347,7 @@ def test_scaled_clock() -> None:
 
 
 async def test_scaled_sleep_is_shorter() -> None:
+    """Sleeping on a scaled clock waits for the scaled duration."""
     clock = ScaledClock(1000.0)
     before = clock()
     await sleeper(clock)(5.0)
@@ -314,6 +355,7 @@ async def test_scaled_sleep_is_shorter() -> None:
 
 
 def test_history_window_uses_the_service_clock(make_settings: Callable[..., Settings]) -> None:
+    """The history endpoint ends its default window at the service clock's now."""
     settings = make_settings()
     clock = FakeClock(T0)
     with TestClient(create_app(Runtime(clock=clock), settings)) as client:
@@ -322,9 +364,38 @@ def test_history_window_uses_the_service_clock(make_settings: Callable[..., Sett
 
 
 def test_decision_table_survives_reopen(tmp_path: Path) -> None:
+    """Reopening a history database keeps the schema version."""
     path = tmp_path / "history.db"
     open_history(path).close()
     conn = sqlite3.connect(path)
     assert conn.execute("PRAGMA user_version").fetchone()[0] == len(bundled_migrations())
     conn.close()
     open_history(path).close()
+
+
+def test_plan_context_trusts_a_fresh_plausible_room_and_gets_no_plan(
+    make_settings: Callable[..., Settings],
+) -> None:
+    """Plan context trusts a fresh plausible room, then distrusts it once marked implausible."""
+    settings = make_settings(
+        control_room_signal="room_temperature",
+        mqtt_inputs=[{"topic": "sim/room", "signal": "room_temperature", "unit": "°C"}],
+    )
+    clock = FakeClock(T0)
+    loop, runtime = make_loop(settings, clock)
+    feed(settings, runtime)
+    MqttIngest(settings, runtime).ingest(inbound("sim/room", "20.2"))
+    row = loop.tick()
+    plan = next(t for t in json.loads(row.record)["terms"] if t["name"] == "plan")
+    assert plan["note"] == "no plan"
+    moment = clock()
+    inputs = control_inputs(
+        runtime.store.snapshot(moment), room_signal="room_temperature", mode=loop.effective_mode
+    )
+    ctx = loop.plan_context(moment, inputs)
+    assert ctx.room_trusted
+    assert not ctx.stove_active
+    assert ctx.outside_filtered_c == loop.state.outside_filtered
+    assert ctx.config is loop.controller.config
+    loop.latest_state = {**(loop.latest_state or {}), "room_plausible": False}
+    assert not loop.plan_context(moment, inputs).room_trusted

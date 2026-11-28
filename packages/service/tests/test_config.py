@@ -1,3 +1,5 @@
+"""Loading and validating the service settings from environment, options file and keywords."""
+
 from __future__ import annotations
 
 import json
@@ -24,10 +26,12 @@ from ovenbird.config import ConfigError, Settings, is_loopback, load_settings
     ],
 )
 def test_is_loopback(host: str, expected: bool) -> None:
+    """Only loopback addresses and names count as loopback, in any notation."""
     assert is_loopback(host) is expected
 
 
 def test_defaults_are_valid_and_loopback() -> None:
+    """Default settings load, bind to loopback and need no authentication."""
     settings = load_settings()
     assert settings.http_host == "127.0.0.1"
     assert settings.heishamon_base == "panasonic_heat_pump"
@@ -42,6 +46,7 @@ def test_defaults_are_valid_and_loopback() -> None:
 
 
 def test_refuses_non_loopback_bind_without_admin_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-loopback bind requires an admin password, which turns authentication on."""
     monkeypatch.setenv("OVENBIRD_HTTP_HOST", "0.0.0.0")
     with pytest.raises(ConfigError, match="OVENBIRD_ADMIN_PASSWORD"):
         load_settings()
@@ -52,6 +57,7 @@ def test_refuses_non_loopback_bind_without_admin_password(monkeypatch: pytest.Mo
 
 
 def test_empty_admin_password_counts_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty admin password does not satisfy the non-loopback requirement."""
     monkeypatch.setenv("OVENBIRD_HTTP_HOST", "0.0.0.0")
     monkeypatch.setenv("OVENBIRD_ADMIN_PASSWORD", "")
     with pytest.raises(ConfigError):
@@ -59,6 +65,7 @@ def test_empty_admin_password_counts_as_unset(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_env_lists_and_inputs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Entity lists are split and de-duplicated and MQTT inputs become prefixed signals."""
     monkeypatch.setenv("OVENBIRD_HA_URL", "http://ha.local:8123")
     monkeypatch.setenv("OVENBIRD_HA_TOKEN", "tok")
     monkeypatch.setenv("OVENBIRD_HA_ENTITIES", "sensor.a_temp, sensor.b_temp,sensor.a_temp")
@@ -75,6 +82,7 @@ def test_env_lists_and_inputs(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_entities_as_json_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The entity list may also be given as a JSON array."""
     monkeypatch.setenv("OVENBIRD_HA_URL", "https://ha.example")
     monkeypatch.setenv("OVENBIRD_HA_TOKEN", "tok")
     monkeypatch.setenv("OVENBIRD_HA_ENTITIES", '["sensor.x"]')
@@ -122,6 +130,7 @@ def test_entities_as_json_list(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_invalid_settings(
     monkeypatch: pytest.MonkeyPatch, env: dict[str, str], message: str
 ) -> None:
+    """Each invalid environment combination is rejected with an error naming the problem."""
     for name, value in env.items():
         monkeypatch.setenv(name, value)
     with pytest.raises(ConfigError, match=message):
@@ -129,6 +138,7 @@ def test_invalid_settings(
 
 
 def test_ha_needs_no_entity_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Home Assistant is enabled with only a URL and token and then subscribes to nothing."""
     monkeypatch.setenv("OVENBIRD_HA_URL", "http://192.0.2.10:8123")
     monkeypatch.setenv("OVENBIRD_HA_TOKEN", "t")
     settings = load_settings()
@@ -138,6 +148,7 @@ def test_ha_needs_no_entity_list(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_ha_subscriptions_follow_the_signal_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Home Assistant signals and subscriptions derive from the control signal settings."""
     monkeypatch.setenv("OVENBIRD_HA_URL", "https://ha.example/prefix")
     monkeypatch.setenv("OVENBIRD_HA_TOKEN", "t")
     monkeypatch.setenv("OVENBIRD_HA_ENTITIES", "sensor.extra")
@@ -169,6 +180,7 @@ def test_ha_subscriptions_follow_the_signal_settings(monkeypatch: pytest.MonkeyP
     ["ha/climate.living#temperature", "ha/sensor.living#current_temperature", "ha/Climate.x"],
 )
 def test_unsupported_ha_signals_are_refused(monkeypatch: pytest.MonkeyPatch, signal: str) -> None:
+    """Room signals with an unsupported attribute or malformed entity id are rejected."""
     monkeypatch.setenv("OVENBIRD_HA_URL", "http://ha:8123")
     monkeypatch.setenv("OVENBIRD_HA_TOKEN", "t")
     with pytest.raises(ConfigError, match="room signal"):
@@ -176,11 +188,13 @@ def test_unsupported_ha_signals_are_refused(monkeypatch: pytest.MonkeyPatch, sig
 
 
 def test_log_level_is_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The log level is accepted in lower case and normalised to upper case."""
     monkeypatch.setenv("OVENBIRD_LOG_LEVEL", "debug")
     assert load_settings().log_level == "DEBUG"
 
 
 def test_options_file_and_env_precedence(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Options file values are overridden by environment variables, then by keywords."""
     options = tmp_path / "options.json"
     options.write_text(
         json.dumps({"mqtt_host": "broker.lan", "mqtt_port": 1884, "unrelated_option": True}),
@@ -195,6 +209,7 @@ def test_options_file_and_env_precedence(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
 
 def test_malformed_options_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An unreadable options file is reported as a settings error."""
     options = tmp_path / "options.json"
     options.write_text("{not json", encoding="utf-8")
     monkeypatch.setenv("OVENBIRD_OPTIONS_FILE", str(options))
@@ -203,6 +218,7 @@ def test_malformed_options_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
 
 
 def test_secrets_never_leak(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Passwords and tokens never appear in repr, str, summary or error messages."""
     monkeypatch.setenv("OVENBIRD_MQTT_PASSWORD", "mqtt-hunter2")
     monkeypatch.setenv("OVENBIRD_ADMIN_PASSWORD", "admin-hunter2")
     monkeypatch.setenv("OVENBIRD_HA_URL", "http://ha:8123")
@@ -220,6 +236,7 @@ def test_secrets_never_leak(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_factory_settings(make_settings: Callable[..., Settings], tmp_path: Path) -> None:
+    """The settings factory places the history database inside the temporary data folder."""
     settings = make_settings()
     assert settings.history_path == tmp_path / "data" / "history.db"
 
@@ -227,12 +244,14 @@ def test_factory_settings(make_settings: Callable[..., Settings], tmp_path: Path
 def write_options(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, options: dict[str, object]
 ) -> None:
+    """Write ``options`` as the app options file and point the environment at it."""
     path = tmp_path / "options.json"
     path.write_text(json.dumps(options), encoding="utf-8")
     monkeypatch.setenv("OVENBIRD_OPTIONS_FILE", str(path))
 
 
 def test_app_options_file_maps_to_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A Home Assistant app options file maps onto the settings."""
     write_options(
         tmp_path,
         monkeypatch,
@@ -255,6 +274,7 @@ def test_app_options_file_maps_to_settings(monkeypatch: pytest.MonkeyPatch, tmp_
 
 
 def test_app_options_with_unset_optionals(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Null and empty optional app options leave the optional settings unset."""
     write_options(
         tmp_path,
         monkeypatch,
@@ -266,6 +286,7 @@ def test_app_options_with_unset_optionals(monkeypatch: pytest.MonkeyPatch, tmp_p
 
 
 def test_ingress_mode_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Explicit ingress mode binds to all interfaces, requires authentication, trusts the proxy."""
     monkeypatch.setenv("OVENBIRD_INGRESS", "true")
     settings = load_settings()
     assert settings.ingress_mode
@@ -276,6 +297,7 @@ def test_ingress_mode_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_ingress_mode_from_supervisor_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A supervisor token switches on ingress mode and Home Assistant access."""
     monkeypatch.setenv("SUPERVISOR_TOKEN", "sup-token")
     settings = load_settings()
     assert settings.ingress_mode
@@ -284,6 +306,7 @@ def test_ingress_mode_from_supervisor_token(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_ingress_mode_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ingress mode can be turned off explicitly even when a supervisor token is present."""
     monkeypatch.setenv("SUPERVISOR_TOKEN", "sup-token")
     monkeypatch.setenv("OVENBIRD_INGRESS", "false")
     settings = load_settings()
@@ -293,6 +316,7 @@ def test_ingress_mode_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_ingress_mode_uses_supervisor_proxy_for_ha(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ingress mode reaches Home Assistant via the supervisor proxy, token not in the summary."""
     monkeypatch.setenv("SUPERVISOR_TOKEN", "sup-token")
     monkeypatch.setenv("OVENBIRD_HA_ENTITIES", "sensor.room_temperature")
     settings = load_settings()
@@ -304,6 +328,7 @@ def test_ingress_mode_uses_supervisor_proxy_for_ha(monkeypatch: pytest.MonkeyPat
 
 
 def test_explicit_ha_url_wins_over_supervisor_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An explicitly configured Home Assistant URL takes precedence over the supervisor proxy."""
     monkeypatch.setenv("SUPERVISOR_TOKEN", "sup-token")
     monkeypatch.setenv("OVENBIRD_HA_ENTITIES", "sensor.room_temperature")
     monkeypatch.setenv("OVENBIRD_HA_URL", "http://ha.local:8123")
@@ -313,12 +338,14 @@ def test_explicit_ha_url_wins_over_supervisor_proxy(monkeypatch: pytest.MonkeyPa
 
 
 def test_ingress_mode_keeps_explicit_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An explicitly configured HTTP host is kept in ingress mode."""
     monkeypatch.setenv("OVENBIRD_INGRESS", "true")
     monkeypatch.setenv("OVENBIRD_HTTP_HOST", "10.0.0.5")
     assert load_settings().http_host == "10.0.0.5"
 
 
 def test_ingress_mode_supervisor_proxy_websocket_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The supervisor proxy URL maps to the supervisor WebSocket endpoint."""
     from ovenbird.ha import websocket_url
 
     monkeypatch.setenv("SUPERVISOR_TOKEN", "sup-token")
@@ -332,6 +359,7 @@ def test_ingress_mode_supervisor_proxy_websocket_url(monkeypatch: pytest.MonkeyP
 def test_empty_mqtt_username_counts_as_unset(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, username: str
 ) -> None:
+    """Blank MQTT credentials are treated as unset."""
     write_options(tmp_path, monkeypatch, {"mqtt_username": username, "mqtt_password": ""})
     settings = load_settings()
     assert settings.mqtt_username is None
@@ -339,6 +367,7 @@ def test_empty_mqtt_username_counts_as_unset(
 
 
 def test_allowed_origins_are_normalised(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Allowed origins are lower-cased, stripped of default ports and trailing slashes."""
     monkeypatch.setenv(
         "OVENBIRD_HTTP_ALLOWED_ORIGINS",
         "HTTPS://HA.Example:443, http://ha.local:8123/, http://[::1]:8099",
@@ -355,12 +384,14 @@ def test_allowed_origins_are_normalised(monkeypatch: pytest.MonkeyPatch) -> None
     "origin", ["ftp://x", "https://ha.example/path", "https://user@ha.example", "ha.example"]
 )
 def test_invalid_allowed_origin(monkeypatch: pytest.MonkeyPatch, origin: str) -> None:
+    """Allowed origins with a wrong scheme, a path, user info or no scheme are rejected."""
     monkeypatch.setenv("OVENBIRD_HTTP_ALLOWED_ORIGINS", origin)
     with pytest.raises(ConfigError, match="http_allowed_origins"):
         load_settings()
 
 
 def test_snapshot_settings(make_settings: Callable[..., Settings], tmp_path: Path) -> None:
+    """The snapshot interval and path derive from the settings and can be disabled."""
     settings = make_settings()
     assert settings.history_snapshot_hours == 6.0
     assert settings.snapshot_path == tmp_path / "data" / "history.snapshot.db"

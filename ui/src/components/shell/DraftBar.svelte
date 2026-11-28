@@ -177,9 +177,7 @@
           {/if}
         </span>
         {#if draft.origin}<span class="origin" data-testid="draft-origin"
-            ><Icon name="home" size={16} />{draft.origin.kind === 'house'
-              ? t('houseSuggestedLabel')
-              : draft.origin.label}</span
+            ><Icon name="home" size={16} />{draft.origin.label}</span
           >{/if}
         {#if stale}<span class="stale" data-testid="draft-stale"
             ><Icon name="warning" size={16} />{t('draftStaleShort')}</span

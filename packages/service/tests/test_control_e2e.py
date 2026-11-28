@@ -38,7 +38,7 @@ from ovenbird.history import query_commands, query_decisions
 from ovenbird.mqtt import InboundMessage, MqttIngest
 from ovenbird.runtime import Runtime
 from ovenbird.service import build_control, build_service
-from ovenbird.testing import FakeClock, inbound
+from ovenbird.testing import FakeClock, inbound, until
 from ovenbird_core import PUMP_SETTINGS, Instant, PumpSetting, SignalView, StateStore
 
 pytestmark = pytest.mark.slow
@@ -56,6 +56,7 @@ IDLE_DUTY = 102
 
 
 def sim_settings(make_settings: Callable[..., Settings], **overrides: Any) -> Settings:
+    """Build settings for the simulated house with publishing, pump duty and a room input."""
     values: dict[str, Any] = {
         "mqtt_host": "mosquitto",
         "control_mode": "auto",
@@ -92,11 +93,14 @@ def make_board(base: str = "panasonic_heat_pump", room_c: float = 21.0) -> Any:
 
 
 def view_at(store: StateStore, at: Instant, signal: str) -> SignalView | None:
+    """Return the view of a signal in the store at the given instant."""
     return store.view(signal, at)
 
 
 @dataclass
 class Run:
+    """Room temperatures, water targets and commands sent during a closed-loop run."""
+
     rooms: list[float]
     targets: list[int]
     sent: list[Command]
@@ -105,6 +109,7 @@ class Run:
 def run_closed_loop(
     loop: ControlLoop, adapter: CommandAdapter, ingest: MqttIngest, clock: FakeClock, board: Any
 ) -> Run:
+    """Step board, ingest, adapter and control loop for eight hours; return what was seen."""
     run = Run([], [], [])
     hours = 8
     for cycle in range(hours * 720):
@@ -129,13 +134,15 @@ def run_closed_loop(
 
 
 def test_closed_loop_hours(make_settings: Callable[..., Settings]) -> None:
+    """The controller holds the simulated room within 1 K of comfort for eight hours."""
     settings = sim_settings(make_settings)
     clock = FakeClock(START.timestamp())
     runtime = Runtime(clock=clock)
     ingest = MqttIngest(settings, runtime)
 
     async def no_sleep(_: float) -> None:
-        return None
+        """Return at once instead of sleeping."""
+        return
 
     loop, worker = build_control(settings, runtime, None, sleep=no_sleep)
     assert worker is not None
@@ -167,13 +174,15 @@ def test_closed_loop_hours(make_settings: Callable[..., Settings]) -> None:
 
 
 def test_shadow_closed_loop_sends_nothing(make_settings: Callable[..., Settings]) -> None:
+    """In shadow mode the controller decides but sends nothing to the simulated heat pump."""
     settings = sim_settings(make_settings, control_mode="shadow")
     clock = FakeClock(START.timestamp())
     runtime = Runtime(clock=clock)
     ingest = MqttIngest(settings, runtime)
 
     async def no_sleep(_: float) -> None:
-        return None
+        """Return at once instead of sleeping."""
+        return
 
     loop, worker = build_control(settings, runtime, None, sleep=no_sleep)
     assert worker is None
@@ -194,11 +203,13 @@ class Broker:
     """In-memory MQTT broker: retained store, wildcard subscriptions, no QoS."""
 
     def __init__(self) -> None:
+        """Start with no retained messages, subscribers or log."""
         self.retained: dict[str, str] = {}
         self.subscribers: list[tuple[str, asyncio.Queue[tuple[str, str, bool]]]] = []
         self.log: list[tuple[str, str, bool]] = []
 
     def publish(self, topic: str, payload: str, retain: bool) -> None:
+        """Record the message and deliver it to matching subscribers, keeping retained ones."""
         self.log.append((topic, payload, retain))
         if retain:
             self.retained[topic] = payload
@@ -207,6 +218,7 @@ class Broker:
                 queue.put_nowait((topic, payload, False))
 
     def subscribe(self, pattern: str, queue: asyncio.Queue[tuple[str, str, bool]]) -> None:
+        """Register a subscription and replay matching retained messages into its queue."""
         self.subscribers.append((pattern, queue))
         for topic, payload in self.retained.items():
             if aiomqtt.Topic(topic).matches(pattern):
@@ -214,11 +226,15 @@ class Broker:
 
 
 class IngestClient:
+    """Client the service's MQTT ingest uses to read messages from the in-memory broker."""
+
     def __init__(self, broker: Broker) -> None:
+        """Attach to the broker with an empty message queue."""
         self.broker = broker
         self.queue: asyncio.Queue[tuple[str, str, bool]] = asyncio.Queue()
 
     async def __aenter__(self) -> Self:
+        """Enter the client context."""
         return self
 
     async def __aexit__(
@@ -227,22 +243,29 @@ class IngestClient:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        return None
+        """Leave the client context without cleanup."""
+        return
 
     async def subscribe(self, topic: str) -> None:
+        """Subscribe the client queue to a topic pattern."""
         self.broker.subscribe(topic, self.queue)
 
     async def messages(self) -> AsyncIterator[InboundMessage]:
+        """Yield the broker messages as inbound messages as they arrive."""
         while True:
             topic, payload, retained = await self.queue.get()
             yield InboundMessage(topic, payload.encode(), retained)
 
 
 class Link:
+    """Command link the service uses to publish commands to the in-memory broker."""
+
     def __init__(self, broker: Broker) -> None:
+        """Attach to the broker."""
         self.broker = broker
 
     async def __aenter__(self) -> Self:
+        """Enter the link context."""
         return self
 
     async def __aexit__(
@@ -251,26 +274,35 @@ class Link:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        return None
+        """Leave the link context without cleanup."""
+        return
 
     async def send(self, command: Command) -> None:
+        """Publish the command to the broker without retaining it."""
         self.broker.publish(command.topic, command.payload, False)
 
 
 class Delivery:
+    """A received message with a topic, a bytes payload and a retain flag."""
+
     def __init__(self, topic: str, payload: str, retain: bool) -> None:
+        """Store the topic as a matcher and the payload encoded to bytes."""
         self.topic = aiomqtt.Topic(topic)
         self.payload = payload.encode()
         self.retain = retain
 
 
 class SimClient:
+    """Client the simulator runner uses to publish and subscribe on the in-memory broker."""
+
     def __init__(self, broker: Broker, **kwargs: Any) -> None:
+        """Attach to the broker and keep the client keyword arguments, such as the last will."""
         self.broker = broker
         self.kwargs = kwargs
         self.queue: asyncio.Queue[tuple[str, str, bool]] = asyncio.Queue()
 
     async def __aenter__(self) -> Self:
+        """Enter the client context."""
         return self
 
     async def __aexit__(
@@ -279,18 +311,24 @@ class SimClient:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
+        """Leave the client context by publishing the last will, as a broker would on disconnect."""
         will = self.kwargs["will"]
         self.broker.publish(will.topic, will.payload, will.retain)
 
     async def subscribe(self, topic: str, qos: int = 0) -> None:
+        """Subscribe the client queue to a topic pattern."""
         self.broker.subscribe(topic, self.queue)
 
     async def publish(self, topic: str, payload: str, qos: int = 0, retain: bool = False) -> None:
+        """Publish to the broker, ignoring the QoS."""
         self.broker.publish(topic, payload, retain)
 
     @property
     def messages(self) -> Any:
+        """Return an async stream of the messages delivered to this client."""
+
         async def stream() -> Any:
+            """Yield each queued message as a delivery."""
             while True:
                 yield Delivery(*(await self.queue.get()))
 
@@ -309,10 +347,38 @@ async def run_service_with_simulator(
     sim_host: str = "localhost",
     sim_port: int = 1883,
 ) -> Any:
+    """Run the service and the simulator together for a while, then stop both.
+
+    Parameters
+    ----------
+    settings
+        Settings of the service under test.
+    board
+        Simulated heat pump the simulator runner publishes for.
+    speed
+        Clock speed of the simulator, as a multiple of real time.
+    seconds
+        Real time to let both run before stopping them.
+    mqtt_connect
+        Factory of the MQTT client of the service, or none for the real one.
+    command_connect
+        Factory of the command link of the service, or none for the real one.
+    sim_factory
+        Factory of the MQTT client of the simulator, or none for the real one.
+    sim_host
+        Broker host the simulator connects to.
+    sim_port
+        Broker port the simulator connects to.
+
+    Returns
+    -------
+    Service
+        The stopped service, whose history can be inspected.
+    """
     service = build_service(settings, mqtt_connect=mqtt_connect, command_connect=command_connect)
     stop = asyncio.Event()
     service_task = asyncio.create_task(service.run(stop))
-    await asyncio.sleep(0.2)
+    await until(lambda: service.runtime.mqtt_connected)
     config = runner_module.RunnerConfig(host=sim_host, port=sim_port, speed=speed)
     kwargs = {} if sim_factory is None else {"client_factory": sim_factory}
     sim_task = asyncio.create_task(runner_module.run(board, config, **kwargs))
@@ -326,6 +392,7 @@ async def run_service_with_simulator(
 
 
 def check_service_run(service: Any, board: Any) -> None:
+    """The service history shows controlled decisions and verified commands, without alarms."""
     decisions = query_decisions(service.settings.history_path, 0.0, 4e9, 5000)
     commands = query_commands(service.settings.history_path, 0.0, 4e9, 5000)
     assert len(decisions) >= 5
@@ -343,6 +410,7 @@ def check_service_run(service: Any, board: Any) -> None:
 def test_a_simulated_clock_also_drives_history_retention_and_the_archive(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """A simulated clock also drives the history writer's wall clock."""
     settings = sim_settings(
         make_settings, clock_speed=120.0, clock_start=START, history_snapshot_hours=None
     )
@@ -353,11 +421,13 @@ def test_a_simulated_clock_also_drives_history_retention_and_the_archive(
 def test_the_real_clock_drives_history_retention_in_production(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """The real clock drives the history writer's wall clock in production."""
     service = build_service(make_settings())
     assert abs(service.writer._wall() - time.time()) < 60
 
 
 async def test_service_against_the_simulator(make_settings: Callable[..., Settings]) -> None:
+    """The service controls the simulated heat pump over an in-memory broker."""
     broker = Broker()
     settings = sim_settings(
         make_settings, clock_speed=120.0, clock_start=START, history_snapshot_hours=None
@@ -379,6 +449,7 @@ async def test_service_against_the_simulator(make_settings: Callable[..., Settin
 
 
 def _free_port() -> int:
+    """Return a currently free TCP port on the loopback interface."""
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
@@ -386,6 +457,7 @@ def _free_port() -> int:
 
 @pytest.fixture(scope="module")
 def real_broker(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[str, int]]:
+    """Provide the host and port of a real MQTT broker, from the environment or mosquitto."""
     configured = os.environ.get("OVENBIRD_TEST_MQTT")
     if configured:
         host, _, raw_port = configured.rpartition(":")
@@ -413,6 +485,7 @@ def real_broker(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[str,
 async def test_service_against_a_real_broker(
     make_settings: Callable[..., Settings], real_broker: tuple[str, int]
 ) -> None:
+    """The service controls the simulated heat pump over a real MQTT broker."""
     host, port = real_broker
     if host.strip().lower() not in runner_module.LOCAL_HOSTS:
         pytest.skip("the simulator only connects to local brokers")
@@ -440,7 +513,10 @@ INJECT = "heishamon_sim/inject"
 
 
 class SafetyRig:
+    """The control stack with a safety monitor around the simulated heat pump, stepped every 5 s."""
+
     def __init__(self, make_settings: Callable[..., Settings]) -> None:
+        """Build the control loop, adapter, monitor and board with injection topics enabled."""
         self.settings = sim_settings(
             make_settings, control_comfort_c=21.0, control_min_setpoint_c=24.0
         )
@@ -449,7 +525,8 @@ class SafetyRig:
         self.ingest = MqttIngest(self.settings, self.runtime)
 
         async def no_sleep(_: float) -> None:
-            return None
+            """Return at once instead of sleeping."""
+            return
 
         self.loop, _ = build_control(self.settings, self.runtime, None, sleep=no_sleep)
         adapter = self.loop.adapter
@@ -464,6 +541,7 @@ class SafetyRig:
         self.cycle = 0
 
     def run(self, cycles: int) -> None:
+        """Advance the given number of five-second cycles, running adapter, monitor and loop."""
         for _ in range(cycles):
             self.cycle += 1
             self.clock.t = START.timestamp() + self.cycle * 5.0
@@ -483,10 +561,12 @@ class SafetyRig:
                 self.loop.tick(now)
 
     def active(self) -> set[str]:
+        """Return the codes of the active alarms."""
         return {alarm.code.value for alarm in self.loop.alarms.active()}
 
 
 def test_safety_injections_against_the_simulator(make_settings: Callable[..., Settings]) -> None:
+    """Injected faults raise and clear their alarms, with corrections and holds, in the sim."""
     rig = SafetyRig(make_settings)
     rig.run(720)
     assert rig.active() == set()
@@ -542,6 +622,7 @@ def test_safety_injections_against_the_simulator(make_settings: Callable[..., Se
 
 
 def test_pump_settings_against_the_simulator(make_settings: Callable[..., Settings]) -> None:
+    """Operator pump settings are written, verified and reflected in the simulated registers."""
     rig = SafetyRig(make_settings)
     rig.run(240)
     store = rig.runtime.store

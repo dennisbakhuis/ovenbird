@@ -47,6 +47,7 @@ def entities(root: Path) -> list[str]:
 
 
 def _read_table(root: Path, entity_id: str) -> pa.Table | None:
+    """Return all stored states of one entity as one table, or ``None`` without files."""
     import pyarrow as pa
     import pyarrow.parquet as pq
 
@@ -58,6 +59,7 @@ def _read_table(root: Path, entity_id: str) -> pa.Table | None:
 
 
 def _unix_seconds(column: pa.ChunkedArray[Any]) -> np.ndarray:
+    """Return a timestamp column as Unix seconds (UTC)."""
     import pyarrow as pa
 
     micros = column.cast(pa.timestamp("us", tz="UTC")).cast(pa.int64()).to_numpy()
@@ -65,6 +67,7 @@ def _unix_seconds(column: pa.ChunkedArray[Any]) -> np.ndarray:
 
 
 def _float_or_nan(text: object) -> float:
+    """Parse a state string as a finite float; anything else (unavailable, text) becomes NaN."""
     if not isinstance(text, str):
         return math.nan
     try:
@@ -75,6 +78,7 @@ def _float_or_nan(text: object) -> float:
 
 
 def _dedupe(t: np.ndarray, v: np.ndarray) -> Series:
+    """Return the samples sorted by time with only the last one kept per duplicate timestamp."""
     order = np.argsort(t, kind="stable")
     t, v = t[order], v[order]
     if t.size == 0:

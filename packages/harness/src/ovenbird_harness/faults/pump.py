@@ -38,9 +38,11 @@ class ModeChange(Scenario):
         """Switch to compensation mode and back."""
 
         def compensation(r: FullRun, t: float) -> None:
+            """Set the heating mode register to compensation (0)."""
             r.board.inject("register/heating_mode", "0")
 
         def direct(r: FullRun, t: float) -> None:
+            """Set the heating mode register back to direct (1)."""
             r.board.inject("register/heating_mode", "1")
 
         self.at(0.0, compensation)
@@ -87,9 +89,11 @@ class DhwRun(Scenario):
         """Start and end the DHW run."""
 
         def start(r: FullRun, t: float) -> None:
+            """Start the DHW run on the board."""
             r.board.dhw = True
 
         def stop(r: FullRun, t: float) -> None:
+            """End the DHW run on the board."""
             r.board.dhw = False
 
         self.at(0.0, start)

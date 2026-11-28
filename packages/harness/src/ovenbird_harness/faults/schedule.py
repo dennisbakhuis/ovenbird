@@ -183,7 +183,10 @@ class Scheduler:
 
 
 def _first_report_tracker(run: FullRun, scenario: RoomSensorSilent) -> Callable[[float], None]:
+    """Return a per-cycle hook noting when the silent room device first reports after the outage."""
+
     def track(t: float) -> None:
+        """Note the first report after the silence ends, if it lands before the window end."""
         if "first_report_after" in scenario.notes or run.ha is None:
             return
         resume = scenario.start + scenario.silent_s

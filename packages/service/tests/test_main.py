@@ -1,3 +1,5 @@
+"""The command line entry point: version, self-check, start-up, signals and bind failures."""
+
 from __future__ import annotations
 
 import asyncio
@@ -21,6 +23,7 @@ from ovenbird.testing import FakeMqttClient, inbound
 
 
 def test_version_prints_and_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
+    """``--version`` prints the version and exits with code 0."""
     with pytest.raises(SystemExit) as excinfo:
         main(["--version"])
     assert excinfo.value.code == 0
@@ -30,6 +33,7 @@ def test_version_prints_and_exits_zero(capsys: pytest.CaptureFixture[str]) -> No
 def test_check_without_running_service_is_a_self_check(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """``--check`` with no running service runs a self-check and logs success."""
     monkeypatch.setenv("OVENBIRD_DATA_DIR", str(tmp_path / "data"))
     with caplog.at_level(logging.INFO, logger="ovenbird"):
         assert main(["--check"]) == 0
@@ -37,11 +41,13 @@ def test_check_without_running_service_is_a_self_check(
 
 
 def test_check_with_invalid_settings_exits_two(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``--check`` with invalid settings exits with code 2."""
     monkeypatch.setenv("OVENBIRD_HTTP_HOST", "0.0.0.0")
     assert main(["--check"]) == 2
 
 
 def test_check_while_starting_fails(make_settings: Callable[..., Settings]) -> None:
+    """``--check`` fails while another instance holds the lock but is not yet serving."""
     settings = make_settings()
     lock = InstanceLock(settings.data_dir)
     lock.acquire()
@@ -58,6 +64,7 @@ def test_check_while_starting_fails(make_settings: Callable[..., Settings]) -> N
 async def test_service_serves_probes_and_stops_cleanly(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """The service answers health and snapshot requests, passes ``--check`` and stops cleanly."""
     settings = make_settings()
     client = FakeMqttClient(
         [
@@ -94,6 +101,7 @@ async def test_service_serves_probes_and_stops_cleanly(
 async def test_sigterm_stops_the_service(
     make_settings: Callable[..., Settings], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """SIGTERM stops the running service and releases its instance lock."""
     settings = make_settings()
     monkeypatch.setattr(
         entry, "build_service", functools.partial(build_service, mqtt_connect=FakeMqttClient)
@@ -110,6 +118,7 @@ async def test_sigterm_stops_the_service(
 
 
 async def test_bind_failure_is_reported(make_settings: Callable[..., Settings]) -> None:
+    """A service that cannot bind its HTTP port fails with a start-up error."""
     first = build_service(make_settings(), mqtt_connect=FakeMqttClient)
     stop = asyncio.Event()
     task = asyncio.create_task(first.run(stop))

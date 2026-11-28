@@ -179,6 +179,7 @@ class Proposal:
 
 
 def _dominant_step(values: FloatArray) -> tuple[float, float]:
+    """Return the most common nonzero step between samples and its share of all steps."""
     steps = np.round(np.abs(np.diff(values)), 3)
     steps = steps[steps > 0]
     if not steps.size:
@@ -242,6 +243,7 @@ def analyse(
 
 
 def _hours(seconds: float) -> str:
+    """Format a duration in seconds as hours with one decimal."""
     return f"{seconds / HOUR_S:.1f} h"
 
 

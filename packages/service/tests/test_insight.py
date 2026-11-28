@@ -1,3 +1,5 @@
+"""The daily insight figures: local days, energy split, coverage, counts and the endpoint."""
+
 from __future__ import annotations
 
 import itertools
@@ -64,14 +66,17 @@ DAY_KEYS = {
 def utc(
     year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0
 ) -> datetime:
+    """Return a timezone-aware UTC datetime."""
     return datetime(year, month, day, hour, minute, second, tzinfo=UTC)
 
 
 def local(zone: str, year: int, month: int, day: int, hour: int = 0, minute: int = 0) -> datetime:
+    """Return a datetime in the given IANA time zone."""
     return datetime(year, month, day, hour, minute, tzinfo=ZoneInfo(zone))
 
 
 def plant(ts: float) -> dict[str, tuple[float, SampleKind]]:
+    """Return the simulated pump signals at ``ts``: running 50 minutes per hour."""
     moment = datetime.fromtimestamp(ts, UTC)
     minute = moment.minute
     running = minute < 50
@@ -95,6 +100,7 @@ def write_history(
     end: datetime,
     values: Callable[[float], dict[str, tuple[float, SampleKind]]],
 ) -> None:
+    """Write ``values(ts)`` every minute from ``start`` to ``end`` into the history at ``path``."""
     database = HistoryDatabase(open_history(path))
     try:
         batch: list[Sample] = []
@@ -112,7 +118,10 @@ def write_history(
 
 
 def constant_power(watts: float) -> Callable[[float], dict[str, tuple[float, SampleKind]]]:
+    """Return a generator of constant electric power (W) and four times that as heat."""
+
     def values(_ts: float) -> dict[str, tuple[float, SampleKind]]:
+        """Return the constant electric and heat power samples, whatever the time."""
         return {
             ELECTRIC: (watts, SampleKind.NUMBER),
             HEAT: (4 * watts, SampleKind.NUMBER),
@@ -123,10 +132,12 @@ def constant_power(watts: float) -> Callable[[float], dict[str, tuple[float, Sam
 
 @pytest.fixture
 def db_path(tmp_path: Path) -> Path:
+    """Return the path of the history database inside the temporary folder."""
     return tmp_path / "history.db"
 
 
 def test_local_days_follow_the_autumn_dst_switch() -> None:
+    """Local days around the autumn switch have 24, 25 and 24 hours and are contiguous."""
     days = local_days(local(AMSTERDAM, 2026, 10, 26, 12), 3, AMSTERDAM)
     assert [day.date.isoformat() for day in days] == ["2026-10-24", "2026-10-25", "2026-10-26"]
     assert [day.hours for day in days] == [24.0, 25.0, 24.0]
@@ -136,6 +147,7 @@ def test_local_days_follow_the_autumn_dst_switch() -> None:
 
 
 def test_local_days_follow_the_spring_dst_switch() -> None:
+    """Local days around the spring switch have 24 and 23 hours."""
     days = local_days(local(AMSTERDAM, 2026, 3, 29, 23, 59), 2, AMSTERDAM)
     assert [day.hours for day in days] == [24.0, 23.0]
     assert days[1].start == utc(2026, 3, 28, 23).timestamp()
@@ -143,12 +155,14 @@ def test_local_days_follow_the_spring_dst_switch() -> None:
 
 
 def test_local_days_use_the_local_date_not_the_utc_date() -> None:
+    """A day is named by its local date even when the UTC date differs."""
     days = local_days(utc(2026, 1, 14, 23, 30), 1, AMSTERDAM)
     assert days[0].date.isoformat() == "2026-01-15"
     assert local_days(utc(2026, 1, 14, 23, 30), 1, "UTC")[0].date.isoformat() == "2026-01-14"
 
 
 def test_energy_is_split_at_local_midnight_across_the_dst_switch(db_path: Path) -> None:
+    """Energy is summed per local day across the autumn switch, with the current day partial."""
     now = local(AMSTERDAM, 2026, 10, 27, 0, 30)
     write_history(db_path, utc(2026, 10, 23, 20), now, constant_power(1000.0))
     body = daily_payload(db_path, now=now, days=4, timezone=AMSTERDAM)
@@ -166,6 +180,7 @@ def test_energy_is_split_at_local_midnight_across_the_dst_switch(db_path: Path) 
 
 
 def test_spring_day_has_23_hours_of_energy(db_path: Path) -> None:
+    """The short spring day accumulates 23 hours of energy at full coverage."""
     now = local(AMSTERDAM, 2026, 3, 30, 12)
     write_history(db_path, utc(2026, 3, 27, 22), now, constant_power(1000.0))
     days = daily_payload(db_path, now=now, days=3, timezone=AMSTERDAM)["days"]
@@ -175,6 +190,7 @@ def test_spring_day_has_23_hours_of_energy(db_path: Path) -> None:
 
 
 def test_gaps_are_not_filled_and_lower_the_coverage(db_path: Path) -> None:
+    """Gaps in the data lower the coverage and make figures that need full days null."""
     write_history(db_path, utc(2026, 1, 13, 6), utc(2026, 1, 13, 12), constant_power(1000.0))
     write_history(db_path, utc(2026, 1, 13, 18), utc(2026, 1, 14), constant_power(1000.0))
     now = utc(2026, 1, 14, 6)
@@ -199,6 +215,7 @@ def test_gaps_are_not_filled_and_lower_the_coverage(db_path: Path) -> None:
 
 
 def test_coverage_of_today_is_measured_against_the_elapsed_part(db_path: Path) -> None:
+    """Coverage of the current day is measured against the elapsed part of the day."""
     now = utc(2026, 1, 14, 12)
     write_history(db_path, utc(2026, 1, 14, 6), now, constant_power(2000.0))
     today = daily_payload(db_path, now=now, days=1, timezone="UTC")["days"][0]
@@ -207,6 +224,7 @@ def test_coverage_of_today_is_measured_against_the_elapsed_part(db_path: Path) -
 
 
 def test_missing_database_yields_empty_days(tmp_path: Path) -> None:
+    """A missing database gives the requested number of days with no data and zero coverage."""
     body = daily_payload(
         tmp_path / "none.db",
         now=utc(2026, 1, 14, 12),
@@ -228,12 +246,14 @@ def test_missing_database_yields_empty_days(tmp_path: Path) -> None:
 
 
 def test_days_must_be_within_range(db_path: Path) -> None:
+    """A day count outside 1 to 90 is rejected."""
     for days in (0, 91):
         with pytest.raises(ValueError, match="days"):
             daily_payload(db_path, now=utc(2026, 1, 14), days=days, timezone="UTC")
 
 
 def test_a_simulated_week_returns_seven_full_days(db_path: Path) -> None:
+    """A simulated week yields the expected daily energy, start, defrost, DHW and write figures."""
     now = utc(2026, 1, 15, 0, 0, 30)
     write_history(db_path, utc(2026, 1, 7, 23), now, plant)
     conn = sqlite3.connect(db_path)
@@ -291,7 +311,10 @@ def test_a_simulated_week_returns_seven_full_days(db_path: Path) -> None:
 
 
 def test_starts_count_across_a_gap_and_at_midnight(db_path: Path) -> None:
+    """Compressor starts and run time are counted correctly across a data gap and at midnight."""
+
     def on_off(ts: float) -> dict[str, tuple[float, SampleKind]]:
+        """Return a compressor frequency that is on in hours 0, 5, 6 and 20 only."""
         hour = datetime.fromtimestamp(ts, UTC).hour
         return {COMPRESSOR: (40.0 if hour in (0, 5, 6, 20) else 0.0, SampleKind.NUMBER)}
 
@@ -303,6 +326,7 @@ def test_starts_count_across_a_gap_and_at_midnight(db_path: Path) -> None:
 
 
 def test_writes_are_null_before_the_journal_retention(db_path: Path) -> None:
+    """Days older than the journal retention report no write count."""
     write_history(db_path, utc(2026, 1, 14), utc(2026, 1, 14, 0, 5), constant_power(1.0))
     body = daily_payload(
         db_path, now=utc(2026, 1, 14, 12), days=3, timezone="UTC", journal_days=1.0
@@ -312,6 +336,7 @@ def test_writes_are_null_before_the_journal_retention(db_path: Path) -> None:
 
 @pytest.fixture
 def insight_settings(make_settings: Callable[..., Settings]) -> Settings:
+    """Return settings with the Amsterdam time zone, a room signal and a comfort target."""
     return make_settings(
         control_timezone=AMSTERDAM,
         control_room_signal=ROOM,
@@ -322,6 +347,7 @@ def insight_settings(make_settings: Callable[..., Settings]) -> Settings:
 
 @pytest.fixture
 def week_client(insight_settings: Settings) -> Iterator[tuple[TestClient, FakeClock]]:
+    """Yield a test client and its fake clock with a simulated week of history."""
     clock = FakeClock(local(AMSTERDAM, 2026, 1, 15, 9).timestamp())
     write_history(
         insight_settings.history_path,
@@ -336,6 +362,7 @@ def week_client(insight_settings: Settings) -> Iterator[tuple[TestClient, FakeCl
 def test_endpoint_uses_the_service_clock_and_time_zone(
     week_client: tuple[TestClient, FakeClock],
 ) -> None:
+    """The daily endpoint uses the service clock and time zone and returns seven days by default."""
     client, _clock = week_client
     response = client.get("/api/v1/insight/daily")
     assert response.status_code == 200
@@ -357,6 +384,7 @@ def test_endpoint_uses_the_service_clock_and_time_zone(
 
 @pytest.mark.parametrize("days", ["0", "91", "seven"])
 def test_endpoint_refuses_bad_days(week_client: tuple[TestClient, FakeClock], days: str) -> None:
+    """The daily endpoint answers 422 for an out-of-range or non-numeric day count."""
     client, _clock = week_client
     assert client.get("/api/v1/insight/daily", params={"days": days}).status_code == 422
 
@@ -364,6 +392,7 @@ def test_endpoint_refuses_bad_days(week_client: tuple[TestClient, FakeClock], da
 def test_scaled_clock_returns_seven_days_after_a_simulated_week(
     insight_settings: Settings,
 ) -> None:
+    """With a scaled clock the endpoint returns seven days after a simulated week."""
     real = [0.0]
     start = utc(2026, 1, 7)
     clock = ScaledClock(60.0, start, monotonic=lambda: real[0])

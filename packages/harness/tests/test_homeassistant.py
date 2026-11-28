@@ -26,6 +26,7 @@ HUMIDITY = "ha/" + HUMIDITY_ENTITY
 
 
 def rig(tmp_path: Path) -> tuple[FakeHomeAssistant, Runtime, ManualClock]:
+    """Build a fake Home Assistant on a real runtime and a manual clock at ``T0``."""
     settings = harness_settings(tmp_path)
     clock = ManualClock(T0)
     runtime = Runtime(StateStore(settings.staleness_policy()), clock=clock, ha_enabled=True)
@@ -34,6 +35,7 @@ def rig(tmp_path: Path) -> tuple[FakeHomeAssistant, Runtime, ManualClock]:
 
 
 def test_states_reach_the_store_through_the_real_ha_input(tmp_path: Path) -> None:
+    """Reports reach the store through the real HA input once connected, fresh and counted."""
     ha, runtime, clock = rig(tmp_path)
     ha.tick(T0, [SensorReport(ROOM_ENTITY, "21.7"), SensorReport(HUMIDITY_ENTITY, "55.0")])
     ha.connect(T0)
@@ -47,6 +49,7 @@ def test_states_reach_the_store_through_the_real_ha_input(tmp_path: Path) -> Non
 
 
 def test_an_unchanged_report_is_seen_only_by_the_re_read(tmp_path: Path) -> None:
+    """An unchanged report emits no event; only the periodic re-read refreshes its age."""
     ha, runtime, clock = rig(tmp_path)
     ha.tick(T0, [SensorReport(HUMIDITY_ENTITY, "55.0")])
     ha.connect(T0)
@@ -65,6 +68,7 @@ def test_an_unchanged_report_is_seen_only_by_the_re_read(tmp_path: Path) -> None
 
 
 def test_unavailable_invalidates_and_disconnect_drops_the_link(tmp_path: Path) -> None:
+    """An unavailable state invalidates the value; a disconnect drops the HA link."""
     ha, runtime, clock = rig(tmp_path)
     ha.tick(T0, [SensorReport(ROOM_ENTITY, "21.7")])
     ha.connect(T0)
@@ -79,6 +83,7 @@ def test_unavailable_invalidates_and_disconnect_drops_the_link(tmp_path: Path) -
 
 
 def test_the_example_device_reports_on_change_only() -> None:
+    """The example device reports the room only on change, in 0.1 steps."""
     feed = DeviceFeed(example_room_sensor(), ROOM_ENTITY, HUMIDITY_ENTITY)
     room = [
         r
@@ -93,6 +98,7 @@ def test_the_example_device_reports_on_change_only() -> None:
 
 
 def test_mute_and_stick() -> None:
+    """A muted or stuck device stops reporting, or reports the stuck value once."""
     feed = DeviceFeed(example_room_sensor(), ROOM_ENTITY, HUMIDITY_ENTITY)
     assert feed.reports(T0, 21.0)
     feed.stick(23.3, T0 + 60.0, T0 + 3600.0)
@@ -101,6 +107,7 @@ def test_mute_and_stick() -> None:
 
 
 def test_recorded_dropouts() -> None:
+    """Dropouts of a recorded report track are found and coverage respects the tolerance."""
     track = ReportTrack(np.array([0.0, 10.0, 20.0, 30.0]), np.array([21.5, np.nan, 21.7, np.nan]))
     assert dropouts(track) == ((10.0, 20.0), (30.0, float("inf")))
     assert track.covers(5.0, 25.0, tolerance_s=5.0)

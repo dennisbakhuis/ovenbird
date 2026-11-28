@@ -38,7 +38,7 @@ export const topic: HelpTopic = {
       id: 'display-only',
       kind: 'know',
       title: 'Stuurt de verwachting mee?',
-      body: 'De verwachting is om naar te kijken, met één uitzondering: het [[model-plan|modelplan]] (Huis → Regeling). In Schaduw rekent het modelplan met de verwachting, maar verandert het niets. De stand Aan, die het kamerdoel een beetje verschuift vooruitlopend op zon of kouder weer, is voorlopig vergrendeld. Verder regelt ovenbird alleen op de gemeten buitentemperatuur.\n\n**Stooklijnwater** is alleen de stooklijn, vóór [[room-feedback|ruimtecorrectie]], grenzen en afronden, dus de echte aanvoertemperatuur kan een paar graden afwijken. ovenbird bewaart elke verwachting zoals ze is uitgegeven, zodat de kwaliteit eerlijk te beoordelen is.',
+      body: 'De verwachting is om naar te kijken. ovenbird regelt alleen op de gemeten buitentemperatuur.\n\n**Stooklijnwater** is alleen de stooklijn, vóór [[room-feedback|ruimtecorrectie]], grenzen en afronden, dus de echte aanvoertemperatuur kan een paar graden afwijken. ovenbird bewaart elke verwachting zoals ze is uitgegeven, zodat de kwaliteit eerlijk te beoordelen is.',
     },
     {
       id: 'privacy',

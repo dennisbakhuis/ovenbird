@@ -293,46 +293,54 @@ class DecisionRecord:
 
 
 def _finite(value: float) -> float:
+    """Return ``value`` when finite, else raise ``ValueError``."""
     if not math.isfinite(value):
         raise ValueError(f"decision records hold finite numbers only, got {value!r}")
     return value
 
 
 def _float(value: JsonValue) -> float:
+    """Return a JSON number as float (booleans rejected), else raise ``TypeError``."""
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise TypeError(f"expected a number, got {value!r}")
     return float(value)
 
 
 def _int(value: JsonValue) -> int:
+    """Return a JSON integer (booleans rejected), else raise ``TypeError``."""
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError(f"expected an integer, got {value!r}")
     return value
 
 
 def _str(value: JsonValue) -> str:
+    """Return a JSON string, else raise ``TypeError``."""
     if not isinstance(value, str):
         raise TypeError(f"expected a string, got {value!r}")
     return value
 
 
 def _opt_str(value: JsonValue) -> str | None:
+    """Return a JSON string or ``None``, else raise ``TypeError``."""
     return None if value is None else _str(value)
 
 
 def _scalar(value: JsonValue) -> InputValue:
+    """Return a JSON scalar (neither list nor object), else raise ``TypeError``."""
     if isinstance(value, list | dict):
         raise TypeError(f"expected a scalar, got {value!r}")
     return value
 
 
 def _list(value: JsonValue) -> list[JsonValue]:
+    """Return a JSON array, else raise ``TypeError``."""
     if not isinstance(value, list):
         raise TypeError(f"expected a list, got {value!r}")
     return value
 
 
 def _obj(value: JsonValue) -> dict[str, JsonValue]:
+    """Return a JSON object, else raise ``TypeError``."""
     if not isinstance(value, dict):
         raise TypeError(f"expected an object, got {value!r}")
     return value

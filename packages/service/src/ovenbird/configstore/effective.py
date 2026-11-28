@@ -85,9 +85,6 @@ CUSTOM_CODES: Final = frozenset(
         "window_empty",
         "retention_min",
         "input_bounds",
-        "date_format",
-        "date_future",
-        "date_repeated",
     }
 )
 VALIDATION_ERRORS: Final = (
@@ -119,9 +116,6 @@ VALIDATION_ERRORS: Final = (
     "stove_reference_is_room",
     "signal_not_temperature",
     "min_above_max",
-    "house_bounds_order",
-    "house_fit_days_short",
-    "model_use_on_locked",
     "curve_range",
     "outside_envelope",
     "integral_above_output",
@@ -130,6 +124,8 @@ VALIDATION_ERRORS: Final = (
     "location_pair",
     "location_required",
     "max_supply_raise",
+    "dayshift_windows",
+    "dayshift_on_needs_ack",
     "connection_field",
     "ca_file_missing",
     "password_locked",
@@ -205,7 +201,21 @@ class MergedSettings(Settings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Read the keyword arguments only."""
+        """Read the keyword arguments only.
+
+        Parameters
+        ----------
+        settings_cls
+            Settings class being built.
+        init_settings
+            Keyword-argument source, the only one used.
+        env_settings
+            Environment source (unused).
+        dotenv_settings
+            Dotenv source (unused).
+        file_secret_settings
+            Secrets-directory source (unused).
+        """
         return (init_settings,)
 
 
@@ -295,6 +305,7 @@ class Validation:
 
 
 def _code(kind: str) -> str:
+    """Return the stable issue code of a pydantic error kind."""
     if kind in CUSTOM_CODES:
         return kind
     if kind in PYDANTIC_CODES:
@@ -305,7 +316,13 @@ def _code(kind: str) -> str:
 
 
 def validation_issues(exc: ValidationError) -> list[Issue]:
-    """Map a settings validation error to issues with stable codes (no input values)."""
+    """Map a settings validation error to issues with stable codes (no input values).
+
+    Parameters
+    ----------
+    exc
+        Validation error raised while building the settings.
+    """
     issues: list[Issue] = []
     for error in exc.errors(include_input=False, include_url=False, include_context=True):
         ctx = dict(error.get("ctx") or {})
@@ -369,6 +386,7 @@ def store_rules(
 
 
 def _soft(candidate: Settings, name: str) -> tuple[float | None, float | None]:
+    """Return the soft ``(min, max)`` of ``name``, the feedback gain scaled to the preset."""
     info = meta(name)
     if name == "control_feedback_kp":
         kp = OvenbirdConfig.preset(candidate.emitter).feedback.kp
@@ -377,6 +395,7 @@ def _soft(candidate: Settings, name: str) -> tuple[float | None, float | None]:
 
 
 def _curve_shift(old: Settings, new: Settings) -> tuple[float, float]:
+    """Return the largest water-temperature change (K) and the outside °C where it occurs."""
     a, b = old.controller_config().curve, new.controller_config().curve
     worst, at = 0.0, CURVE_SHIFT_RANGE_C[0]
     outside = CURVE_SHIFT_RANGE_C[0]
@@ -602,7 +621,19 @@ def _token_follows_url(
     changes: Mapping[str, Any],
     locked: Mapping[str, Source],
 ) -> bool:
-    """Return whether a URL change would hand a token the request did not bring to the new host."""
+    """Return whether a URL change would hand a token the request did not bring to the new host.
+
+    Parameters
+    ----------
+    connection
+        Stored connection values in force.
+    candidate
+        Connection values after the change.
+    changes
+        Values the request brought.
+    locked
+        Settings fixed by the environment or options file.
+    """
     url = candidate.get("ha_url")
     if url is None or url == connection.get("ha_url"):
         return False
@@ -615,6 +646,17 @@ def _token_follows_url(
 def _connection_change(
     name: str, value: Any, locked: Mapping[str, Source]
 ) -> tuple[str | None, Issue | None]:
+    """Return the cleaned stored text of one connection field, or the issue with it.
+
+    Parameters
+    ----------
+    name
+        Connection field.
+    value
+        Value from the request.
+    locked
+        Settings fixed by the environment or options file.
+    """
     if name in locked:
         return None, _locked(name, locked)
     if value is None:
@@ -859,6 +901,21 @@ def _moved(
     connection: Mapping[str, Any],
     after: Settings,
 ) -> bool:
+    """Return whether the change moves the MQTT broker away from the one in force.
+
+    Parameters
+    ----------
+    base
+        Settings below the stored layers.
+    locked
+        Settings fixed by the environment or options file.
+    doc
+        Stored configuration document before the change.
+    connection
+        Stored connection values before the change.
+    after
+        Settings after the change.
+    """
     try:
         before = merge(base, locked, doc, connection)
     except ValidationError:
@@ -867,6 +924,7 @@ def _moved(
 
 
 def _password_locked(locked: Mapping[str, Source]) -> Issue:
+    """Return the issue for a broker change that would send the deployment password elsewhere."""
     source = locked["mqtt_password"].value
     return Issue(
         "mqtt_password",
@@ -904,6 +962,7 @@ def typed_mqtt(stored: Mapping[str, str | None]) -> dict[str, Any]:
 
 
 def _locked(name: str, locked: Mapping[str, Source]) -> Issue:
+    """Return the issue for a setting that the environment or options file sets."""
     source = locked[name].value
     return Issue(
         name,
@@ -915,7 +974,15 @@ def _locked(name: str, locked: Mapping[str, Source]) -> Issue:
 
 
 def _mqtt_text(name: str, value: Any) -> tuple[str | None, Issue | None]:
-    """Return the stored text of one broker field, or the issue with it."""
+    """Return the stored text of one broker field, or the issue with it.
+
+    Parameters
+    ----------
+    name
+        Broker field (``mqtt_host``, ``mqtt_port``, ``mqtt_tls`` ...).
+    value
+        Value from the request.
+    """
     if value is None:
         return None, None
     if name == "mqtt_tls":

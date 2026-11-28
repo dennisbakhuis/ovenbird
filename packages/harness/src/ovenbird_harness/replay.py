@@ -83,6 +83,13 @@ class RecordingClock:
     """Wrap the service clock and remember the last instant it returned."""
 
     def __init__(self, clock: Callable[[], Instant]) -> None:
+        """Wrap ``clock``.
+
+        Parameters
+        ----------
+        clock
+            The service clock to record.
+        """
         self.clock = clock
         self.last: Instant | None = None
         self.held: Instant | None = None
@@ -147,6 +154,7 @@ def override(target: object, name: str, function: Callable[..., Any]) -> None:
 
 
 def _component[T](service: Service, kind: type[T]) -> T | None:
+    """Return the service component whose bound method is an instance of ``kind``, or ``None``."""
     for component in service.components:
         owner = getattr(component.run, "__self__", None)
         if isinstance(owner, kind):
@@ -155,6 +163,7 @@ def _component[T](service: Service, kind: type[T]) -> T | None:
 
 
 def _mqtt_ingest(service: Service) -> MqttIngest:
+    """Return the service's MQTT ingest; raise ``RuntimeError`` if it has none."""
     ingest = _component(service, MqttIngest)
     if ingest is None:
         raise RuntimeError("the service has no MQTT ingest")
@@ -162,7 +171,19 @@ def _mqtt_ingest(service: Service) -> MqttIngest:
 
 
 def tap(service: Service) -> Recording:
-    """Instrument a built service so that every input and tick is logged with its instant."""
+    """Instrument a built service so that every input and tick is logged with its instant.
+
+    Parameters
+    ----------
+    service
+        The assembled service; its clock, ingest, links, control loop, safety monitor,
+        adapter and HA input are wrapped in place.
+
+    Returns
+    -------
+    Recording
+        The event log and decision rows filled while the service runs.
+    """
     recording = Recording()
     log = recording.events
     runtime = service.runtime
@@ -172,6 +193,7 @@ def tap(service: Service) -> Recording:
     ingest_message = ingest.ingest
 
     def message(item: InboundMessage) -> None:
+        """Log an ingested MQTT message with the instant it was handled."""
         ingest_message(item)
         assert clock.last is not None
         log.append(Event("message", clock.last, item))
@@ -181,6 +203,7 @@ def tap(service: Service) -> Recording:
     inside_ha = [False]
 
     def link(source: SourceKind, *, up: bool, confirmed: bool = False) -> None:
+        """Log a link state change unless it comes from inside an HA call."""
         moment = clock()
         if not inside_ha[0]:
             log.append(Event("link", moment, (source, up, confirmed)))
@@ -194,6 +217,7 @@ def tap(service: Service) -> Recording:
     loop_tick = loop.tick
 
     def tick(now: Instant | None = None) -> DecisionRow:
+        """Log a control tick and collect its decision row."""
         moment = now or clock()
         log.append(Event("tick", moment))
         row = loop_tick(moment)
@@ -206,6 +230,7 @@ def tap(service: Service) -> Recording:
         monitor_check = monitor.check
 
         def check(now: Instant | None = None) -> Any:
+            """Log a safety monitor check."""
             moment = now or clock()
             log.append(Event("check", moment))
             return monitor_check(moment)
@@ -218,14 +243,17 @@ def tap(service: Service) -> Recording:
         failed = adapter.publish_failed
 
         def adapter_step(now: Instant, read: Any, board: Any = None) -> Command | None:
+            """Log an adapter step."""
             log.append(Event("adapter", now))
             return adapter_tick(now, read, board)
 
         def on_published(command: Command, now: Instant) -> None:
+            """Log a command the adapter published."""
             log.append(Event("published", now, command))
             published(command, now)
 
         def on_failed(command: Command, now: Instant, error: str) -> None:
+            """Log a command whose publish failed, with the error."""
             log.append(Event("failed", now, (command, error)))
             failed(command, now, error)
 
@@ -236,10 +264,24 @@ def tap(service: Service) -> Recording:
 
 
 def _tap_ha(ha: HaInput, clock: RecordingClock, log: list[Event], inside: list[bool]) -> None:
+    """Log the HA input's session and message handling, frozen at the instant of each call.
+
+    Parameters
+    ----------
+    ha
+        The HA input to instrument in place.
+    clock
+        Recording clock, frozen while a call runs.
+    log
+        Event log to append to.
+    inside
+        One-element flag set while inside an HA call (suppresses link events).
+    """
     handle, open_session, close_session = ha.handle, ha.open_session, ha.close_session
     expect_states = ha.expect_states
 
     def hooked(kind: str, call: Callable[[], Any], data: Any = None) -> Any:
+        """Run ``call`` with the clock frozen at its start and log the event of ``kind``."""
         moment = clock()
         inside[0] = True
         try:
@@ -251,16 +293,20 @@ def _tap_ha(ha: HaInput, clock: RecordingClock, log: list[Event], inside: list[b
         return result
 
     def on_handle(message: dict[str, Any]) -> bool:
+        """Log an HA message handled by the input."""
         result: bool = hooked("ha", lambda: handle(message), message)
         return result
 
     def on_open() -> None:
+        """Log the opening of an HA session."""
         hooked("ha_open", open_session, True)
 
     def on_close() -> None:
+        """Log the closing of an HA session."""
         hooked("ha_close", close_session, True)
 
     def on_expect() -> int:
+        """Log the request id the HA input expects the next state read to use."""
         result: int = hooked("ha_expect", expect_states)
         return result
 
@@ -325,6 +371,7 @@ async def run_service(
         cycle = board.cycle
 
         def sampled() -> Any:
+            """Run one board cycle, then report the board to ``on_cycle``."""
             out = cycle()
             on_cycle(board)
             return out
@@ -414,6 +461,7 @@ def replay(settings: Settings, recording: Recording, data_dir: Path) -> list[Dec
 
 
 def _replay_ha(ha: HaInput, event: Event) -> None:
+    """Apply a recorded HA event to the replay's HA input; check the expected request id."""
     match event.kind:
         case "ha_open":
             ha.open_session()

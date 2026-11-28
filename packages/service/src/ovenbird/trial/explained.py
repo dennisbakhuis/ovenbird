@@ -26,6 +26,7 @@ MAX_EXPLAINED: Final = 500
 
 
 def _unix(text: Any) -> float | None:
+    """Return the Unix time (s) of an ISO 8601 text, or ``None`` when it is not one."""
     if not isinstance(text, str):
         return None
     try:

@@ -21,6 +21,7 @@ T0 = 1_789_999_200.0
 
 
 def test_hold_returns_last_value_and_age() -> None:
+    """``hold`` returns the last value at or before each time and its age, NaN before the first."""
     s = Series(np.array([10.0, 20.0]), np.array([1.0, 2.0]))
     values, ages = hold(s, np.array([5.0, 10.0, 15.0, 25.0]))
     assert np.isnan(values[0])
@@ -29,6 +30,7 @@ def test_hold_returns_last_value_and_age() -> None:
 
 
 def test_hold_marks_old_values_missing() -> None:
+    """``hold`` returns NaN for values older than the maximum age."""
     s = Series(np.array([0.0]), np.array([3.0]))
     values, _ = hold(s, np.array([10.0, 400.0]), max_age=330.0)
     assert values[0] == 3.0
@@ -36,6 +38,7 @@ def test_hold_marks_old_values_missing() -> None:
 
 
 def test_interpolate_respects_gaps() -> None:
+    """``interpolate`` interpolates between samples but leaves gaps longer than the maximum NaN."""
     s = Series(np.array([0.0, 10.0, 10_000.0]), np.array([0.0, 10.0, 20.0]))
     out = interpolate(s, np.array([5.0, 5_000.0]), max_gap=3600.0)
     assert out[0] == pytest.approx(5.0)
@@ -43,6 +46,7 @@ def test_interpolate_respects_gaps() -> None:
 
 
 def test_bin_mean_is_time_weighted_and_needs_half_valid() -> None:
+    """``bin_mean`` averages the valid samples of a bin and gives NaN when under half are valid."""
     base = np.array([1.0, 1.0, 3.0, 3.0, np.nan, np.nan, np.nan, 2.0])
     out = bin_mean(base, 4)
     assert out[0] == pytest.approx(2.0)
@@ -50,6 +54,7 @@ def test_bin_mean_is_time_weighted_and_needs_half_valid() -> None:
 
 
 def test_time_since() -> None:
+    """``time_since`` counts the time since the last true flag, infinite before the first."""
     flag = np.array([False, True, False, False, True, False])
     out = time_since(flag, 5.0)
     assert math.isinf(out[0])
@@ -57,6 +62,7 @@ def test_time_since() -> None:
 
 
 def test_grid_covering_aligns_to_step() -> None:
+    """A covering grid starts on a multiple of the step, spans the range and can be refined."""
     grid = TimeGrid.covering(T0 + 7.0, T0 + 200.0, 60.0)
     assert grid.start % 60.0 == 0.0
     assert grid.end >= T0 + 200.0
@@ -64,6 +70,7 @@ def test_grid_covering_aligns_to_step() -> None:
 
 
 def test_series_requires_sorted_times_and_concat_sorts() -> None:
+    """A series refuses unsorted times, and concatenating series sorts them."""
     with pytest.raises(ValueError, match="sorted"):
         Series(np.array([2.0, 1.0]), np.array([0.0, 0.0]))
     merged = concat(
@@ -73,6 +80,7 @@ def test_series_requires_sorted_times_and_concat_sorts() -> None:
 
 
 def test_decode_rejects_sentinels_and_parses_commands() -> None:
+    """Decoding drops sentinel values and maps commands to setpoint and duty signals."""
     assert cap.decode("panasonic_heat_pump/main/Main_Outlet_Temp", "34.5") == (
         "main/Main_Outlet_Temp",
         34.5,
@@ -93,6 +101,7 @@ def test_decode_rejects_sentinels_and_parses_commands() -> None:
 
 
 def _write_capture(path: Path, lines: list[dict[str, object]]) -> None:
+    """Write a gzipped capture file with a header and the given record lines to ``path``."""
     header = json.dumps({"v": 1, "name": "test"})
     body = "\n".join([header, *(json.dumps(x) for x in lines)]) + "\n"
     with gzip.open(path, "wt", encoding="utf-8") as fh:
@@ -100,6 +109,7 @@ def _write_capture(path: Path, lines: list[dict[str, object]]) -> None:
 
 
 def test_load_capture_uses_cache(tmp_path: Path) -> None:
+    """Loading a capture writes a cache file and a second load returns the same series."""
     day = tmp_path / "live"
     day.mkdir()
     lines = [
@@ -114,6 +124,7 @@ def test_load_capture_uses_cache(tmp_path: Path) -> None:
 
 
 def test_datalake_loads_states_and_attributes(tmp_path: Path) -> None:
+    """The datalake loader reads numeric states and attributes and skips unavailable states."""
     target = tmp_path / "states" / "entity_id=weather.home" / "year=2026" / "month=10"
     target.mkdir(parents=True)
     ts = pa.array([1_790_000_000_000_000, 1_790_000_060_000_000], type=pa.timestamp("us", tz="UTC"))
@@ -136,6 +147,7 @@ def test_datalake_loads_states_and_attributes(tmp_path: Path) -> None:
 
 
 def test_weather_merge_prefers_archive_and_shifts_radiation(tmp_path: Path) -> None:
+    """Merging weather prefers the archive and radiation is shifted to the middle of the hour."""
     times = ["2026-10-01T00:00", "2026-10-01T01:00"]
     primary: dict[str, list[Any]] = {"time": times, "temperature_2m": [5.0, None]}
     fallback: dict[str, list[Any]] = {"time": times, "temperature_2m": [6.0, 7.0]}
@@ -150,6 +162,7 @@ def test_weather_merge_prefers_archive_and_shifts_radiation(tmp_path: Path) -> N
 
 
 def test_calibrate_offset_recovers_dithered_offset() -> None:
+    """The offset calibration recovers a known offset from quantised, noisy outlet readings."""
     rng = np.random.default_rng(1)
     n = 20_000
     true_offset = 0.33
@@ -165,6 +178,7 @@ def test_calibrate_offset_recovers_dithered_offset() -> None:
 
 
 def test_heat_from_loop_gating() -> None:
+    """Loop heat is zero when idle, negative in reverse, missing without frequency or in DHW."""
     flow = np.array([25.0, 25.0, 25.0, 25.0])
     inlet = np.array([30.0, 30.0, 30.0, 30.0])
     outlet = np.array([34.0, 34.0, 26.0, 34.0])
@@ -179,11 +193,13 @@ def test_heat_from_loop_gating() -> None:
 
 
 def _synthetic_capture() -> dict[str, Series]:
+    """Return a two-hour synthetic capture with a heating run, a defrost and a liveness gap."""
     t = T0 + np.arange(0.0, 7200.0, 5.0)
     live = t[(t < T0 + 3000.0) | (t > T0 + 3120.0)]
     running = (t >= T0 + 1800) & (t < T0 + 3600)
 
     def dense(values: np.ndarray | float) -> Series:
+        """Return a series of ``values`` (a constant or an array) on the capture's timestamps."""
         return Series(t, np.broadcast_to(np.asarray(values, dtype=float), t.shape).copy())
 
     return {
@@ -201,6 +217,7 @@ def _synthetic_capture() -> dict[str, Series]:
 
 
 def test_assemble_flags_and_heat() -> None:
+    """Assembling the synthetic capture flags gap, compressor, defrost and calibrates the offset."""
     ds = assemble(_synthetic_capture(), step=60.0, start=T0, end=T0 + 7200.0)
     assert ds.grid.n == 120
     gap_bins = np.flatnonzero(ds.flags["gap"])
@@ -226,6 +243,7 @@ def test_assemble_flags_and_heat() -> None:
 
 
 def test_fuse_outside_debiases_weather() -> None:
+    """Fusing outside sensor and weather removes sensor bias; without weather it uses the sensor."""
     n = 2880
     weather = 5.0 + 3.0 * np.sin(np.arange(n) / 200.0)
     sensor = np.round(weather - 1.0)

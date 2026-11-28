@@ -23,6 +23,7 @@ from ovenbird.config.fromcore import FeatureSettings, core_field
 from ovenbird.config.network import normalise_broker
 from ovenbird.config.sources import split_list
 from ovenbird.config.validation.curve import check_curve_pairs, check_integral_time
+from ovenbird.config.validation.quiet import check_clock_time
 from ovenbird.config.values import (
     MAX_QUIET_WINDOWS,
     ControlModeName,
@@ -35,22 +36,23 @@ from ovenbird.config.values import (
     curve_from_pairs,
     pick,
 )
+from ovenbird.control.dayshift import DEFAULT_MIN_SUN_WM2, DEFAULT_RECOVERY_S
 from ovenbird_core.control import (
     CyclingConfig,
-    ModelPlanConfig,
     OutsideSource,
     OvenbirdConfig,
     PumpDutyConfig,
     QuietModeConfig,
+    QuietStartConfig,
     RoomFeedbackConfig,
     RoomProfile,
     RoomSensorProfile,
     SafetyLimits,
     SetpointStageConfig,
     StartRampConfig,
+    SummerConfig,
     default_curve,
 )
-from ovenbird_core.control.planner import PlannerConfig
 from ovenbird_core.control.safety import DEFAULT_MAX_SUPPLY_C
 
 if TYPE_CHECKING:
@@ -106,11 +108,13 @@ class ControlSettings(FeatureSettings):
     @field_validator("control_room_liveness_signals", mode="before")
     @classmethod
     def _split_liveness(cls, value: Any) -> Any:
+        """Read the liveness signals from a comma-separated text, none when unset."""
         return () if value is None else split_list(value)
 
     @field_validator("control_room_liveness_signals")
     @classmethod
     def _unique_liveness(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Strip the liveness signals and drop blanks and repeats, keeping the order."""
         return tuple(dict.fromkeys(item.strip() for item in value if item.strip()))
 
     @field_validator(
@@ -121,39 +125,142 @@ class ControlSettings(FeatureSettings):
     )
     @classmethod
     def _empty_room_is_unset(cls, value: Any) -> Any:
+        """Treat an empty room signal as unset."""
         if isinstance(value, str) and not value.strip():
             return None
         return value
 
 
-type ModelUse = Literal["off", "shadow", "on"]
+type DayShiftUse = Literal["off", "shadow", "on"]
 
 
-class ModelPlanSettings(FeatureSettings):
-    """The learned house model as a bounded room-target offset (``control_model_*``).
+class DayShiftSettings(FeatureSettings):
+    """The sun day shift (``control_dayshift_*``) and the bound on every rule plan slice.
+
+    Local times are ``HH:MM`` in ``control_timezone``; see :mod:`ovenbird.control.dayshift`
+    for the rule.
 
     Parameters
     ----------
-    control_model_use
-        ``off`` (default): no model plan. ``shadow``: the plan is computed and recorded
-        but has no effect on any decision. ``on``: the plan shifts the room target within
-        the bounds below; refused for now (``model_use_on_locked``).
-    control_model_max_setback_k, control_model_max_preheat_k
-        Largest room-target set-back and pre-heat a model plan may ask for
-        (:class:`~ovenbird_core.control.ModelPlanConfig`).
-    control_model_horizon_h
-        How far ahead the planner looks
-        (:class:`~ovenbird_core.control.planner.PlannerConfig`).
-    control_model_max_rmse_k
-        Largest held-out 24 h room error of the champion model for which the plan is
-        allowed (the guard ``model_error_high``).
+    control_dayshift_use
+        ``off`` (default): nothing runs. ``shadow``: the rule runs and records what it
+        would do without changing any decision. ``on``: its offset shifts the room
+        target; experimental, so valid only with ``control_dayshift_experimental_ok``
+        (``dayshift_on_needs_ack``).
+    control_dayshift_experimental_ok
+        The owner accepts that the day shift is experimental (default off): in the
+        simulator it made houses with large sun-facing windows too warm. Required for
+        ``on``; it cannot be taken back while ``on`` is set.
+    control_dayshift_day_start, control_dayshift_day_end
+        Day window of the boost (09:00 to 17:00).
+    control_dayshift_boost_k
+        How much a sunny, mild day raises the room target (0 to 1 K, 0.5 K).
+    control_dayshift_setback_k
+        How much the night after a boosted day lowers it (0 to 1 K, 0.5 K).
+    control_dayshift_min_outside_c
+        Lowest outside temperature, now and forecast, at which the shift runs (-10 to
+        15 °C, 5 °C); 1 K lower once it runs.
+    control_dayshift_min_sun_wm2
+        Lowest forecast mean irradiance over the rest of the day window for a boost (0 to
+        600 W/m², 150 W/m²); half of it keeps a running boost.
+    control_dayshift_night_start, control_dayshift_night_end
+        Night window of the set-back (23:00 to 05:00).
+    control_dayshift_comfort_at
+        When the room must be back at comfort after a set-back (07:00).
+    control_dayshift_recovery_s
+        How long before ``control_dayshift_comfort_at`` a set-back has ended at the
+        latest (0 to 8 h, 4 h): the under-floor heating needs that long to bring the room
+        back.
+    control_plan_rule_max_k
+        Largest room-target shift of any rule plan slice
+        (:attr:`~ovenbird_core.control.OvenbirdConfig.plan_rule_max_k`); it also bounds how
+        far a set-back lowers the comfort-floor alarm.
     """
 
-    control_model_use: ModelUse = "off"
-    control_model_max_setback_k: float = core_field(ModelPlanConfig, "max_setback_k", ge=0.1)
-    control_model_max_preheat_k: float = core_field(ModelPlanConfig, "max_preheat_k")
-    control_model_horizon_h: float = core_field(PlannerConfig, "horizon_h", ge=2.0)
-    control_model_max_rmse_k: float = Field(default=0.6, ge=0.2, le=1.5)
+    control_dayshift_use: DayShiftUse = "off"
+    control_dayshift_experimental_ok: bool = False
+    control_dayshift_day_start: str = "09:00"
+    control_dayshift_day_end: str = "17:00"
+    control_dayshift_boost_k: float = Field(default=0.5, ge=0.0, le=1.0)
+    control_dayshift_setback_k: float = Field(default=0.5, ge=0.0, le=1.0)
+    control_dayshift_min_outside_c: float = Field(default=5.0, ge=-10.0, le=15.0)
+    control_dayshift_min_sun_wm2: float = Field(default=DEFAULT_MIN_SUN_WM2, ge=0.0, le=600.0)
+    control_dayshift_night_start: str = "23:00"
+    control_dayshift_night_end: str = "05:00"
+    control_dayshift_comfort_at: str = "07:00"
+    control_dayshift_recovery_s: float = Field(default=DEFAULT_RECOVERY_S, ge=0.0, le=28_800.0)
+    control_plan_rule_max_k: float = core_field(OvenbirdConfig, "plan_rule_max_k")
+
+    @field_validator(
+        "control_dayshift_day_start",
+        "control_dayshift_day_end",
+        "control_dayshift_night_start",
+        "control_dayshift_night_end",
+        "control_dayshift_comfort_at",
+    )
+    @classmethod
+    def _clock_time(cls, value: str) -> str:
+        """Refuse a local time that is not ``HH:MM`` (``clock_time``)."""
+        return check_clock_time(value)
+
+
+class ManualTargetSettings(FeatureSettings):
+    """Manual boost and away (``control_boost_*``, ``control_away_*``).
+
+    Both act only on request (``POST api/v1/control/boost``, ``PUT api/v1/control/away``),
+    so they are on by default; see :mod:`ovenbird.control.roomtarget`.
+
+    Parameters
+    ----------
+    control_boost_enabled
+        Accept a boost (a temporary room target, warmer or cooler).
+    control_boost_default_s
+        Length of a boost asked without one (15 min to 12 h, 2 h).
+    control_boost_default_k
+        Room offset of a boost asked without one (0.5 to 2 K, 1 K).
+    control_away_enabled
+        Accept an away period.
+    control_away_target_c
+        Room target while away (10 to 20 °C, 16 °C).
+    control_away_comfort_lead_s
+        How long before the end of an away period the comfort target returns (0 to 24 h,
+        6 h), so the under-floor heating has the house warm on return.
+    """
+
+    control_boost_enabled: bool = True
+    control_boost_default_s: float = Field(default=7200.0, ge=900.0, le=43_200.0)
+    control_boost_default_k: float = Field(default=1.0, ge=0.5, le=2.0)
+    control_away_enabled: bool = True
+    control_away_target_c: float = Field(default=16.0, ge=10.0, le=20.0)
+    control_away_comfort_lead_s: float = Field(default=21_600.0, ge=0.0, le=86_400.0)
+
+
+class SummerSettings(FeatureSettings):
+    """The summer switch (``control_summer_*``): no space heating in warm weather.
+
+    Parameters
+    ----------
+    control_summer_enabled
+        Summer switch on (off by default).
+    control_summer_off_c, control_summer_hysteresis_k, control_summer_mean_s
+        :class:`~ovenbird_core.control.SummerConfig`: the limit of the slow outside mean,
+        how far below it heating resumes and the mean's time constant.
+    """
+
+    control_summer_enabled: bool = False
+    control_summer_off_c: float = core_field(SummerConfig, "off_c")
+    control_summer_hysteresis_k: float = core_field(SummerConfig, "hysteresis_k")
+    control_summer_mean_s: float = core_field(SummerConfig, "mean_tau_s")
+
+    def summer_config(self) -> SummerConfig | None:
+        """Return the summer switch configuration (``None`` when it is off)."""
+        if not self.control_summer_enabled:
+            return None
+        return SummerConfig(
+            off_c=self.control_summer_off_c,
+            hysteresis_k=self.control_summer_hysteresis_k,
+            mean_tau_s=self.control_summer_mean_s,
+        )
 
 
 class TuningSettings(FeatureSettings):
@@ -173,6 +280,11 @@ class TuningSettings(FeatureSettings):
         Room feedback (PI) on; off leaves the curve (or fixed temperature) only.
     control_quiet_windows
         Up to four daily quiet-mode windows.
+    control_quiet_enabled
+        Quiet windows in use (on by default); off ignores them.
+    control_quiet_start_enabled, control_quiet_start_minutes, control_quiet_start_level
+        Quiet mode for the first minutes after a compressor start (off by default; 1 to
+        30 min, 10 min; level 1 to 3, 2), the quieter of it and a window.
     """
 
     control_curve: CurvePairs | None = None
@@ -206,6 +318,10 @@ class TuningSettings(FeatureSettings):
     control_quiet_windows: tuple[QuietWindowSetting, ...] = Field(
         default=(), max_length=MAX_QUIET_WINDOWS
     )
+    control_quiet_enabled: bool = True
+    control_quiet_start_enabled: bool = False
+    control_quiet_start_minutes: int = Field(default=10, ge=1, le=30)
+    control_quiet_start_level: int = core_field(QuietStartConfig, "level")
     control_timezone: str = core_field(QuietModeConfig, "timezone")
     control_envelope_curve: CurvePairs | None = None
     control_envelope_below_k: float | None = core_field(
@@ -254,16 +370,19 @@ class TuningSettings(FeatureSettings):
     @field_validator("control_curve", "control_envelope_curve")
     @classmethod
     def _valid_curve(cls, value: CurvePairs | None) -> CurvePairs | None:
+        """Check the heating-curve points, if any."""
         return None if value is None else check_curve_pairs(value)
 
     @field_validator("control_feedback_ti_s")
     @classmethod
     def _integral_time(cls, value: float | None) -> float | None:
+        """Check the feedback integral time."""
         return check_integral_time(value)
 
     @field_validator("control_timezone")
     @classmethod
     def _valid_zone(cls, value: str) -> str:
+        """Require an IANA time zone name."""
         try:
             ZoneInfo(value)
         except ZoneInfoNotFoundError, ValueError:
@@ -293,11 +412,13 @@ class CommandSettings(FeatureSettings):
     @field_validator("command_brokers", mode="before")
     @classmethod
     def _split_brokers(cls, value: Any) -> Any:
+        """Read the broker list from a comma-separated text, none when unset."""
         return () if value is None else split_list(value)
 
     @field_validator("command_brokers")
     @classmethod
     def _valid_brokers(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Normalise every broker entry and drop repeats, keeping the order."""
         return tuple(dict.fromkeys(normalise_broker(entry) for entry in value))
 
 
@@ -313,6 +434,9 @@ class SafetySettings(FeatureSettings):
     safety_defrost_max_s: float = Field(default=1200.0, ge=60.0, le=14_400.0)
     safety_room_floor_k: float | None = Field(default=1.5, gt=0.0, le=10.0)
     safety_room_floor_sustain_s: float = Field(default=1800.0, ge=0.0, le=86_400.0)
+    safety_starts_alarm_enabled: bool = True
+    safety_starts_per_hour_max: int = Field(default=4, ge=1, le=20)
+    safety_starts_per_day_max: int = Field(default=30, ge=1, le=200)
 
 
 def room_profile(settings: Settings) -> RoomSensorProfile:
@@ -428,16 +552,22 @@ def controller_config(settings: Settings) -> OvenbirdConfig:
                 tuple(window.to_core() for window in settings.control_quiet_windows),
                 settings.control_timezone,
             )
-            if settings.control_quiet_windows
+            if settings.control_quiet_windows and settings.control_quiet_enabled
             else None
         ),
+        quiet_start=(
+            QuietStartConfig(
+                duration_s=settings.control_quiet_start_minutes * 60.0,
+                level=settings.control_quiet_start_level,
+            )
+            if settings.control_quiet_start_enabled
+            else None
+        ),
+        summer=settings.summer_config(),
         room=room_profile(settings),
         stove=settings.stove_config(),
         outside=outside_source(settings),
-        model_plan=ModelPlanConfig(
-            max_setback_k=settings.control_model_max_setback_k,
-            max_preheat_k=settings.control_model_max_preheat_k,
-        ),
+        plan_rule_max_k=settings.control_plan_rule_max_k,
     )
 
 

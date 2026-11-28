@@ -3,6 +3,10 @@ import { makeDecision } from './decisions';
 import { health, makeSnapshot } from './fixtures';
 import { parseScenario, scenarioNow } from './scenario';
 
+interface MockSocketWindow {
+  __mockSockets?: MockSocket[];
+}
+
 /**
  * Fake WebSocket emitting a snapshot and decision on open and every 5 s afterwards. The snapshot
  * comes from the mock server when it answers, so server-side state (a manual wood-stove request,
@@ -15,6 +19,8 @@ export class MockSocket implements SocketLike {
   #timer: number | undefined;
 
   constructor() {
+    const registry = ((window as unknown as MockSocketWindow).__mockSockets ??= []);
+    registry.push(this);
     window.setTimeout(() => {
       this.onopen?.({});
       void this.#emit();
@@ -41,6 +47,13 @@ export class MockSocket implements SocketLike {
     this.onmessage?.({
       data: JSON.stringify({ type: 'decision', data: makeDecision(now, now, 'auto') }),
     });
+  }
+
+  /**
+   * Simulate the server ending the stream: stop emitting and report the close.
+   */
+  drop(): void {
+    this.close();
   }
 
   close(): void {

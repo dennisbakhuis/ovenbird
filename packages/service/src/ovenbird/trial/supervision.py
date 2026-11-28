@@ -130,6 +130,17 @@ class Supervision:
         """Mark the divergence episode starting at ``start`` as explained (``None`` unmarks).
 
         See :func:`ovenbird.trial.explained.explain`.
+
+        Parameters
+        ----------
+        actor
+            Who marks the episode, for the audit trail.
+        start
+            Start of the divergence episode.
+        note
+            Explanation; ``None`` removes the mark.
+        now
+            Time of the request; the service clock when omitted.
         """
         moment = now or self.now()
         return explained.explain(self.facts, self.config, actor, start, note, moment)
@@ -144,9 +155,11 @@ class Supervision:
         return checks.build_checklist(settings, self.control, self.notifier, moment, facts)
 
     def _divergence(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Return the divergence checklist item for a divergence body."""
         return checks.divergence_item(body)
 
     def _notifications(self) -> dict[str, Any]:
+        """Return the notifications checklist item."""
         return checks.notifications_item(self.notifier)
 
     def windows(
@@ -159,6 +172,7 @@ class Supervision:
         return summaries.windows(self.control, now, trial, baseline)
 
     def _period(self, settings: Settings, span: tuple[float, float]) -> dict[str, Any]:
+        """Return the summary of a period."""
         return summaries.period(settings, span)
 
     def summary(
@@ -190,6 +204,17 @@ class Supervision:
         """Return the body of ``GET api/v1/trial/status``.
 
         ``history`` is :meth:`history_facts` (computed when omitted).
+
+        Parameters
+        ----------
+        now
+            Time of the status; the service clock when omitted.
+        trial
+            Trial window as Unix times.
+        baseline
+            Baseline window as Unix times.
+        history
+            History facts; computed when omitted.
         """
         moment = now or self.now()
         facts = history if history is not None else self.history_facts(moment, trial, baseline)

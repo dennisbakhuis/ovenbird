@@ -31,8 +31,11 @@ test('help opens on the next click after its first load failed', async ({ page }
     blocked ? route.abort() : route.continue(),
   );
   await page.goto('./#/');
+  const failed = page.waitForEvent('requestfailed', (request) =>
+    request.url().includes('HelpDrawer.svelte'),
+  );
   await page.getByTestId('help-button').click();
-  await page.waitForTimeout(500);
+  await failed;
   await expect(page.getByTestId('help-drawer')).toHaveCount(0);
   blocked = false;
   await page.getByTestId('help-button').click();
@@ -47,9 +50,13 @@ test('a tab still running an older build reloads itself once', async ({ page, ba
   await page.route('**/src/pages/Weather.svelte*', (route) => route.abort());
   await page.route(`${baseURL}/`, async (route) => {
     if (route.request().resourceType() !== 'fetch') return route.continue();
-    const response = await route.fetch();
-    const html = (await response.text()).replace('/src/main.ts', '/assets/index-newer.js');
-    await route.fulfill({ response, body: html });
+    try {
+      const response = await route.fetch();
+      const html = (await response.text()).replace('/src/main.ts', '/assets/index-newer.js');
+      await route.fulfill({ response, body: html });
+    } catch {
+      /* the page reloaded itself while this request was in flight, which is what the test expects */
+    }
   });
   await page.getByTestId('top-nav').getByRole('link', { name: 'Weather' }).click();
   await expect.poll(() => loads).toBe(2);

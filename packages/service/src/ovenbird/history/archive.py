@@ -81,6 +81,7 @@ from ovenbird.history.database import ROLLUP_STEPS
 from ovenbird.history.packing import register_functions
 from ovenbird.history.schema import BUSY_TIMEOUT_MS, migrate, quarantine, user_version
 from ovenbird.history.snapshot import backup_to
+from ovenbird.sql import sql
 
 LOGGER = logging.getLogger("ovenbird.history")
 ARCHIVE_FORMAT: Final = 1
@@ -249,6 +250,7 @@ def season_months(start_year: int) -> list[Month]:
 
 
 def _fsync(path: Path) -> None:
+    """Flush a file's contents to disk."""
     fd = os.open(path, os.O_RDONLY)
     try:
         os.fsync(fd)
@@ -265,13 +267,17 @@ def replace_atomically(source: Path, target: Path) -> None:
 
 
 def _columns(conn: sqlite3.Connection, schema: str, table: str) -> list[str]:
+    """Return the column names of a table in an attached or main schema."""
     rows = conn.execute(f"PRAGMA {schema}.table_info({table})").fetchall()
     return [str(row[1]) for row in rows]
 
 
 def _has_table(conn: sqlite3.Connection, schema: str, table: str) -> bool:
+    """Return whether a table exists in the schema."""
     found = conn.execute(
-        f"SELECT 1 FROM {schema}.sqlite_master WHERE type = 'table' AND name = ?",  # noqa: S608
+        sql(
+            "SELECT 1 FROM {schema}.sqlite_master WHERE type = 'table' AND name = ?", schema=schema
+        ),
         (table,),
     ).fetchone()
     return found is not None
@@ -308,6 +314,7 @@ def read_meta(conn: sqlite3.Connection) -> dict[str, str]:
 
 
 def _set_meta(conn: sqlite3.Connection, values: Mapping[str, Any]) -> None:
+    """Store the values in the archive metadata table, replacing earlier ones."""
     conn.executemany(
         "INSERT OR REPLACE INTO archive_meta (key, value) VALUES (?, ?)",
         [(key, str(value)) for key, value in values.items()],
@@ -315,14 +322,17 @@ def _set_meta(conn: sqlite3.Connection, values: Mapping[str, Any]) -> None:
 
 
 def _content(conn: sqlite3.Connection, table: str) -> list[str]:
+    """Return the columns of a table without its row id."""
     return [name for name in _columns(conn, "main", table) if name != "id"]
 
 
 def _select(names: Sequence[str], alias: str, replaced: Mapping[str, str]) -> str:
+    """Return a select list taking each column from ``alias``, or its replacement expression."""
     return ", ".join(replaced.get(name, f"{alias}.{name}") for name in names)
 
 
 def _same(names: Sequence[str], left: str, right: str) -> str:
+    """Return a condition comparing the columns of two aliases with ``IS``."""
     return " AND ".join(f"{left}.{name} IS {right}.{name}" for name in names)
 
 
@@ -397,8 +407,11 @@ def copy_window(conn: sqlite3.Connection, lo: float, hi: float, settled: float) 
     if _has_table(conn, "live", "forecast"):
         listed = ", ".join(_columns(conn, "main", "forecast"))
         conn.execute(
-            f"INSERT OR IGNORE INTO forecast ({listed}) SELECT {listed} FROM live.forecast "  # noqa: S608
-            "WHERE issued_ts >= ? AND issued_ts < ?",
+            sql(
+                "INSERT OR IGNORE INTO forecast ({columns}) SELECT {columns} FROM live.forecast "
+                "WHERE issued_ts >= ? AND issued_ts < ?",
+                columns=listed,
+            ),
             (lo, hi),
         )
 
@@ -422,8 +435,12 @@ def first_data(path: Path) -> float | None:
         for table, column, step in sources:
             if not _has_table(conn, "main", table):
                 continue
-            where = "" if step is None else f" WHERE step = {step:d}"
-            value = conn.execute(f"SELECT min({column}) FROM {table}{where}").fetchone()[0]  # noqa: S608
+            statement = sql("SELECT min({column}) FROM {table}", column=column, table=table)
+            value = (
+                conn.execute(statement).fetchone()[0]
+                if step is None
+                else conn.execute(f"{statement} WHERE step = ?", (step,)).fetchone()[0]
+            )
             if value is not None:
                 found.append(float(value))
     finally:
@@ -432,6 +449,7 @@ def first_data(path: Path) -> float | None:
 
 
 def _local_dates(hours: Iterable[tuple[int, int]], zone: ZoneInfo) -> dict[date, int]:
+    """Count the rows per local calendar date for ``(hour, count)`` pairs."""
     found: dict[date, int] = {}
     for hour, count in hours:
         day = datetime.fromtimestamp(hour * 3600, zone).date()
@@ -479,11 +497,19 @@ def coverage(
     ]
     for key, table, column, params in sources:
         where = "WHERE step = ?" if table == "rollup" else ""
+        totals = sql(
+            "SELECT count(*), min({column}), max({column}) FROM {table}", column=column, table=table
+        )
+        hourly = sql(
+            "SELECT CAST({column} / 3600 AS INTEGER), count(*) FROM {table}",
+            column=column,
+            table=table,
+        )
         if not _has_table(conn, "main", table):
             rows, first, last = 0, None, None
         else:
             rows, first, last = conn.execute(
-                f"SELECT count(*), min({column}), max({column}) FROM {table} {where}",  # noqa: S608
+                f"{totals} {where}",
                 params,
             ).fetchone()
         item: dict[str, Any] = {
@@ -495,8 +521,7 @@ def coverage(
             per_day = {}
             if rows:
                 hours = conn.execute(
-                    f"SELECT CAST({column} / 3600 AS INTEGER), count(*) FROM {table} "  # noqa: S608
-                    f"{where} GROUP BY 1",
+                    f"{hourly} {where} GROUP BY 1",
                     params,
                 ).fetchall()
                 per_day = _local_dates(hours, zone)
@@ -512,6 +537,7 @@ def is_complete(cover: Mapping[str, Any]) -> bool:
 
 
 def _signals(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Return the signals that have rollups, with unit and kind."""
     if not _has_table(conn, "main", "signal"):
         return []
     used = (
@@ -591,7 +617,19 @@ def write_month_zip(
     manifest: Mapping[str, Any],
     config: Mapping[str, Any] | None,
 ) -> None:
-    """Write a month's zip to ``target`` through ``target.tmp`` (synced, then renamed)."""
+    """Write a month's zip to ``target`` through ``target.tmp`` (synced, then renamed).
+
+    Parameters
+    ----------
+    database
+        Month database file to store as ``history.db``.
+    target
+        Zip file to produce.
+    manifest
+        Manifest stored as ``manifest.json``.
+    config
+        Configuration stored as ``config.json``; omitted when ``None``.
+    """
     tmp = target.with_name(target.name + TMP_SUFFIX)
     tmp.unlink(missing_ok=True)
     try:
@@ -736,12 +774,14 @@ class ZipBuild:
             raise
 
     def _texts(self) -> dict[str, str]:
+        """Return the JSON member texts of the zip by name."""
         texts = {"manifest.json": json.dumps(self.manifest, indent=2) + "\n"}
         if self.config is not None:
             texts["config.json"] = json.dumps(self.config, indent=2) + "\n"
         return texts
 
     def _close(self) -> None:
+        """Close the open handles, ignoring errors."""
         for handle in (self._member, self._source, self._zip):
             if handle is not None:
                 with contextlib.suppress(Exception):
@@ -749,11 +789,13 @@ class ZipBuild:
         self._member = self._source = self._zip = None
 
     def _open(self) -> tuple[zipfile.ZipFile, IO[bytes], IO[bytes]]:
+        """Return the open zip, member and source, or raise when the build is not open."""
         if self._zip is None or self._member is None or self._source is None:
             raise ZipVerifyError(f"{self.tmp.name} is not open")
         return self._zip, self._member, self._source
 
     def _write_slice(self) -> None:
+        """Copy one slice of the database into the zip, or finish the zip when it is all copied."""
         archive, member, source = self._open()
         chunk = source.read(self.slice_bytes)
         if chunk:
@@ -770,6 +812,7 @@ class ZipBuild:
         self._open_check()
 
     def _open_check(self) -> None:
+        """Open the finished zip and check its members and sizes against the sources."""
         self._zip = zipfile.ZipFile(self.tmp)
         texts = self._texts()
         names = sorted(self._zip.namelist())
@@ -785,6 +828,7 @@ class ZipBuild:
         self.verifying = True
 
     def _check_slice(self) -> bool:
+        """Compare one slice of the zip's database with the source; return whether it ended."""
         _, member, source = self._open()
         got = member.read(self.slice_bytes)
         expected = source.read(len(got) or 1)
@@ -856,6 +900,7 @@ class ArchiveFolder:
         return self.path / f"{month}{OPEN_SUFFIX}"
 
     def _months(self, suffix: str) -> dict[Month, Path]:
+        """Return the month files with ``suffix`` in the folder by month, oldest first."""
         if not self.path.is_dir():
             return {}
         found = {}
@@ -1100,11 +1145,13 @@ class MonthArchiver:
         return again
 
     def _abort(self) -> None:
+        """Drop an unfinished zip build."""
         if self._build is not None:
             self._build.abort()
             self._build = None
 
     def _failed(self, now: float, exc: Exception) -> None:
+        """Record a failed step and raise the alarms when it persists beyond the wait."""
         state = self.state
         state.error = f"{type(exc).__name__}: {exc}"
         state.failures += 1
@@ -1129,6 +1176,7 @@ class MonthArchiver:
             )
 
     def _succeeded(self, now: float, again: bool) -> None:
+        """Record a successful step and clear the failure state and alarm."""
         state = self.state
         if state.failures:
             LOGGER.info("archive works again after %d failed step(s)", state.failures)
@@ -1143,14 +1191,17 @@ class MonthArchiver:
             self._clear(ALARM_REBUILT, f"{REBUILT_NOTICE_S / 3600:.0f} h ago")
 
     def _raise(self, code: str, message: str, now: float) -> None:
+        """Raise an alarm once and tell the alarm hook."""
         self._raised[code] = now
         self._tell(code, True, message)
 
     def _clear(self, code: str, why: str) -> None:
+        """Clear an alarm that was raised and tell the alarm hook."""
         if self._raised.pop(code, None) is not None:
             self._tell(code, False, why)
 
     def _tell(self, code: str, active: bool, text: str) -> None:
+        """Pass an alarm change to the hook, logging a failing hook."""
         if self.alarm is None:
             return
         try:
@@ -1159,6 +1210,13 @@ class MonthArchiver:
             LOGGER.exception("archive alarm %s could not be passed on", code)
 
     def _step(self, now: float) -> bool:
+        """Run one archive step within its time budget; return whether more work remains.
+
+        Parameters
+        ----------
+        now
+            Current Unix time.
+        """
         if not self.history.exists():
             return False
         self.folder.path.mkdir(parents=True, exist_ok=True)
@@ -1179,6 +1237,7 @@ class MonthArchiver:
         return any(not self._advance(month, target, deadline, now) for month in sorted(pending))
 
     def _run_build(self, deadline: float) -> bool:
+        """Continue the zip build until ``deadline``; return whether it finished."""
         build = self._build
         if build is None:
             return True
@@ -1189,6 +1248,19 @@ class MonthArchiver:
         return True
 
     def _quarantine(self, month: Month, path: Path, why: str, now: float) -> None:
+        """Move a damaged working copy aside, so it is rebuilt from the live history.
+
+        Parameters
+        ----------
+        month
+            Month of the damaged copy.
+        path
+            Damaged working copy.
+        why
+            What was found wrong with it.
+        now
+            Current Unix time.
+        """
         moved = quarantine(path)
         LOGGER.error(
             "archive: the working copy of %s is damaged (%s); moved to %s, rebuilding it "
@@ -1206,6 +1278,19 @@ class MonthArchiver:
         )
 
     def _advance(self, month: Month, target: float, deadline: float, now: float) -> bool:
+        """Bring a month's working copy up to ``target``, rebuilding a damaged one.
+
+        Parameters
+        ----------
+        month
+            Month to work on.
+        target
+            Unix time up to which the live history is copied.
+        deadline
+            ``time.monotonic()`` time at which to stop.
+        now
+            Current Unix time.
+        """
         path = self.folder.open_path(month)
         if month not in self._checked:
             why = damaged(path) if path.exists() else None
@@ -1225,6 +1310,21 @@ class MonthArchiver:
             return False
 
     def _fill(self, month: Month, path: Path, target: float, deadline: float, now: float) -> bool:
+        """Copy the live history of a month into its working copy, freezing it when complete.
+
+        Parameters
+        ----------
+        month
+            Month to work on.
+        path
+            Working copy of the month.
+        target
+            Unix time up to which the live history is copied.
+        deadline
+            ``time.monotonic()`` time at which to stop.
+        now
+            Current Unix time.
+        """
         conn = open_month(path)
         closed = False
         try:
@@ -1272,6 +1372,21 @@ class MonthArchiver:
 
     @staticmethod
     def _copy(conn: sqlite3.Connection, lo: float, hi: float, settled: float, mark: float) -> None:
+        """Copy one window into the working copy and move its watermark, in one transaction.
+
+        Parameters
+        ----------
+        conn
+            Open connection to the working copy with the live history attached.
+        lo
+            Start of the window, Unix time (inclusive).
+        hi
+            End of the window, Unix time (exclusive).
+        settled
+            Unix time before which rollup buckets are final.
+        mark
+            Watermark to store: the time up to which the copy is complete.
+        """
         conn.execute("BEGIN")
         try:
             copy_window(conn, lo, hi, settled)
@@ -1293,6 +1408,23 @@ class MonthArchiver:
         now: float,
     ) -> bool:
         """Check the finished working copy and start its :class:`ZipBuild`.
+
+        Parameters
+        ----------
+        month
+            Month that ended.
+        conn
+            Open connection to its working copy.
+        path
+            Working copy file.
+        timezone
+            Timezone the month's days follow.
+        bounds
+            Start and end of the month as Unix times.
+        created
+            Unix time recorded as the manifest's creation time.
+        now
+            Current Unix time.
 
         Returns
         -------
@@ -1343,7 +1475,21 @@ class MonthArchiver:
 def open_month_manifest(
     path: Path, month: Month, timezone: str, created: float, *, config: bool
 ) -> dict[str, Any]:
-    """Return the manifest of an open month's working copy (``frozen`` false)."""
+    """Return the manifest of an open month's working copy (``frozen`` false).
+
+    Parameters
+    ----------
+    path
+        Working copy of the month.
+    month
+        Month the copy belongs to.
+    timezone
+        Timezone used when the copy records none.
+    created
+        Unix time recorded as the manifest's creation time.
+    config
+        Whether the zip will carry a configuration file.
+    """
     conn = read_only(path)
     try:
         meta = read_meta(conn)
@@ -1367,7 +1513,23 @@ def write_open_month(
     created: float,
     config_source: ConfigSource | None,
 ) -> Path:
-    """Write a zip of an open month as it stands into ``folder`` and return its path."""
+    """Write a zip of an open month as it stands into ``folder`` and return its path.
+
+    Parameters
+    ----------
+    source
+        Working copy of the open month.
+    folder
+        Folder to write the zip into.
+    month
+        Month of the copy.
+    timezone
+        Timezone used when the copy records none.
+    created
+        Unix time recorded as the manifest's creation time.
+    config_source
+        Provides the configuration to include; ``None`` for none.
+    """
     copy = folder / "history.db"
     backup_to(source, copy)
     config = None
@@ -1472,7 +1634,21 @@ def write_bundle(target: Path, files: Sequence[Path], manifest: Mapping[str, Any
 def month_item(
     folder: ArchiveFolder, month: Month, path: Path, *, frozen: bool, timezone: str
 ) -> dict[str, Any]:
-    """Return one entry of ``months`` in ``GET api/v1/archive``."""
+    """Return one entry of ``months`` in ``GET api/v1/archive``.
+
+    Parameters
+    ----------
+    folder
+        Archive folder the month is in.
+    month
+        Month described.
+    path
+        File of the month.
+    frozen
+        Whether the month is finished and frozen.
+    timezone
+        Timezone the days of the month follow.
+    """
     size = path.stat().st_size
     item: dict[str, Any] = {
         "period": str(month),
@@ -1527,6 +1703,21 @@ def month_item(
 def _group(
     kind: str, period: str, ident: str, months: Sequence[Month], items: Mapping[Month, Any]
 ) -> dict[str, Any] | None:
+    """Return one download group (a year or all months) over the months present, or ``None``.
+
+    Parameters
+    ----------
+    kind
+        Group kind, ``year`` or ``all``.
+    period
+        Period text of the group.
+    ident
+        Group id.
+    months
+        Months the group covers.
+    items
+        Month entries by month.
+    """
     present = [items[month] for month in months if month in items]
     frozen = [item for item in present if item["state"] == "frozen"]
     if not present:

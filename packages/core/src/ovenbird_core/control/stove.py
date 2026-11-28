@@ -5,6 +5,8 @@ the sensor is in is detected (the trusted room value at the comfort target plus
 ``enter_above_k``, or a fast rise of ``rise_k`` within ``rise_window_s`` above the
 comfort target, measured from the comfort target or the window's low, whichever is
 higher, and only above the level before a dip) or requested (override ``stove``).
+An active plan slice that raises the room target lifts these entry thresholds (not the
+exit) by its bounded raise, so a room following the raised target is no stove.
 While it is active the room PI is frozen with its integrator held at its value from
 before the episode (no wind-down, no silent-device rollback), the cross-check keeps
 running with its threshold widened by ``crosscheck_allow_k`` (no offset learning; a
@@ -46,6 +48,7 @@ from ovenbird_core.control.notes import duration_text, signed
 from ovenbird_core.control.observe import as_number
 from ovenbird_core.control.record import StateValue, Term
 from ovenbird_core.control.safety import EPSILON, SafetyBounds
+from ovenbird_core.control.state import OvenbirdState, StoveSource, StoveTrigger
 from ovenbird_core.control.types import Override, OverrideKind, RoomInput
 from ovenbird_core.instant import Instant
 from ovenbird_core.readings import SignalId
@@ -54,7 +57,6 @@ from ovenbird_core.store import SignalView, Snapshot
 
 if TYPE_CHECKING:
     from ovenbird_core.control.config import OvenbirdConfig
-    from ovenbird_core.control.ovenbird import OvenbirdState
 
 CELSIUS: Final = "°C"
 REFERENCE_MIN_C: Final = -40.0
@@ -269,27 +271,6 @@ class StoveConfig:
         return max(0.0, min(1.0, (reference_c - low) / self.reference_band_k))
 
 
-class StoveSource(StrEnum):
-    """Who started the wood-stove episode."""
-
-    AUTO = "auto"
-    MANUAL = "manual"
-
-
-class StoveTrigger(StrEnum):
-    """What started the wood-stove episode.
-
-    ``level``: the room reached the entry threshold; ``rise``: the fast-rise trigger;
-    ``manual``: a request; ``handover``: a manual episode ended while the room was
-    still above the exit threshold, so the automatic detection took over.
-    """
-
-    LEVEL = "level"
-    RISE = "rise"
-    MANUAL = "manual"
-    HANDOVER = "handover"
-
-
 class StoveExit(StrEnum):
     """Why a wood-stove episode ended."""
 
@@ -310,7 +291,8 @@ class StoveStep:
 
     The fields up to ``fault`` are carried in
     :class:`~ovenbird_core.control.ovenbird.OvenbirdState` (``stove_*``); ``event``,
-    ``ended``, ``rise_k``, ``jump_k``, ``gap_k``, ``gap_short`` and ``until`` only
+    ``ended``, ``rise_k``, ``jump_k``, ``gap_k``, ``gap_short``, ``until`` and
+    ``entry_shift_k`` (how far an active plan slice raised the entry thresholds) only
     explain this tick.
     """
 
@@ -338,6 +320,7 @@ class StoveStep:
     gap_k: float | None = None
     gap_short: bool = False
     until: Instant | None = None
+    entry_shift_k: float = 0.0
 
     @property
     def active(self) -> bool:
@@ -408,6 +391,77 @@ def reference_temperature(cfg: OvenbirdConfig, snapshot: Snapshot) -> float | No
     return None
 
 
+@dataclass(frozen=True, slots=True)
+class _Window:
+    """The fast-rise window of the trusted room value: its low, its high, the level before a dip.
+
+    Parameters
+    ----------
+    low_c, low_at
+        Lowest trusted value of the window and when it was seen.
+    high_c, high_at
+        Highest trusted value of the window and when it was seen.
+    predip_c
+        The window's high when the current low was taken (the level before a dip).
+    """
+
+    low_c: float | None = None
+    low_at: float | None = None
+    high_c: float | None = None
+    high_at: float | None = None
+    predip_c: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _Reading:
+    """What one tick's room value means for the state machine, before any transition.
+
+    Parameters
+    ----------
+    value
+        The room value when it is trusted with full cooling authority, else ``None``.
+    entry_base
+        The comfort target raised by the entry shift (the base of the entry thresholds).
+    enter_c
+        Level threshold of the automatic entry.
+    shift_k
+        The entry shift, at least 0.
+    window
+        The fast-rise window after this tick's value.
+    rise
+        Rise of the value over the window's low (or the entry base when higher).
+    jump
+        Sensor-fault step of this tick (:func:`fault_step`).
+    step_low_c, step_low_at
+        The fault-step window's new low.
+    jumped
+        The step is a sensor fault.
+    cooled
+        The value is below the exit threshold.
+    gap
+        How far the value is above a fresh reference room.
+    gap_short
+        The gap is too small for an automatic entry.
+    reference_warm
+        The gap is small enough to end an automatic episode.
+    """
+
+    value: float | None
+    entry_base: float
+    enter_c: float
+    shift_k: float
+    window: _Window
+    rise: float | None
+    jump: float | None
+    step_low_c: float | None
+    step_low_at: float | None
+    jumped: bool
+    cooled: bool
+    gap: float | None
+    gap_short: bool
+    reference_warm: bool
+
+
 def advance(
     cfg: OvenbirdConfig,
     state: OvenbirdState,
@@ -415,8 +469,15 @@ def advance(
     override: Override | None,
     now: float,
     reference_c: float | None = None,
+    entry_shift_k: float = 0.0,
 ) -> StoveStep:
     """Advance the wood-stove state machine (see the module docstring).
+
+    ``entry_shift_k`` (≥ 0, the raise of the room target by an active plan slice)
+    lifts the automatic entry: the level threshold, the floor of the fast rise and
+    the level a fast rise must exceed move up with the target, so a room that
+    follows a raised target (plus sun) is no stove. Exit, re-arm and fault
+    thresholds keep the comfort temperature; with ``0`` nothing changes.
 
     ``room`` is the fresh, plausible room value; the automatic detection uses it
     only with full cooling authority (alive, not held too long). A manual
@@ -430,131 +491,482 @@ def advance(
     again until the room has cooled; after a loss of trust the value must stay
     trusted for ``reentry_hold_s`` first. A sensor-fault step ends an automatic
     episode and keeps the detection off until the room has cooled.
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration (``cfg.stove`` ``None``: stove mode off).
+    state
+        Carried controller state with the ``stove_*`` fields of the last tick.
+    room
+        The fresh, plausible room value, ``None`` without one.
+    override
+        The active override; only a ``stove`` override counts.
+    now
+        Monotonic time of this tick in seconds.
+    reference_c
+        Fresh temperature of the reference room, ``None`` without one.
+    entry_shift_k
+        Raise of the room target by an active plan slice (negative counts as 0).
+
+    Returns
+    -------
+    StoveStep
+        The state after this tick with what happened during it.
     """
     sc = cfg.stove
     if sc is None:
-        if state.stove_active:
-            return StoveStep(event="exited", ended=StoveExit.DISABLED)
-        return StoveStep()
+        return _disabled(state)
+    reading = _read(cfg, sc, state, room, now, reference_c, entry_shift_k)
+    request = _stove_request(override)
+    stove = _carried(sc, state, reading, now)
+    stove = _episode(sc, state, stove, reading, request, now)
+    if request is None and not stove.active and stove.ended is None:
+        stove = _detected(sc, state, stove, reading, now)
+    if request is not None and stove.active:
+        stove = replace(stove, until=request.until)
+    return stove
+
+
+def _disabled(state: OvenbirdState) -> StoveStep:
+    """Return the step without stove mode: a carried episode ends (``disabled``)."""
+    if state.stove_active:
+        return StoveStep(event="exited", ended=StoveExit.DISABLED)
+    return StoveStep()
+
+
+def _stove_request(override: Override | None) -> Override | None:
+    """Return ``override`` when it is a wood-stove request or stop, else ``None``."""
+    if override is not None and override.kind is OverrideKind.STOVE:
+        return override
+    return None
+
+
+def _read(
+    cfg: OvenbirdConfig,
+    sc: StoveConfig,
+    state: OvenbirdState,
+    room: RoomInput | None,
+    now: float,
+    reference_c: float | None,
+    entry_shift_k: float,
+) -> _Reading:
+    """Read this tick's room value against the thresholds, the windows and the reference.
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration.
+    sc
+        Its stove configuration.
+    state
+        Carried controller state.
+    room
+        The fresh, plausible room value, ``None`` without one.
+    now
+        Monotonic time of this tick in seconds.
+    reference_c
+        Fresh temperature of the reference room, ``None`` without one.
+    entry_shift_k
+        Raise of the room target by an active plan slice.
+
+    Returns
+    -------
+    _Reading
+        The facts every transition of this tick decides on.
+    """
     comfort = cfg.comfort_room_c
-    enter_c, exit_c = sc.enter_c(comfort), sc.exit_c(comfort)
+    shift_k = max(0.0, entry_shift_k)
+    entry_base = comfort + shift_k
     trusted = room is not None and cfg.room.authority(room.held_s, room.age) >= 1.0
     value = room.value if trusted and room is not None else None
+    window = _rise_window(sc, state, value, now)
     jump, step_low_c, step_low_at = fault_step(cfg, state, room, now)
-    low_c, low_at = state.stove_low_c, state.stove_low_at
-    high_c, high_at, predip_c = state.stove_high_c, state.stove_high_at, state.stove_predip_c
-    window = sc.rise_window_s
-    if value is None:
-        low_c = low_at = high_c = high_at = predip_c = None
-    else:
-        if high_c is None or high_at is None or value >= high_c or now - high_at > window:
-            high_c, high_at = value, now
-        if low_c is None or low_at is None or value <= low_c or now - low_at > window:
-            low_c, low_at, predip_c = value, now, high_c
-    rise = None if value is None or low_c is None else value - max(low_c, comfort)
-    cooled = value is not None and value < exit_c - EPSILON
-    jumped = jump is not None and jump >= sc.fault_step_k - EPSILON
-    fault = jumped or (state.stove_fault and not cooled)
+    rise = None if value is None or window.low_c is None else value - max(window.low_c, entry_base)
     gap = None if value is None or reference_c is None else value - reference_c
-    gap_short = gap is not None and gap < sc.reference_gap_k - EPSILON
-    reference_warm = gap is not None and gap < sc.reference_gap_k / 2.0 - EPSILON
-    blocked = state.stove_blocked and not cooled
-    level_blocked = state.stove_level_blocked and not cooled
-    reentry_wait, trusted_since = state.stove_reentry_wait, state.stove_trusted_since
-    if reentry_wait:
-        trusted_since = None if value is None else (now if trusted_since is None else trusted_since)
-        if trusted_since is not None and now - trusted_since >= sc.reentry_hold_s - EPSILON:
-            reentry_wait, trusted_since = False, None
-    source, trigger, since = state.stove_source, state.stove_trigger, state.stove_since
-    entry_c, held = state.stove_entry_c, state.stove_integral_k
-    manual = override if override is not None and override.kind is OverrideKind.STOVE else None
-    ended: StoveExit | None = None
-    event: str | None = None
-    if manual is not None and manual.value <= 0.0:
-        ended = StoveExit.MANUAL_STOP if source is not None else None
-        source, blocked = None, True
-    elif manual is not None:
-        if source is None:
-            trigger, since, entry_c, held = StoveTrigger.MANUAL, now, value, state.integral_k
-            event = "entered"
-        source = StoveSource.MANUAL
-    elif source is StoveSource.MANUAL:
-        handover = (
-            sc.auto
-            and value is not None
-            and entry_c is not None
-            and not cooled
-            and not blocked
-            and not fault
-            and not gap_short
-        )
-        if handover:
-            source, trigger, since = StoveSource.AUTO, StoveTrigger.HANDOVER, now
-        else:
-            source, ended = None, StoveExit.MANUAL_ENDED
-    elif source is StoveSource.AUTO:
-        active_for = 0.0 if since is None else now - since
-        if not sc.auto:
-            ended = StoveExit.AUTO_OFF
-        elif jumped:
-            ended = StoveExit.ROOM_JUMP
-        elif value is None:
-            ended = StoveExit.ROOM_UNTRUSTED
-            reentry_wait, trusted_since = sc.reentry_hold_s > 0.0, None
-        elif active_for >= sc.max_active_s:
-            ended, level_blocked = StoveExit.MAX_ACTIVE, True
-            low_c, low_at, high_c, high_at, predip_c = value, now, value, now, value
-        elif active_for >= sc.min_active_s and cooled:
-            ended = StoveExit.COOLED
-        elif active_for >= sc.min_active_s and reference_warm:
-            ended = StoveExit.REFERENCE_WARM
-        if ended is not None:
-            source = None
-    if ended is not None:
-        event = "exited"
-    if source is None:
-        trigger = since = entry_c = held = None
-    armed = not blocked and not reentry_wait and not fault and not gap_short
-    if source is None and ended is None and manual is None and sc.auto and armed:
-        if value is not None and value >= enter_c - EPSILON and not level_blocked:
-            trigger = StoveTrigger.LEVEL
-        elif (
-            value is not None
-            and rise is not None
-            and sc.rise_k is not None
-            and rise >= sc.rise_k - EPSILON
-            and value > comfort + EPSILON
-            and (predip_c is None or value > predip_c + EPSILON)
-        ):
-            trigger = StoveTrigger.RISE
-        if trigger is not None:
-            source, since, entry_c, held = StoveSource.AUTO, now, value, state.integral_k
-            event = "entered"
-    return StoveStep(
-        source=source,
-        trigger=trigger,
-        since=since,
-        entry_c=entry_c,
-        integral_k=held,
-        blocked=blocked,
-        level_blocked=level_blocked,
-        reentry_wait=reentry_wait,
-        trusted_since=trusted_since,
-        low_c=low_c,
-        low_at=low_at,
-        high_c=high_c,
-        high_at=high_at,
-        predip_c=predip_c,
+    return _Reading(
+        value=value,
+        entry_base=entry_base,
+        enter_c=sc.enter_c(entry_base),
+        shift_k=shift_k,
+        window=window,
+        rise=rise,
+        jump=jump,
         step_low_c=step_low_c,
         step_low_at=step_low_at,
-        fault=fault,
-        event=event,
+        jumped=jump is not None and jump >= sc.fault_step_k - EPSILON,
+        cooled=value is not None and value < sc.exit_c(comfort) - EPSILON,
+        gap=gap,
+        gap_short=gap is not None and gap < sc.reference_gap_k - EPSILON,
+        reference_warm=gap is not None and gap < sc.reference_gap_k / 2.0 - EPSILON,
+    )
+
+
+def _rise_window(sc: StoveConfig, state: OvenbirdState, value: float | None, now: float) -> _Window:
+    """Return the fast-rise window after ``value`` (empty without a trusted value).
+
+    A high or low older than ``rise_window_s`` is replaced by the value; a new low
+    takes the window's high as the level before the dip.
+
+    Parameters
+    ----------
+    sc
+        Stove configuration.
+    state
+        Carried controller state with the last window.
+    value
+        The trusted room value, ``None`` without one.
+    now
+        Monotonic time of this tick in seconds.
+    """
+    if value is None:
+        return _Window()
+    window_s = sc.rise_window_s
+    high_c, high_at = state.stove_high_c, state.stove_high_at
+    if high_c is None or high_at is None or value >= high_c or now - high_at > window_s:
+        high_c, high_at = value, now
+    low_c, low_at, predip_c = state.stove_low_c, state.stove_low_at, state.stove_predip_c
+    if low_c is None or low_at is None or value <= low_c or now - low_at > window_s:
+        low_c, low_at, predip_c = value, now, high_c
+    return _Window(low_c, low_at, high_c, high_at, predip_c)
+
+
+def _reentry(
+    sc: StoveConfig, state: OvenbirdState, value: float | None, now: float
+) -> tuple[bool, float | None]:
+    """Return the re-entry wait and since when the room value has been trusted again.
+
+    The wait counts trusted ticks from the first one, restarts on an untrusted one
+    and ends after ``reentry_hold_s``.
+
+    Parameters
+    ----------
+    sc
+        Stove configuration.
+    state
+        Carried controller state with the last wait.
+    value
+        The trusted room value, ``None`` without one.
+    now
+        Monotonic time of this tick in seconds.
+    """
+    if not state.stove_reentry_wait:
+        return False, state.stove_trusted_since
+    if value is None:
+        return True, None
+    trusted_since = now if state.stove_trusted_since is None else state.stove_trusted_since
+    if now - trusted_since >= sc.reentry_hold_s - EPSILON:
+        return False, None
+    return True, trusted_since
+
+
+def _carried(sc: StoveConfig, state: OvenbirdState, reading: _Reading, now: float) -> StoveStep:
+    """Return the carried episode with this tick's windows, blocks and re-entry wait.
+
+    A manual-stop block, a level block and a sensor fault clear once the room has
+    cooled; a new fault-step sets the fault.
+
+    Parameters
+    ----------
+    sc
+        Stove configuration.
+    state
+        Carried controller state.
+    reading
+        This tick's reading.
+    now
+        Monotonic time of this tick in seconds.
+    """
+    reentry_wait, trusted_since = _reentry(sc, state, reading.value, now)
+    window = reading.window
+    return StoveStep(
+        source=state.stove_source,
+        trigger=state.stove_trigger,
+        since=state.stove_since,
+        entry_c=state.stove_entry_c,
+        integral_k=state.stove_integral_k,
+        blocked=state.stove_blocked and not reading.cooled,
+        level_blocked=state.stove_level_blocked and not reading.cooled,
+        reentry_wait=reentry_wait,
+        trusted_since=trusted_since,
+        low_c=window.low_c,
+        low_at=window.low_at,
+        high_c=window.high_c,
+        high_at=window.high_at,
+        predip_c=window.predip_c,
+        step_low_c=reading.step_low_c,
+        step_low_at=reading.step_low_at,
+        fault=reading.jumped or (state.stove_fault and not reading.cooled),
+        rise_k=reading.rise,
+        jump_k=reading.jump,
+        gap_k=reading.gap,
+        gap_short=reading.gap_short,
+        entry_shift_k=reading.shift_k,
+    )
+
+
+def _episode(
+    sc: StoveConfig,
+    state: OvenbirdState,
+    stove: StoveStep,
+    reading: _Reading,
+    request: Override | None,
+    now: float,
+) -> StoveStep:
+    """Apply this tick's transition of the episode: manual stop, start, end or automatic exit.
+
+    Parameters
+    ----------
+    sc
+        Stove configuration.
+    state
+        Carried controller state.
+    stove
+        The carried step (:func:`_carried`).
+    reading
+        This tick's reading.
+    request
+        The wood-stove override, ``None`` without one.
+    now
+        Monotonic time of this tick in seconds.
+
+    Returns
+    -------
+    StoveStep
+        The step after the transition; without an episode its episode fields are empty.
+    """
+    if request is not None and request.value <= 0.0:
+        return _manual_stop(stove)
+    if request is not None:
+        return _manual_start(state, stove, reading, now)
+    if stove.source is StoveSource.MANUAL:
+        return _manual_end(sc, stove, reading, now)
+    if stove.source is StoveSource.AUTO:
+        return _auto_episode(sc, stove, reading, now)
+    return _inactive(stove)
+
+
+def _inactive(stove: StoveStep, ended: StoveExit | None = None) -> StoveStep:
+    """Return ``stove`` without an episode, ``ended`` for the reason one just ended."""
+    return replace(
+        stove,
+        source=None,
+        trigger=None,
+        since=None,
+        entry_c=None,
+        integral_k=None,
         ended=ended,
-        rise_k=rise,
-        jump_k=jump,
-        gap_k=gap,
-        gap_short=gap_short,
-        until=manual.until if manual is not None and source is not None else None,
+        event=None if ended is None else "exited",
+    )
+
+
+def _manual_stop(stove: StoveStep) -> StoveStep:
+    """End an episode on a stop and block the detection until the room has cooled."""
+    ended = StoveExit.MANUAL_STOP if stove.active else None
+    return _inactive(replace(stove, blocked=True), ended)
+
+
+def _manual_start(
+    state: OvenbirdState, stove: StoveStep, reading: _Reading, now: float
+) -> StoveStep:
+    """Start a manual episode, or make the active one manual (keeping its trigger and start).
+
+    Parameters
+    ----------
+    state
+        Carried controller state (its integrator is held).
+    stove
+        The step so far this tick.
+    reading
+        This tick's reading.
+    now
+        Monotonic time of this tick in seconds.
+    """
+    if stove.active:
+        return replace(stove, source=StoveSource.MANUAL)
+    return replace(
+        stove,
+        source=StoveSource.MANUAL,
+        trigger=StoveTrigger.MANUAL,
+        since=now,
+        entry_c=reading.value,
+        integral_k=state.integral_k,
+        event="entered",
+    )
+
+
+def _manual_end(sc: StoveConfig, stove: StoveStep, reading: _Reading, now: float) -> StoveStep:
+    """End a manual episode whose request is gone, or hand a warm room to the detection.
+
+    Parameters
+    ----------
+    sc
+        Stove configuration.
+    stove
+        The step so far this tick (a manual episode).
+    reading
+        This tick's reading.
+    now
+        Monotonic time of this tick in seconds.
+    """
+    if _can_hand_over(sc, stove, reading):
+        return replace(stove, source=StoveSource.AUTO, trigger=StoveTrigger.HANDOVER, since=now)
+    return _inactive(stove, StoveExit.MANUAL_ENDED)
+
+
+def _can_hand_over(sc: StoveConfig, stove: StoveStep, reading: _Reading) -> bool:
+    """Whether the detection may take over an ending manual episode.
+
+    It needs the detection on, a trusted value that is still warm, a room value
+    that was trusted when the manual episode began, no block, no sensor fault and
+    the room clearly above a fresh reference room.
+    """
+    return (
+        sc.auto
+        and reading.value is not None
+        and stove.entry_c is not None
+        and not reading.cooled
+        and not stove.blocked
+        and not stove.fault
+        and not reading.gap_short
+    )
+
+
+def _auto_episode(sc: StoveConfig, stove: StoveStep, reading: _Reading, now: float) -> StoveStep:
+    """Keep an automatic episode or end it; set the wait or block its end leaves behind.
+
+    A loss of trust starts the re-entry wait; the cap blocks the level trigger and
+    restarts the fast-rise window at the current value.
+
+    Parameters
+    ----------
+    sc
+        Stove configuration.
+    stove
+        The step so far this tick (an automatic episode).
+    reading
+        This tick's reading.
+    now
+        Monotonic time of this tick in seconds.
+    """
+    active_for = 0.0 if stove.since is None else now - stove.since
+    ended = _auto_exit(sc, reading, active_for)
+    if ended is None:
+        return stove
+    if ended is StoveExit.ROOM_UNTRUSTED:
+        stove = replace(stove, reentry_wait=sc.reentry_hold_s > 0.0, trusted_since=None)
+    if ended is StoveExit.MAX_ACTIVE and reading.value is not None:
+        stove = _capped(stove, reading.value, now)
+    return _inactive(stove, ended)
+
+
+def _auto_exit(sc: StoveConfig, reading: _Reading, active_for: float) -> StoveExit | None:
+    """Return why an automatic episode active for ``active_for`` s ends, ``None`` to keep it."""
+    if not sc.auto:
+        return StoveExit.AUTO_OFF
+    if reading.jumped:
+        return StoveExit.ROOM_JUMP
+    if reading.value is None:
+        return StoveExit.ROOM_UNTRUSTED
+    if active_for >= sc.max_active_s:
+        return StoveExit.MAX_ACTIVE
+    if active_for < sc.min_active_s:
+        return None
+    if reading.cooled:
+        return StoveExit.COOLED
+    if reading.reference_warm:
+        return StoveExit.REFERENCE_WARM
+    return None
+
+
+def _capped(stove: StoveStep, value: float, now: float) -> StoveStep:
+    """Block the level trigger and restart the fast-rise window at ``value`` after the cap."""
+    return replace(
+        stove,
+        level_blocked=True,
+        low_c=value,
+        low_at=now,
+        high_c=value,
+        high_at=now,
+        predip_c=value,
+    )
+
+
+def _detected(
+    sc: StoveConfig, state: OvenbirdState, stove: StoveStep, reading: _Reading, now: float
+) -> StoveStep:
+    """Start an automatic episode when the level or a fast rise says so.
+
+    Parameters
+    ----------
+    sc
+        Stove configuration.
+    state
+        Carried controller state (its integrator is held).
+    stove
+        The step so far this tick (no episode).
+    reading
+        This tick's reading.
+    now
+        Monotonic time of this tick in seconds.
+    """
+    trigger = _entry_trigger(sc, stove, reading)
+    if trigger is None:
+        return stove
+    return replace(
+        stove,
+        source=StoveSource.AUTO,
+        trigger=trigger,
+        since=now,
+        entry_c=reading.value,
+        integral_k=state.integral_k,
+        event="entered",
+    )
+
+
+def _armed(sc: StoveConfig, stove: StoveStep) -> bool:
+    """Whether the automatic detection may enter (on, not blocked, waiting or faulted)."""
+    return (
+        sc.auto
+        and not stove.blocked
+        and not stove.reentry_wait
+        and not stove.fault
+        and not stove.gap_short
+    )
+
+
+def _entry_trigger(sc: StoveConfig, stove: StoveStep, reading: _Reading) -> StoveTrigger | None:
+    """Return what starts an automatic episode this tick, ``None`` when nothing does."""
+    value = reading.value
+    if value is None or not _armed(sc, stove):
+        return None
+    if value >= reading.enter_c - EPSILON and not stove.level_blocked:
+        return StoveTrigger.LEVEL
+    if _fast_rise(sc, stove, reading, value):
+        return StoveTrigger.RISE
+    return None
+
+
+def _fast_rise(sc: StoveConfig, stove: StoveStep, reading: _Reading, value: float) -> bool:
+    """Whether ``value`` rose by ``rise_k`` above the entry base and the level before a dip.
+
+    Parameters
+    ----------
+    sc
+        Stove configuration.
+    stove
+        The step so far this tick (its window).
+    reading
+        This tick's reading.
+    value
+        The trusted room value.
+    """
+    return (
+        reading.rise is not None
+        and sc.rise_k is not None
+        and reading.rise >= sc.rise_k - EPSILON
+        and value > reading.entry_base + EPSILON
+        and (stove.predip_c is None or value > stove.predip_c + EPSILON)
     )
 
 
@@ -567,6 +979,17 @@ def fault_step(
     last ``fault_step_window_s``, or over the level before a dip when that is
     higher (the rebound after airing is no step). A missing value keeps the low
     until its window has passed.
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration (``None`` steps without stove mode).
+    state
+        Carried controller state with the last fault-step low.
+    room
+        The fresh, plausible room value, trusted or not; ``None`` without one.
+    now
+        Monotonic time of this tick in seconds.
     """
     sc = cfg.stove
     if sc is None:
@@ -594,7 +1017,25 @@ def stove_term(
     bounds: SafetyBounds,
     now: float,
 ) -> tuple[float, Term | None]:
-    """Return the back-off in K water and the ``stove`` term (``None`` without stove mode)."""
+    """Return the back-off in K water and the ``stove`` term (``None`` without stove mode).
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration.
+    stove
+        This tick's wood-stove step.
+    room
+        The fresh, plausible room value, ``None`` without one.
+    reference_c
+        Fresh temperature of the reference room, ``None`` without one.
+    curve_sp
+        Water setpoint of the curve in °C.
+    bounds
+        Safety bounds of this tick (the minimum of ``to_minimum``).
+    now
+        Monotonic time of this tick in seconds.
+    """
     if cfg.stove is None:
         return 0.0, None
     sc = cfg.stove
@@ -609,7 +1050,21 @@ def stove_term(
 def stove_extra(
     cfg: OvenbirdConfig, stove: StoveStep, reference_c: float | None, value: float, now: Instant
 ) -> dict[str, StateValue]:
-    """Return the wood-stove entries of the decision's controller state."""
+    """Return the wood-stove entries of the decision's controller state.
+
+    Parameters
+    ----------
+    cfg
+        Controller configuration.
+    stove
+        This tick's wood-stove step.
+    reference_c
+        Fresh temperature of the reference room, ``None`` without one.
+    value
+        The ``stove`` term's value in K water.
+    now
+        This tick's instant.
+    """
     sc = cfg.stove
     if sc is None:
         return {"stove_event": stove.event, "stove_exit": _value(stove.ended)}
@@ -624,7 +1079,7 @@ def stove_extra(
         "stove_started": started,
         "stove_active_s": None if stove.since is None else now.monotonic - stove.since,
         "stove_until": None if stove.until is None else stove.until.wall.isoformat(),
-        "stove_enter_c": sc.enter_c(comfort),
+        "stove_enter_c": sc.enter_c(comfort + stove.entry_shift_k),
         "stove_exit_c": sc.exit_c(comfort),
         "stove_rise_k": stove.rise_k,
         "stove_jump_k": stove.jump_k,
@@ -640,6 +1095,7 @@ def stove_extra(
 
 
 def _value(item: StrEnum | None) -> str | None:
+    """Return the value of ``item``, ``None`` without one."""
     return None if item is None else item.value
 
 
@@ -656,7 +1112,23 @@ def term_note(
     comfort_c: float,
     now: float,
 ) -> str:
-    """Return the note of the ``stove`` term."""
+    """Return the note of the ``stove`` term.
+
+    Parameters
+    ----------
+    sc
+        Stove configuration.
+    stove
+        This tick's wood-stove step.
+    room
+        The fresh, plausible room value, ``None`` without one.
+    reference_c
+        Fresh temperature of the reference room, ``None`` without one.
+    comfort_c
+        Comfort room target in °C.
+    now
+        Monotonic time of this tick in seconds.
+    """
     if not stove.active:
         if not sc.auto:
             return "inactive (automatic detection off)"
@@ -685,7 +1157,8 @@ def term_note(
                 f"inactive ({where} only {signed(stove.gap_k)} K above the reference room "
                 f"{reference_c:.1f} °C; an automatic entry needs {sc.reference_gap_k:.1f} K)"
             )
-        return f"inactive ({where}; enters at {sc.enter_c(comfort_c):.1f} °C)"
+        enter_c = sc.enter_c(comfort_c + stove.entry_shift_k)
+        return f"inactive ({where}; enters at {enter_c:.1f} °C)"
     size = "to the safety minimum" if sc.to_minimum else f"{sc.backoff_k:.1f} K"
     text = f"back-off {size}"
     if sc.reference is not None:
@@ -711,7 +1184,23 @@ def sentence(
     value: float,
     now: float,
 ) -> str | None:
-    """Return the first sentence of the decision note while a stove episode is active."""
+    """Return the first sentence of the decision note while a stove episode is active.
+
+    Parameters
+    ----------
+    stove
+        This tick's wood-stove step.
+    integral_k
+        The held integrator in K.
+    curve_sp
+        Water setpoint of the curve in °C.
+    outside_f
+        Filtered outside temperature in °C.
+    value
+        The ``stove`` term's value in K water.
+    now
+        Monotonic time of this tick in seconds.
+    """
     if not stove.active or stove.source is None or stove.trigger is None:
         return None
     since = 0.0 if stove.since is None else now - stove.since

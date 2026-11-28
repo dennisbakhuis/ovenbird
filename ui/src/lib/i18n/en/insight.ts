@@ -30,7 +30,5 @@ export const insight = {
   insightWeekCop: 'COP',
   insightWeekStarts: 'Starts',
   insightWeekBelow: 'Too cold',
-  insightWeekHeatNote: '{kwh} kWh heat',
   insightWeekDays: 'last {n} days',
-  insightWeekNoData: 'No data',
 } as const;

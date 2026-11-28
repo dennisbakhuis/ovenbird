@@ -147,6 +147,7 @@ def parse_value(
     """
 
     def fail(kind: ParseErrorKind, detail: str) -> ParseError:
+        """Return the ``ParseError`` of ``kind`` for this payload."""
         return ParseError(spec.signal, kind, echo(text), detail, instant, retained)
 
     stripped = text.strip()
@@ -177,6 +178,7 @@ def parse_value(
 
 
 def _in_range(spec: TopicSpec, value: float) -> bool:
+    """Return whether ``value`` lies within the catalogue range of ``spec``."""
     if spec.minimum is not None and value < spec.minimum:
         return False
     return spec.maximum is None or value <= spec.maximum
@@ -229,6 +231,7 @@ def parse_stats(text: str, *, retained: bool, instant: Instant) -> Heartbeat | P
 
 
 def _number(raw: Any) -> float | None:
+    """Return ``raw`` as a finite float, ``None`` for booleans and non-numbers."""
     if isinstance(raw, bool) or not isinstance(raw, int | float):
         return None
     number = float(raw)
@@ -236,10 +239,12 @@ def _number(raw: Any) -> float | None:
 
 
 def _count(raw: Any) -> int | None:
+    """Return ``raw`` when it is a non-negative integer, else ``None``."""
     return raw if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 0 else None
 
 
 def _text(raw: Any) -> str | None:
+    """Return ``raw`` when it is a string, else ``None``."""
     return raw if isinstance(raw, str) else None
 
 
@@ -340,6 +345,7 @@ class HeishaMonParser:
 
 
 def _parse_lwt(text: str, *, retained: bool, instant: Instant) -> LwtNotice | ParseError:
+    """Parse a last-will payload (``online`` or ``offline``) into a notice or a parse error."""
     match text.strip().lower():
         case "online":
             return LwtNotice(True, instant, retained)

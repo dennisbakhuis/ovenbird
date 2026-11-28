@@ -63,6 +63,7 @@ class HeatingCurve:
         return cls(tuple(CurvePoint(float(o), float(w)) for o, w in pairs))
 
     def _segment(self, outside_c: float) -> tuple[CurvePoint, CurvePoint]:
+        """Return the two neighbouring curve points whose segment contains ``outside_c``."""
         keys = [point.outside_c for point in self.points]
         index = min(max(bisect_right(keys, outside_c), 1), len(self.points) - 1)
         return self.points[index - 1], self.points[index]

@@ -54,41 +54,56 @@ ALL_TIME = {"from": "2000-01-01T00:00:00Z", "to": "2100-01-01T00:00:00Z"}
 
 
 async def no_sleep(_: float) -> None:
-    return None
+    """Skip sleeping so control retries run instantly."""
+    return
 
 
 class Journal:
+    """Journal stub that collects offered alarm and state rows."""
+
     def __init__(self) -> None:
+        """Start with no collected rows."""
         self.states: list[StateRow] = []
         self.alarms: list[AlarmRow] = []
 
     def offer_decision(self, row: Any) -> None:
-        return None
+        """Ignore the decision row."""
+        return
 
     def offer_command(self, row: Any) -> None:
-        return None
+        """Ignore the command row."""
+        return
 
     def offer_alarm(self, row: AlarmRow) -> None:
+        """Collect the alarm row."""
         self.alarms.append(row)
 
     def offer_state(self, row: StateRow) -> None:
+        """Collect the state row."""
         self.states.append(row)
 
 
 class SavingJournal(Journal):
+    """Journal that also writes each state row to the history database."""
+
     def __init__(self, path: Path) -> None:
+        """Remember the database path to write state rows to."""
         super().__init__()
         self.path = path
 
     def offer_state(self, row: StateRow) -> None:
+        """Collect the state row and persist it."""
         super().offer_state(row)
         write(self.path, row)
 
 
 class Rig:
+    """Control loop on a fake clock with ingest and a journal, to drive minute by minute."""
+
     def __init__(
         self, settings: Settings, journal: Journal | None = None, start: float = T0
     ) -> None:
+        """Build the runtime, ingest and control loop starting at the given time."""
         self.settings = settings
         self.clock = FakeClock(start)
         self.runtime = Runtime(
@@ -104,6 +119,7 @@ class Rig:
         )
 
     def tick(self, room: float, minutes: int = 1, **pump: str) -> None:
+        """Run the given number of minutes with the room at a fixed temperature."""
         for _ in range(minutes):
             for message in pump_messages(**pump):
                 self.ingest.ingest(message)
@@ -112,24 +128,31 @@ class Rig:
             self.clock.advance(60.0)
 
     def warm(self, start: float, end: float, minutes: int = 30, **pump: str) -> None:
+        """Run the minutes while the room warms linearly from start to end temperature."""
         for step in range(1, minutes + 1):
             self.tick(start + (end - start) * step / minutes, 1, **pump)
 
     def hall(self, value: float) -> None:
+        """Report the hall (reference room) temperature."""
         self.runtime.apply(ha_reading(HALL, f"{value:.1f}", instant=self.clock()))
 
     @property
     def state(self) -> dict[str, Any]:
+        """Return the latest decision state of the loop."""
         return self.loop.latest_state or {}
 
 
 class TestSettings:
+    """Wood-stove settings: defaults, mapping to the controller and validation."""
+
     def test_off_by_default(self, make_settings: Callable[..., Settings]) -> None:
+        """The stove mode is off unless enabled."""
         settings = make_settings(**HA)
         assert settings.controller_config().stove is None
         assert settings.stove_config() is None
 
     def test_fields_reach_the_controller(self, make_settings: Callable[..., Settings]) -> None:
+        """Stove settings reach the controller config and the reference room is subscribed."""
         settings = make_settings(
             **STOVE,
             control_stove_backoff_k=4.0,
@@ -181,10 +204,12 @@ class TestSettings:
     def test_rejected(
         self, make_settings: Callable[..., Settings], overrides: dict[str, Any], match: str
     ) -> None:
+        """Inconsistent stove settings are rejected with a clear message."""
         with pytest.raises(ConfigError, match=match):
             make_settings(**STOVE, **overrides)
 
     def test_detection_needs_a_room_signal(self, make_settings: Callable[..., Settings]) -> None:
+        """Automatic detection needs a room signal, manual requests alone do not."""
         with pytest.raises(ConfigError, match="needs control_room_signal"):
             make_settings(control_stove_enabled=True)
         manual = make_settings(control_stove_enabled=True, control_stove_auto=False)
@@ -194,7 +219,10 @@ class TestSettings:
 
 
 class TestLoop:
+    """Automatic stove detection in the control loop."""
+
     def test_entry_and_exit_are_journalled(self, make_settings: Callable[..., Settings]) -> None:
+        """Automatic entry and exit are journalled as alarm events."""
         rig = Rig(make_settings(**STOVE))
         rig.tick(21.7, 40)
         rig.tick(23.2, 70)
@@ -215,6 +243,7 @@ class TestLoop:
     def test_no_room_implausible_alarm_from_the_stove(
         self, make_settings: Callable[..., Settings]
     ) -> None:
+        """A stove heating the room does not raise the implausible-room alarm."""
         rig = Rig(
             make_settings(
                 **STOVE,
@@ -231,6 +260,7 @@ class TestLoop:
     def test_a_manual_request_keeps_room_implausible(
         self, make_settings: Callable[..., Settings]
     ) -> None:
+        """A manual stove request does not clear an already active implausible-room alarm."""
         rig = Rig(
             make_settings(
                 **STOVE,
@@ -253,6 +283,7 @@ class TestLoop:
     def test_a_missing_reference_room_halves_the_backoff_and_raises_an_alarm(
         self, make_settings: Callable[..., Settings]
     ) -> None:
+        """A missing reference room halves the back-off and raises an alarm until it reports."""
         code = AlarmCode.STOVE_REFERENCE_MISSING
         rig = Rig(make_settings(**STOVE, control_stove_reference_signal=HALL_ID))
         rig.tick(21.7, 10)
@@ -278,6 +309,7 @@ class TestLoop:
     def test_manual_request_until_and_persistence(
         self, make_settings: Callable[..., Settings]
     ) -> None:
+        """A manual request lasts until its end time and is saved and cleared in the journal."""
         rig = Rig(make_settings(**STOVE))
         rig.tick(21.0, 2)
         until = rig.clock().wall + timedelta(minutes=30)
@@ -296,6 +328,7 @@ class TestLoop:
     def test_the_request_carries_no_client_address(
         self, make_settings: Callable[..., Settings]
     ) -> None:
+        """The request, status and journal keep only the actor name, never a client address."""
         rig = Rig(make_settings(**STOVE))
         rig.tick(21.0, 2)
         request = rig.loop.request_stove(True, None, "operate from 192.168.1.20")
@@ -312,6 +345,7 @@ class TestLoop:
     def test_a_start_without_an_end_lasts_eight_hours_at_most_the_cap(
         self, make_settings: Callable[..., Settings]
     ) -> None:
+        """A request without an end lasts eight hours, capped by the maximum active time."""
         rig = Rig(make_settings(**STOVE))
         request = rig.loop.request_stove(True, None, "owner")
         assert request.until == rig.clock().wall + timedelta(hours=8)
@@ -320,6 +354,7 @@ class TestLoop:
         assert request.until == capped.clock().wall + timedelta(hours=2)
 
     def test_one_shot_stop(self, make_settings: Callable[..., Settings]) -> None:
+        """A stop request ends stove mode once and blocks re-entry until it is released."""
         rig = Rig(make_settings(**STOVE))
         rig.tick(24.2, 10)
         assert rig.loop.state.stove_active
@@ -334,6 +369,7 @@ class TestLoop:
         assert events[-1].event == AlarmEventKind.RELEASED.value
 
     def test_refused_requests(self, make_settings: Callable[..., Settings]) -> None:
+        """Requests are refused when stove mode is off, in the past or beyond 24 hours."""
         disabled = Rig(make_settings(**HA))
         with pytest.raises(StoveRequestError, match="not enabled"):
             disabled.loop.request_stove(True, None, "owner")
@@ -346,9 +382,12 @@ class TestLoop:
 
 
 class TestSession:
+    """Rebinding the state sink and alarm board on a running loop."""
+
     def test_a_rebound_state_sink_and_alarm_board_are_used(
         self, make_settings: Callable[..., Settings]
     ) -> None:
+        """A rebound state sink and alarm board replace the old ones for requests and events."""
         rig = Rig(make_settings(**STOVE))
         rig.tick(21.0, 2)
         later = Journal()
@@ -374,6 +413,7 @@ class TestSession:
     def test_assigning_the_request_does_not_save_it(
         self, make_settings: Callable[..., Settings]
     ) -> None:
+        """Assigning a request to the loop does not save it to the journal."""
         rig = Rig(make_settings(**STOVE))
         now = rig.clock().wall
         request = StoveRequest(True, now + timedelta(minutes=5), "owner", now)
@@ -384,9 +424,12 @@ class TestSession:
 
 
 class TestPersistence:
+    """Saving and restoring the stove request and state."""
+
     def test_a_saved_request_survives_a_restart_and_expires_after_it(
         self, make_settings: Callable[..., Settings]
     ) -> None:
+        """A saved request survives a restart and still expires on time."""
         settings = make_settings(**STOVE)
         path = settings.history_path
         first = Rig(settings, SavingJournal(path))
@@ -413,6 +456,7 @@ class TestPersistence:
         assert third.loop.stove_request is None
 
     def test_state_round_trip(self, make_settings: Callable[..., Settings]) -> None:
+        """Stove fields of the controller state survive encoding and decoding."""
         rig = Rig(make_settings(**STOVE))
         rig.tick(24.2, 5)
         saved = rig.loop.state
@@ -424,6 +468,7 @@ class TestPersistence:
         assert restored.stove_integral_k == saved.stove_integral_k
 
     def test_request_survives_a_restart(self, tmp_path: Path) -> None:
+        """A stored request loads while valid and not when expired, cleared or corrupt."""
         path = tmp_path / "history.db"
         now = FakeClock(T0)()
         live = StoveRequest(True, now.wall + timedelta(hours=1), "owner", now.wall)
@@ -438,6 +483,7 @@ class TestPersistence:
 
 
 def write(path: Path, row: StateRow) -> None:
+    """Write one state row to the journal at the path."""
     conn = open_history(path)
     try:
         write_journal(conn, [], [], [], [row])
@@ -446,7 +492,10 @@ def write(path: Path, row: StateRow) -> None:
 
 
 class TestApi:
+    """The stove request endpoint and its audit trail."""
+
     def rig(self, settings: Settings) -> tuple[TestClient, ControlLoop]:
+        """Build a test client and control loop on a fake clock for the settings."""
         clock = FakeClock(T0)
         manager = ConfigManager.open(settings, clock)
         runtime = Runtime(clock=clock)
@@ -455,6 +504,7 @@ class TestApi:
         return TestClient(app), loop
 
     def test_request_and_audit(self, make_settings: Callable[..., Settings]) -> None:
+        """Stove requests are accepted, validated and audited; reading the audit needs admin."""
         settings = make_settings(**STOVE, operate_token=TOKEN)
         client, loop = self.rig(settings)
         headers = {**BEARER, **MARK}
@@ -490,6 +540,7 @@ class TestApi:
         assert [e for e in events if e == "stove_request"] == ["stove_request", "stove_request"]
 
     def test_disabled_is_a_conflict(self, make_settings: Callable[..., Settings]) -> None:
+        """Stove requests while stove mode is off answer 409."""
         client, _ = self.rig(make_settings(**HA, operate_token=TOKEN))
         with client:
             response = client.post(
@@ -499,5 +550,6 @@ class TestApi:
 
 
 def loop_audit(settings: Settings) -> list[str]:
+    """Return the actions of the audit events stored for the settings."""
     manager = ConfigManager.open(settings, FakeClock(T0))
     return [event.action for event in manager.store.audit_events(0.0, T0 + 86_400.0, 100)]

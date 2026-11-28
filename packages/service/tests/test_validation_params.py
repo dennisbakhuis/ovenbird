@@ -100,12 +100,6 @@ TRIGGERS: list[tuple[str, dict[str, Any]]] = [
     ("location_pair", {"weather_latitude": 52.1}),
     ("location_required", {"weather_location_source": "manual"}),
     ("max_supply_raise", {"control_max_supply_c": 45}),
-    ("house_bounds_order", {"house_ua_min_w_per_k": 300, "house_ua_max_w_per_k": 200}),
-    ("house_fit_days_short", {"house_learn_fit_days": 21}),
-    ("model_use_on_locked", {"control_model_use": "on"}),
-    ("date_format", {"house_learn_excluded_days": ["2026-13-01"]}),
-    ("date_repeated", {"house_learn_excluded_days": ["2026-01-01", "2026-01-01"]}),
-    ("date_future", {"house_learn_excluded_days": ["2999-01-01"]}),
     ("below_soft_min", {"control_comfort_c": 17}),
     ("above_soft_max", {"control_comfort_c": 25}),
     ("curve_shift_large", {"control_curve": [[-10, 39], [0, 37], [15, 28]]}),
@@ -121,6 +115,7 @@ NESTED_ONLY = frozenset({"unknown_field", "type"})
 
 
 def documented() -> dict[str, tuple[str, frozenset[str]]]:
+    """Return each documented validation code with its kind and parameter names."""
     text = DOC.read_text(encoding="utf-8")
     return {
         code: (kind, frozenset(NAME.findall(params))) for code, kind, params in ROW.findall(text)
@@ -128,6 +123,7 @@ def documented() -> dict[str, tuple[str, frozenset[str]]]:
 
 
 def test_every_code_has_a_row() -> None:
+    """Every validation error and warning code has a row in the API documentation."""
     rows = documented()
     assert set(VALIDATION_ERRORS) <= set(rows)
     assert set(VALIDATION_WARNINGS) <= set(rows)
@@ -138,6 +134,7 @@ def test_every_code_has_a_row() -> None:
 
 @pytest.fixture
 def manager(make_settings: Callable[..., Settings]) -> ConfigManager:
+    """Provide a config manager with one deployment-locked field and MQTT inputs."""
     settings = make_settings(mqtt_inputs=INPUTS)
     return ConfigManager.open(settings, FakeClock(), locked={"control_dwell_s": Source.ENV})
 
@@ -146,6 +143,7 @@ def manager(make_settings: Callable[..., Settings]) -> ConfigManager:
 def test_params_match_the_documentation(
     manager: ConfigManager, code: str, changes: dict[str, Any]
 ) -> None:
+    """Each trigger yields its code with exactly the parameters the documentation lists."""
     result = manager.validate(changes)
     found = [issue for issue in (*result.errors, *result.warnings) if issue.code == code]
     assert found, (code, result.errors, result.warnings)
@@ -160,6 +158,7 @@ def test_params_match_the_documentation(
 def test_an_mqtt_input_cannot_stand_in_for_the_pump_outside_sensor(
     manager: ConfigManager,
 ) -> None:
+    """An MQTT input cannot take the id of a pump signal."""
     result = manager.validate(
         {"mqtt_inputs": [{"topic": "garden/temp", "signal": "main/Outside_Temp"}]}
     )
@@ -177,16 +176,19 @@ def test_an_mqtt_input_cannot_stand_in_for_the_pump_outside_sensor(
     ],
 )
 def test_valid_mqtt_inputs(manager: ConfigManager, inputs: list[dict[str, Any]]) -> None:
+    """Valid MQTT inputs, including the maximum count, pass validation."""
     assert manager.validate({"mqtt_inputs": inputs}).valid
 
 
 def test_locked_params(manager: ConfigManager) -> None:
+    """A locked field is refused with the documented parameters."""
     (issue,) = manager.validate({"control_dwell_s": 900}).errors
     assert issue.code == "locked"
     assert set(issue.params) == documented()["locked"][1]
 
 
 def test_put_only_codes_carry_their_params(manager: ConfigManager) -> None:
+    """Codes raised only on apply carry the documented parameters."""
     clock = manager.clock
     assert isinstance(clock, FakeClock)
     with pytest.raises(ConfigRefusedError) as unacked:

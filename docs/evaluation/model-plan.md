@@ -1,5 +1,9 @@
 # Model plan: offline evaluation
 
+> Both planners evaluated here were removed in 0.6.0, with the house model. See
+> [house-model-attempt.md](../notes/house-model-attempt.md). The code is at the tag
+> `v0.5.0`.
+
 Status: no planner passes the gate. Do not switch the model plan on from this evidence.
 
 The model plan lets a learned house model and a weather forecast nudge the controller.

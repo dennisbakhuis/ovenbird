@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from ovenbird import __version__
 from ovenbird.api.app import create_app
 from ovenbird.api.auth import (
     FailedAuthLimiter,
@@ -44,36 +45,48 @@ SIGNAL_KEYS = {
 
 
 class OkHistory:
+    """History stub that accepts samples and reports itself healthy."""
+
     def offer(self, sample: Sample) -> None:
-        return None
+        """Discard the sample."""
+        return
 
     def healthy(self) -> bool:
+        """Report a healthy history database."""
         return True
 
     def starting(self) -> bool:
+        """Report that the history database is not starting."""
         return False
 
 
 class StartingHistory(OkHistory):
+    """History stub that reports it is still starting up and not yet healthy."""
+
     def healthy(self) -> bool:
+        """Report an unhealthy history database."""
         return False
 
     def starting(self) -> bool:
+        """Report that the history database is still starting."""
         return True
 
 
 @pytest.fixture
 def clock() -> FakeClock:
+    """Provide a controllable fake clock."""
     return FakeClock()
 
 
 @pytest.fixture
 def runtime(clock: FakeClock) -> Runtime:
+    """Provide a runtime with a fake clock and a healthy history stub."""
     return Runtime(clock=clock, history=OkHistory())
 
 
 @pytest.fixture
 def settings(make_settings: Callable[..., Settings], tmp_path: Path) -> Settings:
+    """Provide settings with a small UI directory and a secret file outside it."""
     ui = tmp_path / "ui"
     (ui / "assets").mkdir(parents=True)
     (ui / "index.html").write_text("<!doctype html><title>ovenbird</title>", encoding="utf-8")
@@ -84,15 +97,18 @@ def settings(make_settings: Callable[..., Settings], tmp_path: Path) -> Settings
 
 @pytest.fixture
 def client(runtime: Runtime, settings: Settings) -> Iterator[TestClient]:
+    """Provide a test client with the app lifespan started."""
     with TestClient(create_app(runtime, settings)) as test_client:
         yield test_client
 
 
 def reading(clock: FakeClock, signal: str, value: Any, unit: str | None = None) -> Reading:
+    """Build a HeishaMon reading for the signal, stamped with the current fake time."""
     return Reading(signal, value, unit, clock(), SourceKind.HEISHAMON)
 
 
 def feed_pump(runtime: Runtime, clock: FakeClock) -> None:
+    """Feed the runtime the readings and link state of a running pump."""
     runtime.apply(reading(clock, "main/Outside_Temp", 3, "°C"))
     runtime.apply(reading(clock, "main/Operating_Mode_State", 0))
     runtime.apply(reading(clock, "main/Compressor_Freq", 42, "Hz"))
@@ -101,10 +117,11 @@ def feed_pump(runtime: Runtime, clock: FakeClock) -> None:
 
 
 def test_health_shape(client: TestClient, runtime: Runtime, clock: FakeClock) -> None:
+    """Health reports the documented keys and follows history and MQTT status changes."""
     body = client.get("/api/v1/health").json()
     assert set(body) == HEALTH_KEYS
     assert body["api_version"] == 1
-    assert body["version"] == "0.5.0"
+    assert body["version"] == __version__
     assert body["live"] is True
     assert body["ready"] is False
     assert body["checks"] == {
@@ -128,6 +145,7 @@ def test_health_shape(client: TestClient, runtime: Runtime, clock: FakeClock) ->
 
 
 def test_snapshot_shape(client: TestClient, runtime: Runtime, clock: FakeClock) -> None:
+    """The snapshot endpoint returns the documented keys, signal fields and derived values."""
     feed_pump(runtime, clock)
     clock.advance(12.04)
     body = client.get("/api/v1/snapshot").json()
@@ -167,6 +185,7 @@ def test_snapshot_shape(client: TestClient, runtime: Runtime, clock: FakeClock) 
 
 
 def write_history(path: Path, base: float) -> None:
+    """Write ten outside-temperature samples, 30 s apart, to a history database."""
     db = HistoryDatabase(open_history(path))
     samples = [
         Sample("main/Outside_Temp", "°C", SampleKind.NUMBER, base + i * 30, float(i % 4), 330.0)
@@ -177,6 +196,7 @@ def write_history(path: Path, base: float) -> None:
 
 
 def test_history_endpoint(client: TestClient, settings: Settings) -> None:
+    """History resamples to the step, pads unknown signals and serves raw points at step 0."""
     base = 1_800_000_000.0
     write_history(settings.history_path, base)
     body = client.get(
@@ -216,6 +236,7 @@ def test_history_endpoint(client: TestClient, settings: Settings) -> None:
 
 
 def test_history_default_window(client: TestClient) -> None:
+    """The history endpoint defaults to a one-day window at 60 s resolution."""
     body = client.get("/api/v1/history", params={"signals": "main/Outside_Temp"}).json()
     assert body["step"] == 60
     assert len(body["series"]["main/Outside_Temp"]["points"]) in (1440, 1441)
@@ -232,10 +253,12 @@ def test_history_default_window(client: TestClient) -> None:
     ],
 )
 def test_history_rejects_bad_requests(client: TestClient, params: dict[str, Any]) -> None:
+    """The history endpoint answers 400 for malformed or out-of-range requests."""
     assert client.get("/api/v1/history", params=params).status_code == 400
 
 
 def test_static_ui_and_spa_fallback(client: TestClient) -> None:
+    """The UI is served uncached, unknown routes fall back to the index and traversal is refused."""
     index = client.get("/")
     assert index.status_code == 200
     assert "ovenbird" in index.text
@@ -256,6 +279,7 @@ def test_static_ui_and_spa_fallback(client: TestClient) -> None:
 def test_without_ui_dir_is_404(
     runtime: Runtime, make_settings: Callable[..., Settings], tmp_path: Path
 ) -> None:
+    """Without a UI directory the root is 404 while the API keeps working."""
     settings = make_settings(ui_dir=tmp_path / "absent")
     with TestClient(create_app(runtime, settings)) as test_client:
         assert test_client.get("/").status_code == 404
@@ -263,6 +287,7 @@ def test_without_ui_dir_is_404(
 
 
 def basic(user: str, password: str) -> dict[str, str]:
+    """Build a Basic authorization header for the credentials."""
     token = base64.b64encode(f"{user}:{password}".encode()).decode()
     return {"Authorization": f"Basic {token}"}
 
@@ -270,6 +295,7 @@ def basic(user: str, password: str) -> dict[str, str]:
 def test_basic_auth_on_everything_but_health(
     runtime: Runtime, make_settings: Callable[..., Settings], settings: Settings
 ) -> None:
+    """With a password set, everything but health, websocket included, needs Basic credentials."""
     secured = make_settings(http_host="0.0.0.0", admin_password="pw-123", ui_dir=settings.ui_dir)
     with TestClient(create_app(runtime, secured)) as test_client:
         assert test_client.get("/api/v1/health").status_code == 200
@@ -297,6 +323,7 @@ REQUEST_HEADERS = {"Content-Type": "application/json", "X-Ovenbird-Request": "1"
 
 
 def get_ticket(client: TestClient, headers: dict[str, str]) -> str:
+    """Request a live-connection ticket and return it after checking it is not cacheable."""
     response = client.post("/api/v1/live/ticket", headers={**REQUEST_HEADERS, **headers})
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
@@ -306,6 +333,7 @@ def get_ticket(client: TestClient, headers: dict[str, str]) -> str:
 def test_live_connection_opens_with_a_single_use_pass(
     runtime: Runtime, make_settings: Callable[..., Settings], settings: Settings
 ) -> None:
+    """A live ticket opens one websocket connection and is refused when reused or made up."""
     secured = make_settings(http_host="0.0.0.0", admin_password="pw-123", ui_dir=settings.ui_dir)
     with TestClient(create_app(runtime, secured)) as test_client:
         assert test_client.post("/api/v1/live/ticket", headers=REQUEST_HEADERS).status_code == 401
@@ -336,6 +364,7 @@ def test_live_connection_opens_with_a_single_use_pass(
 def test_live_pass_does_not_skip_the_origin_check(
     runtime: Runtime, make_settings: Callable[..., Settings], settings: Settings
 ) -> None:
+    """A valid live ticket does not bypass the websocket origin check."""
     secured = make_settings(http_host="0.0.0.0", admin_password="pw-123", ui_dir=settings.ui_dir)
     with TestClient(create_app(runtime, secured)) as test_client:
         ticket = get_ticket(test_client, basic("admin", "pw-123"))
@@ -349,6 +378,7 @@ def test_live_pass_does_not_skip_the_origin_check(
 
 
 def test_live_passes_expire_are_single_use_and_bounded() -> None:
+    """Live tickets expire, work once and the oldest is dropped beyond capacity."""
     clock = FakeClock(1000.0)
     passes = LiveTickets(ttl=30.0, capacity=2, clock=lambda: clock.t)
     first = passes.issue(Role.ADMIN)
@@ -368,6 +398,7 @@ def test_live_passes_expire_are_single_use_and_bounded() -> None:
 def test_tab_icons_need_no_login(
     runtime: Runtime, make_settings: Callable[..., Settings], settings: Settings
 ) -> None:
+    """Tab icons are served without login but other files stay protected."""
     (settings.ui_dir / "favicon.svg").write_text("<svg/>")
     secured = make_settings(http_host="0.0.0.0", admin_password="pw-123", ui_dir=settings.ui_dir)
     with TestClient(create_app(runtime, secured)) as test_client:
@@ -395,6 +426,7 @@ def test_background_loads_do_not_prompt_for_the_login(
     destination: str | None,
     prompts: bool,
 ) -> None:
+    """A 401 prompts for login only for documents, scripts and fetches, not images or fonts."""
     secured = make_settings(http_host="0.0.0.0", admin_password="pw-123", ui_dir=settings.ui_dir)
     headers = {"Sec-Fetch-Dest": destination} if destination else {}
     with TestClient(create_app(runtime, secured)) as test_client:
@@ -406,6 +438,7 @@ def test_background_loads_do_not_prompt_for_the_login(
 def test_ingress_trusts_only_the_supervisor_address(
     runtime: Runtime, make_settings: Callable[..., Settings], settings: Settings
 ) -> None:
+    """In ingress mode only the supervisor address is trusted without credentials."""
     ingress = make_settings(ingress=True, admin_password="pw-123", ui_dir=settings.ui_dir)
     for address, expected in (("172.30.32.2", 200), ("192.168.1.20", 401)):
         with TestClient(create_app(runtime, ingress), client=(address, 50000)) as test_client:
@@ -421,6 +454,7 @@ def test_ingress_trusts_only_the_supervisor_address(
 def test_ingress_without_password_rejects_other_sources(
     runtime: Runtime, make_settings: Callable[..., Settings], settings: Settings
 ) -> None:
+    """Ingress without a password rejects other sources, even with an empty password."""
     ingress = make_settings(ingress=True, ui_dir=settings.ui_dir)
     with TestClient(create_app(runtime, ingress), client=("192.168.1.20", 50000)) as test_client:
         assert test_client.get("/api/v1/snapshot").status_code == 401
@@ -436,12 +470,14 @@ def test_ingress_without_password_rejects_other_sources(
     [None, b"Bearer x", b"Basic !!!", b"Basic " + base64.b64encode(b"no-colon")],
 )
 def test_credentials_match_rejects_malformed(header: bytes | None) -> None:
+    """Missing or malformed Authorization headers never match the credentials."""
     assert credentials_match(header, "admin", "pw") is False
 
 
 def test_websocket_initial_messages_and_coalescing(
     runtime: Runtime, settings: Settings, clock: FakeClock
 ) -> None:
+    """A websocket client gets snapshot and health first, then only the latest updates."""
     broadcaster = Broadcaster(runtime, snapshot_interval=0.3, health_interval=0.05)
     app = create_app(runtime, settings, broadcaster=broadcaster)
     with TestClient(app) as test_client, test_client.websocket_connect("/api/v1/ws") as ws:
@@ -469,6 +505,7 @@ def test_websocket_initial_messages_and_coalescing(
 
 
 def next_of_type(ws: Any, kind: str) -> dict[str, Any]:
+    """Return the next websocket message of the given type, failing after five seconds."""
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
         message: dict[str, Any] = ws.receive_json()
@@ -478,6 +515,7 @@ def next_of_type(ws: Any, kind: str) -> dict[str, Any]:
 
 
 async def test_channel_coalesces_per_type_and_flags_slow_clients() -> None:
+    """A channel keeps the latest message per type and flags clients that overflow as slow."""
     channel = Channel(max_overwrites=3)
     assert channel.offer("snapshot", "s1")
     assert channel.offer("health", "h1")
@@ -492,26 +530,34 @@ async def test_channel_coalesces_per_type_and_flags_slow_clients() -> None:
 
 
 class StuckWebSocket:
+    """Websocket stand-in whose sends never complete."""
+
     def __init__(self) -> None:
+        """Create a socket with no close code and no sent messages."""
         self.closed_with: int | None = None
         self.sent: list[str] = []
 
     async def accept(self) -> None:
-        return None
+        """Accept the connection."""
+        return
 
     async def send_text(self, text: str) -> None:
+        """Record the text and then block forever."""
         self.sent.append(text)
         await asyncio.Event().wait()
 
     async def receive(self) -> dict[str, Any]:
+        """Block forever."""
         await asyncio.Event().wait()
         return {}
 
     async def close(self, code: int = 1000, reason: str | None = None) -> None:
+        """Record the close code."""
         self.closed_with = code
 
 
 async def test_slow_client_is_disconnected(runtime: Runtime) -> None:
+    """A client whose send blocks is disconnected with code 1013 and counted as slow."""
     broadcaster = Broadcaster(runtime, send_timeout=0.05)
     socket = StuckWebSocket()
     await asyncio.wait_for(broadcaster.serve(cast(WebSocket, socket)), 2)
@@ -522,6 +568,7 @@ async def test_slow_client_is_disconnected(runtime: Runtime) -> None:
 
 
 async def test_too_many_clients_are_refused(runtime: Runtime) -> None:
+    """Clients beyond the maximum are closed with 1013 before receiving anything."""
     broadcaster = Broadcaster(runtime, max_clients=0)
     socket = StuckWebSocket()
     await asyncio.wait_for(broadcaster.serve(cast(WebSocket, socket)), 2)
@@ -530,11 +577,15 @@ async def test_too_many_clients_are_refused(runtime: Runtime) -> None:
 
 
 class VanishingWebSocket(StuckWebSocket):
+    """Websocket stand-in whose sends raise as if the client had disappeared."""
+
     async def send_text(self, text: str) -> None:
+        """Raise as if the client had gone away."""
         raise RuntimeError("client went away")
 
 
 async def test_client_failing_mid_send_is_dropped_quietly(runtime: Runtime) -> None:
+    """A client that fails while being sent to is dropped without counting as slow."""
     broadcaster = Broadcaster(runtime)
     socket = VanishingWebSocket()
     await asyncio.wait_for(broadcaster.serve(cast(WebSocket, socket)), 2)
@@ -545,6 +596,7 @@ async def test_client_failing_mid_send_is_dropped_quietly(runtime: Runtime) -> N
 def test_websocket_origin_check(
     runtime: Runtime, make_settings: Callable[..., Settings], settings: Settings
 ) -> None:
+    """Websockets need a same-host, allow-listed or absent origin; plain HTTP ignores Origin."""
     configured = make_settings(
         ui_dir=settings.ui_dir, http_allowed_origins="https://ha.example:8123"
     )
@@ -577,6 +629,7 @@ def test_websocket_origin_check(
 def test_websocket_origin_check_trusts_ingress(
     runtime: Runtime, make_settings: Callable[..., Settings], settings: Settings
 ) -> None:
+    """The ingress source may connect with a foreign origin."""
     ingress = make_settings(ingress=True, ui_dir=settings.ui_dir)
     trusted = TestClient(create_app(runtime, ingress), client=("172.30.32.2", 50000))
     headers = {"Origin": "https://homeassistant.local:8123"}
@@ -598,6 +651,7 @@ def test_websocket_origin_check_trusts_ingress(
     ],
 )
 def test_origin_allowed(origin: str, host: str | None, allowed: bool) -> None:
+    """An origin is allowed only if scheme-less host and port match the request host."""
     assert origin_allowed(origin, host, frozenset()) is allowed
 
 
@@ -613,12 +667,14 @@ def test_origin_allowed(origin: str, host: str | None, allowed: bool) -> None:
     ],
 )
 def test_origin_allowed_compares_scheme(origin: str, host: str, scheme: str, allowed: bool) -> None:
+    """The origin scheme must match the request scheme (http with ws, https with wss)."""
     assert origin_allowed(origin, host, frozenset(), scheme) is allowed
 
 
 def test_websocket_origin_check_refuses_https_origin_on_plain_request(
     runtime: Runtime, settings: Settings
 ) -> None:
+    """An https origin on a plain-http request is refused with code 1008."""
     with TestClient(create_app(runtime, settings)) as test_client:
         with (
             pytest.raises(WebSocketDisconnect) as excinfo,
@@ -633,6 +689,7 @@ def test_websocket_origin_check_refuses_https_origin_on_plain_request(
 def test_lockout_is_per_source_and_username(
     runtime: Runtime, make_settings: Callable[..., Settings], settings: Settings
 ) -> None:
+    """Failed logins lock out per source and username, so another username is unaffected."""
     secured = make_settings(http_host="0.0.0.0", admin_password="pw-123", ui_dir=settings.ui_dir)
     with TestClient(create_app(runtime, secured)) as test_client:
         for _ in range(12):
@@ -651,6 +708,7 @@ def test_lockout_is_per_source_and_username(
 
 
 def test_limiter_keys_are_independent() -> None:
+    """Failures of one key do not lock out other keys."""
     limiter = FailedAuthLimiter(free_attempts=0, max_sources=3)
     limiter.failure(("1.2.3.4", "root"))
     assert limiter.retry_after(("1.2.3.4", "root")) > 0
@@ -659,6 +717,7 @@ def test_limiter_keys_are_independent() -> None:
 
 
 def test_limiter_backs_off_exponentially_and_forgets() -> None:
+    """Lockout starts after free attempts, doubles to a cap and resets after quiet or success."""
     now = {"t": 0.0}
     limiter = FailedAuthLimiter(
         free_attempts=2,
@@ -688,6 +747,7 @@ def test_limiter_backs_off_exponentially_and_forgets() -> None:
 
 
 def test_limiter_bounds_tracked_sources() -> None:
+    """The limiter forgets the oldest sources beyond its maximum."""
     limiter = FailedAuthLimiter(free_attempts=0, max_sources=3)
     for index in range(10):
         limiter.failure(f"10.0.0.{index}")
@@ -698,6 +758,7 @@ def test_limiter_bounds_tracked_sources() -> None:
 def test_failed_logins_are_rate_limited(
     runtime: Runtime, make_settings: Callable[..., Settings], settings: Settings
 ) -> None:
+    """Repeated failed logins lock a source out, websockets included, but not other sources."""
     secured = make_settings(http_host="0.0.0.0", admin_password="pw-123", ui_dir=settings.ui_dir)
     app = create_app(runtime, secured)
     with TestClient(app, client=("10.1.1.1", 4000)) as test_client:

@@ -197,7 +197,13 @@ def load_request(path: Path, now: Instant) -> StoveRequest | None:
 
 
 def stove_event(decision: DecisionRecord) -> AlarmEvent | None:
-    """Return the journal event of a decision that entered or left wood-stove mode."""
+    """Return the journal event of a decision that entered or left wood-stove mode.
+
+    Parameters
+    ----------
+    decision
+        Decision whose controller state may carry a stove event.
+    """
     state = decision.controller_state
     event = state.get("stove_event")
     if event not in ("entered", "exited"):

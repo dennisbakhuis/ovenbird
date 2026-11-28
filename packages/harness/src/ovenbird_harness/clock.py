@@ -24,6 +24,7 @@ class ManualClock:
         self._instant = self._at(wall)
 
     def _at(self, wall: float) -> Instant:
+        """Return the instant for wall time ``wall`` (unix seconds) at the clock's offset."""
         return Instant(wall - self.monotonic_offset, datetime.fromtimestamp(wall, UTC))
 
     def __call__(self) -> Instant:

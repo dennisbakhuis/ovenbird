@@ -43,6 +43,7 @@ PUBLISH: dict[str, Any] = {
 
 
 def state(clock: FakeClock) -> OvenbirdState:
+    """Build a controller state with a running pump, ramp release and past timestamps."""
     now = clock.t
     return OvenbirdState(
         setpoint=31,
@@ -63,6 +64,7 @@ def state(clock: FakeClock) -> OvenbirdState:
 
 
 def test_state_round_trip_reanchors_times() -> None:
+    """A saved state decodes with its times re-anchored to the new monotonic clock."""
     saved_at = FakeClock(T0)
     text = encode_state(state(saved_at), saved_at())
     later = FakeClock(T0 + 120.0)
@@ -82,6 +84,7 @@ def test_state_round_trip_reanchors_times() -> None:
 
 
 def test_the_mark_of_a_lost_room_value_survives_a_restart() -> None:
+    """The lost-room-value mark and its integral survive encode and decode."""
     saved_at = FakeClock(T0)
     lost = replace(
         state(saved_at), integral_k=0.2, integral_at_life_k=0.9, room_lost_at=saved_at.t - 3600.0
@@ -99,6 +102,7 @@ def test_the_mark_of_a_lost_room_value_survives_a_restart() -> None:
     [(901.0, "old"), (-5.0, "future")],
 )
 def test_stale_or_future_state_is_ignored(offset: float, reason: str) -> None:
+    """A state that is older than the maximum age or from the future is not restored."""
     clock = FakeClock(T0)
     text = encode_state(state(clock), clock())
     restored, why = decode_state(text, FakeClock(T0 + offset)(), 900.0)
@@ -117,11 +121,13 @@ def test_stale_or_future_state_is_ignored(offset: float, reason: str) -> None:
     ],
 )
 def test_unreadable_state_is_ignored(text: str) -> None:
+    """Invalid JSON, a wrong schema or bad field values decode to no state."""
     restored, _ = decode_state(text, FakeClock(T0)(), 900.0)
     assert restored is None
 
 
 def write(path: Path, **rows: Any) -> None:
+    """Write the given commands, alarms and state rows to the journal at the path."""
     conn = open_history(path)
     try:
         write_journal(
@@ -136,15 +142,18 @@ def write(path: Path, **rows: Any) -> None:
 
 
 def sent(ts: float) -> CommandRow:
+    """Build a published water-setpoint command row at the timestamp."""
     return CommandRow(ts, "water_setpoint", 31, "sent", 1, "t", "31", "published")
 
 
 def hold(ts: float, event: str, *, until: float | None = None, latched: bool = False) -> AlarmRow:
+    """Build a command-hold alarm row for the event, optionally with an end time and latch."""
     detail = {"reason": "foreign writer", "until": until, "latched": latched, "incident": 1}
     return AlarmRow(ts, "command_hold", "warning", event, "hold", json.dumps(detail))
 
 
 def test_restore_adapter_from_the_journal(tmp_path: Path) -> None:
+    """The adapter restores today's sent commands, the hold incidents and a latched hold."""
     path = tmp_path / "history.db"
     midnight = datetime(2026, 1, 14, tzinfo=UTC).timestamp()
     write(
@@ -166,6 +175,7 @@ def test_restore_adapter_from_the_journal(tmp_path: Path) -> None:
 
 
 def test_a_release_resets_the_incidents(tmp_path: Path) -> None:
+    """A hold release forgets earlier incidents so only later ones count."""
     path = tmp_path / "history.db"
     write(
         path,
@@ -183,6 +193,7 @@ def test_a_release_resets_the_incidents(tmp_path: Path) -> None:
 
 
 def test_retention_keeps_an_unreleased_hold(tmp_path: Path) -> None:
+    """Retention deletes closed holds but keeps the unreleased hold history and incidents."""
     path = tmp_path / "history.db"
     day = 86_400.0
     write(
@@ -210,11 +221,13 @@ def test_retention_keeps_an_unreleased_hold(tmp_path: Path) -> None:
 
 
 def test_the_retention_hold_codes_match_the_alarm_board() -> None:
+    """The journal hold code and release event match the alarm board's."""
     assert HOLD_CODE == HOLD_JOURNAL_CODE
     assert AlarmEventKind.RELEASED.value == HOLD_RELEASED
 
 
 def test_no_journal_restores_nothing(tmp_path: Path) -> None:
+    """Without a journal file nothing is restored, neither adapter nor state."""
     restored = restore_adapter(tmp_path / "missing.db", FakeClock(T0)())
     assert restored.sent_today == 0
     assert restored.hold is None
@@ -222,6 +235,7 @@ def test_no_journal_restores_nothing(tmp_path: Path) -> None:
 
 
 def test_state_rows_are_replaced_per_key(tmp_path: Path) -> None:
+    """Writing a state row again replaces the earlier row of the same key."""
     path = tmp_path / "history.db"
     write(path, states=[StateRow(STATE_KEY, T0, "a"), StateRow(STATE_KEY, T0 + 1, "b")])
     write(path, states=[StateRow(STATE_KEY, T0 + 2, "c")])
@@ -231,12 +245,14 @@ def test_state_rows_are_replaced_per_key(tmp_path: Path) -> None:
 
 
 async def no_sleep(_: float) -> None:
-    return None
+    """Skip sleeping so control retries run instantly."""
+    return
 
 
 def test_build_control_restores_state_budget_and_latched_hold(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """Building the control restores the saved state, command budget and latched hold alarm."""
     settings = make_settings(**PUBLISH)
     settings.data_dir.mkdir(parents=True)
     clock = FakeClock(T0)
@@ -260,6 +276,7 @@ def test_build_control_restores_state_budget_and_latched_hold(
 
 
 def test_build_control_ignores_a_stale_state(make_settings: Callable[..., Settings]) -> None:
+    """A saved state older than the configured maximum age is ignored."""
     settings = make_settings(control_state_max_age_s=60.0)
     settings.data_dir.mkdir(parents=True)
     saved = FakeClock(T0 - 120.0)
@@ -273,26 +290,34 @@ def test_build_control_ignores_a_stale_state(make_settings: Callable[..., Settin
 
 
 class Journal:
+    """Journal stub that collects offered alarm and state rows."""
+
     def __init__(self) -> None:
+        """Start with no collected rows."""
         self.states: list[StateRow] = []
         self.alarms: list[AlarmRow] = []
 
     def offer_decision(self, row: Any) -> None:
-        return None
+        """Ignore the decision row."""
+        return
 
     def offer_command(self, row: Any) -> None:
-        return None
+        """Ignore the command row."""
+        return
 
     def offer_alarm(self, row: AlarmRow) -> None:
+        """Collect the alarm row."""
         self.alarms.append(row)
 
     def offer_state(self, row: StateRow) -> None:
+        """Collect the state row."""
         self.states.append(row)
 
 
 def test_every_tick_saves_the_state_and_a_restart_continues_from_it(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """Each tick saves one state row that decodes back to the live controller state."""
     settings = make_settings()
     clock = FakeClock(T0)
     runtime = Runtime(clock=clock)

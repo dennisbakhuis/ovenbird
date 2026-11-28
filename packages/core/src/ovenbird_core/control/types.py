@@ -37,15 +37,9 @@ class IntentKind(StrEnum):
 
 
 class LadderLevel(StrEnum):
-    """Degradation ladder, from the richest to the most defensive behaviour.
-
-    ``model_plan``: the room feedback with a bounded room-target offset from the
-    learned house model; richer than a rule plan (it predicts the house), poorer
-    than the optimiser (no prices, no heat-pump model).
-    """
+    """Degradation ladder, from the richest to the most defensive behaviour."""
 
     OPTIMISER_PLAN = "optimiser_plan"
-    MODEL_PLAN = "model_plan"
     RULE_PLAN = "rule_plan"
     SCHEDULE_CURVE_FEEDBACK = "schedule_curve_feedback"
     CURVE_ONLY = "curve_only"
@@ -79,7 +73,11 @@ class ReasonCode(StrEnum):
     PUMP_DUTY_HEAT = "pump_duty_heat"
     PUMP_DUTY_IDLE = "pump_duty_idle"
     QUIET_SCHEDULE = "quiet_schedule"
+    QUIET_START = "quiet_start"
     STOVE = "stove"
+    ROOM_TARGET = "room_target"
+    AWAY = "away"
+    SUMMER = "summer"
 
 
 class RoomProfile(StrEnum):
@@ -101,45 +99,19 @@ class OverrideKind(StrEnum):
     SETPOINT = "setpoint"
     BOOST = "boost"
     STOVE = "stove"
+    ROOM_TARGET = "room_target"
+    AWAY = "away"
 
 
 class PlanSource(StrEnum):
-    """Which planner produced a plan slice.
-
-    A ``model`` slice comes from the learned house model
-    (:mod:`ovenbird_core.control.planner`). The controller clamps it to the bounds of
-    :class:`~ovenbird_core.control.config.ModelPlanConfig`, applies it only as a
-    room-target offset of an active room feedback, and ignores it otherwise
-    (:class:`ModelPlanBlock`). A model *water* slice (``water_offset_k``) is a bounded
-    water feed-forward instead, applied under the same blocks and scaled by the room
-    authority.
-    """
+    """Which planner produced a plan slice."""
 
     OPTIMISER = "optimiser"
-    MODEL = "model"
     RULE = "rule"
 
 
-class ModelPlanBlock(StrEnum):
-    """Why the controller ignores an active model plan slice this tick.
-
-    ``room_untrusted``: no trusted room value (missing, stale or implausible), so
-    there is no room target to shift (a room-target slice never maps to water) and no
-    room to judge a water slice's authority by.
-    ``stove_active``: a wood-stove episode is active. ``stove_recovery``: the
-    wood-stove detection is still waiting after an episode or a sensor fault (the
-    room has not cooled below the exit threshold, or the room value has not been
-    trusted again for the re-entry hold). ``slice_too_long``: the slice is valid for
-    longer than ``MODEL_PLAN_MAX_SLICE_S``, so a stale plan could outlive its planner.
-    """
-
-    ROOM_UNTRUSTED = "room_untrusted"
-    STOVE_ACTIVE = "stove_active"
-    STOVE_RECOVERY = "stove_recovery"
-    SLICE_TOO_LONG = "slice_too_long"
-
-
 def _require_finite(name: str, value: float) -> None:
+    """Raise ``ValueError`` naming ``name`` unless ``value`` is finite."""
     if not math.isfinite(value):
         raise ValueError(f"{name} must be finite, got {value!r}")
 
@@ -199,12 +171,6 @@ class RoomInput:
 class PlanSlice:
     """Planner output for one interval, expressed as a room-temperature offset.
 
-    A model slice (``PlanSource.MODEL``) may instead carry a water offset: a
-    feed-forward on the water setpoint from the forecast sun, which the controller
-    bounds and scales by its room authority
-    (:meth:`~ovenbird_core.control.config.ModelPlanConfig.authority`). Such a
-    *water slice* leaves the room target alone, so it carries no room offset.
-
     Parameters
     ----------
     room_offset_k
@@ -215,9 +181,6 @@ class PlanSlice:
         Half-open interval ``[valid_from, valid_until)`` in which the slice applies.
     source
         Planner that produced it.
-    water_offset_k
-        Offset to the water setpoint in K (negative lowers); non-zero only on a
-        model slice without a room offset.
     """
 
     room_offset_k: float
@@ -225,24 +188,12 @@ class PlanSlice:
     valid_from: Instant
     valid_until: Instant
     source: PlanSource = PlanSource.RULE
-    water_offset_k: float = 0.0
 
     def __post_init__(self) -> None:
-        """Validate the offsets and the interval."""
+        """Validate the offset and the interval."""
         _require_finite("room_offset_k", self.room_offset_k)
-        _require_finite("water_offset_k", self.water_offset_k)
         if not self.valid_from < self.valid_until:
             raise ValueError("plan slice interval must be non-empty")
-        if self.water_offset_k != 0.0:
-            if self.source is not PlanSource.MODEL:
-                raise ValueError("only a model plan slice may carry a water offset")
-            if self.room_offset_k != 0.0:
-                raise ValueError("a model plan slice carries a room or a water offset, not both")
-
-    @property
-    def water(self) -> bool:
-        """Whether this is a water slice (a non-zero water offset)."""
-        return self.water_offset_k != 0.0
 
     def active(self, now: Instant) -> bool:
         """Whether the slice applies at ``now``."""
@@ -259,9 +210,11 @@ class Override:
         ``setpoint``: absolute water setpoint in °C; ``boost``: K added to the
         computed water setpoint; ``stove``: wood-stove mode on (``value`` 1) or a
         stop (``value`` 0, which also blocks the automatic detection until the room
-        has cooled below its exit threshold).
+        has cooled below its exit threshold); ``room_target`` (a manual boost or a
+        cooler room) and ``away``: K added to the comfort room target, passed in
+        :attr:`ControlInputs.room_override`.
     value
-        The setpoint, boost or stove flag.
+        The setpoint, boost, stove flag or room-target shift.
     until
         Expiry (exclusive); ``None`` never expires.
     actor
@@ -349,6 +302,9 @@ class ControlInputs:
         Manual setpoint or boost, if any.
     actual
         Pump settings as reported.
+    room_override
+        A temporary room target (``room_target`` or ``away``), if any; it lives next to
+        ``override`` so a wood-stove request and a room target can be active together.
     """
 
     now: Instant
@@ -358,6 +314,7 @@ class ControlInputs:
     mode: Mode
     override: Override | None
     actual: PumpActual
+    room_override: Override | None = None
 
 
 @dataclass(frozen=True, slots=True)

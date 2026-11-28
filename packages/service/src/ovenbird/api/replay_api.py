@@ -70,11 +70,23 @@ class ReplayDeps:
 
 
 def _retention(settings: Settings) -> float:
+    """Return the journal retention in days (0 when the journal is kept without limit)."""
     days = settings.history_journal_days()
     return 0.0 if days is None else float(days)
 
 
 def _window(deps: ReplayDeps, start: Any, end: Any, *, required: bool) -> tuple[float, float]:
+    """Return the validated ``(start, end)`` of a replay period as Unix seconds.
+
+    Parameters
+    ----------
+    deps
+        Replay dependencies (clock and settings).
+    start, end
+        ISO 8601 times from the request, or ``None`` for the default bound.
+    required
+        Whether both bounds must be given.
+    """
     limit = max_days(_retention(deps.current()))
     if required and (not isinstance(start, str) or not isinstance(end, str)):
         raise HTTPException(400, "from and to are required (ISO 8601)")
@@ -114,6 +126,17 @@ async def coverage(
 
 
 def _chosen(deps: ReplayDeps, body: dict[str, Any]) -> tuple[Settings, dict[str, Any]]:
+    """Return the settings to replay with and a description of the choice.
+
+    The choice is the active configuration, a stored version or a draft of changes.
+
+    Parameters
+    ----------
+    deps
+        Replay dependencies.
+    body
+        Request body (``config``, and ``version`` or ``changes``).
+    """
     kind = body.get("config", "active")
     if kind not in KINDS:
         raise HTTPException(400, "config must be active, version or draft")
@@ -147,6 +170,7 @@ def _chosen(deps: ReplayDeps, body: dict[str, Any]) -> tuple[Settings, dict[str,
 
 
 def _threshold(body: dict[str, Any]) -> float:
+    """Return the divergence threshold in K from the request body, defaulting when absent."""
     value = body.get("threshold_k", DEFAULT_THRESHOLD_K)
     if (
         isinstance(value, bool)
@@ -159,6 +183,7 @@ def _threshold(body: dict[str, Any]) -> float:
 
 
 def _step(body: dict[str, Any]) -> int | None:
+    """Return the series step in seconds from the request body, or ``None`` for the default."""
     value = body.get("step")
     if value is None:
         return None

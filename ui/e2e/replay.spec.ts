@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs';
+import { settled } from './settle';
 import { join } from 'node:path';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
@@ -162,7 +163,7 @@ test.describe('replay screenshots', () => {
           await page.getByTestId('replay-config-draft').click();
           await runReplay(page);
           await expect(page.getByTestId('replay-chart')).toBeVisible();
-          await page.waitForTimeout(800);
+          await settled(page);
           const width = await page.evaluate(() => document.documentElement.scrollWidth);
           expect(width).toBeLessThanOrEqual(viewport.width);
           await page.screenshot({

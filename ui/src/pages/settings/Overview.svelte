@@ -19,6 +19,7 @@
   import type { ConfigDoc, ConfigSchema } from '$lib/core/types';
   import MiniCurve from '$components/settings/MiniCurve.svelte';
   import QuietBar from '$components/settings/QuietBar.svelte';
+  import { FEATURES } from '$lib/settings/features';
   import { haHost } from '$lib/settings/ha';
   import { asMqttInputs } from '$lib/settings/mqtt';
 
@@ -62,6 +63,12 @@
     const port = config.fields['mqtt_port']?.value;
     return typeof host === 'string' && host ? (port ? `${host}:${String(port)}` : host) : null;
   });
+  const featuresOn = $derived(
+    FEATURES.filter((f) => {
+      const on = value(f.switch);
+      return f.threeWay ? on !== 'off' : on !== false;
+    }).length,
+  );
   const locked = $derived(Object.values(config.fields).filter((f) => f.locked).length);
   const changes = (id: SectionId) =>
     changesIn(schema, draft.changes, SECTIONS.find((s) => s.id === id)?.groups ?? []);
@@ -90,7 +97,12 @@
           <Icon name="chevronRight" size={18} class="go" />
         </span>
 
-        {#if s.id === 'curve' && !war}
+        {#if s.id === 'features'}
+          <span class="big" data-testid="overview-features"
+            >{t('overviewFeaturesOn', { n: featuresOn, total: FEATURES.length })}</span
+          >
+          <span class="line">{t('overviewFeaturesLine')}</span>
+        {:else if s.id === 'curve' && !war}
           <span class="big" data-testid="overview-fixed"
             >{num('control_fixed_water_c')}<span class="unit">&#8239;°C</span></span
           >

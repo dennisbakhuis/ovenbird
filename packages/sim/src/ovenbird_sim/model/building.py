@@ -176,7 +176,19 @@ def discretise(p: BuildingParams, dt: float) -> tuple[NDArray[np.float64], NDArr
 
 
 def stored_energy_j(p: BuildingParams, t_water: float, t_mass: float, t_air: float) -> float:
-    """Energy stored relative to 0 degC in J (for balance checks)."""
+    """Energy stored relative to 0 degC in J (for balance checks).
+
+    Parameters
+    ----------
+    p
+        Building parameters (heat capacities in J/K).
+    t_water
+        Water temperature (degC).
+    t_mass
+        Thermal mass temperature (degC).
+    t_air
+        Air temperature (degC).
+    """
     return p.c_water * t_water + p.c_mass * t_mass + p.c_air * t_air
 
 

@@ -98,6 +98,7 @@ class WindowKpis:
 
 
 def _normalised(counter: dict[str, int]) -> dict[str, float]:
+    """Return the counter as shares summing to one (empty if the counter is empty)."""
     total = sum(counter.values())
     return {k: v / total for k, v in sorted(counter.items())} if total else {}
 
@@ -124,6 +125,22 @@ def window_config(config: RunConfig, hours: float) -> RunConfig:
 
 
 async def _real(config: RunConfig, speed: float, data_dir: Path) -> WindowKpis:
+    """Run the real service over the window at ``speed`` and return its KPIs.
+
+    Parameters
+    ----------
+    config
+        Window configuration (start, end, profile, plant, weather).
+    speed
+        Clock speed multiplier of the real service.
+    data_dir
+        Scratch directory for the service's database.
+
+    Returns
+    -------
+    WindowKpis
+        KPIs accumulated from plant samples and the recorded decisions.
+    """
     hours = (config.end - config.start).total_seconds() / 3600.0
     settings = harness_settings(
         data_dir,
@@ -136,6 +153,7 @@ async def _real(config: RunConfig, speed: float, data_dir: Path) -> WindowKpis:
     end = config.end.timestamp()
 
     def sample(item: SimulatedHeishaMon) -> None:
+        """Account one plant cycle of the real run, ignoring cycles past the window end."""
         t = item.now.timestamp()
         if item.observation is not None and t <= end:
             kpis.plant(PlantSample(t, CYCLE_S, item.state.running, item.observation.room_temp))
@@ -160,6 +178,7 @@ def b1_window(config: RunConfig) -> WindowKpis:
 
 
 def _from_json(data: dict[str, Any]) -> WindowKpis:
+    """Rebuild window KPIs from their JSON form (as sent between processes)."""
     return WindowKpis(
         data["days"],
         data["starts_per_day"],
@@ -173,16 +192,19 @@ def _from_json(data: dict[str, Any]) -> WindowKpis:
 
 
 def _tv(a: dict[str, float], b: dict[str, float]) -> float:
+    """Return the total-variation distance between two distributions."""
     keys = set(a) | set(b)
     return 0.5 * sum(abs(a.get(k, 0.0) - b.get(k, 0.0)) for k in keys)
 
 
 def _mean_dist(a: dict[str, float], b: dict[str, float]) -> dict[str, float]:
+    """Return the pointwise mean of two distributions."""
     keys = set(a) | set(b)
     return {k: 0.5 * (a.get(k, 0.0) + b.get(k, 0.0)) for k in keys}
 
 
 def _max_diff(a: dict[str, float], b: dict[str, float]) -> float:
+    """Return the largest absolute per-key difference between two distributions."""
     keys = set(a) | set(b)
     return max((abs(a.get(k, 0.0) - b.get(k, 0.0)) for k in keys), default=0.0)
 
@@ -193,6 +215,21 @@ def judge(b1: WindowKpis, first: WindowKpis, second: WindowKpis) -> dict[str, An
     results: dict[str, Any] = {}
 
     def scalar(name: str, b: float, r1: float, r2: float, floor: float) -> None:
+        """Judge a scalar KPI: B1 passes within the tolerance of the repeats' mean.
+
+        Parameters
+        ----------
+        name
+            Result key of the KPI.
+        b
+            B1 value.
+        r1
+            Value of the first real repeat.
+        r2
+            Value of the second real repeat.
+        floor
+            Minimum tolerance, in the units of the KPI.
+        """
         spread = abs(r1 - r2)
         tolerance = max(SPREAD_FACTOR * spread, floor)
         distance = abs(b - 0.5 * (r1 + r2))
@@ -213,6 +250,23 @@ def judge(b1: WindowKpis, first: WindowKpis, second: WindowKpis) -> dict[str, An
         floor: float,
         tv: bool,
     ) -> None:
+        """Judge a distribution KPI against the mean of the two repeats.
+
+        Parameters
+        ----------
+        name
+            Result key of the KPI.
+        b
+            B1 distribution.
+        r1
+            Distribution of the first real repeat.
+        r2
+            Distribution of the second real repeat.
+        floor
+            Minimum tolerance, in the units of the chosen distance.
+        tv
+            Use the total-variation distance if true, the largest per-key difference if false.
+        """
         measure = _tv if tv else _max_diff
         spread = measure(r1, r2)
         tolerance = max(SPREAD_FACTOR * spread, floor)

@@ -14,7 +14,13 @@ from ovenbird_core.inputs import split_ha_signal
 
 
 def stove_issues(settings: Settings) -> list[Issue]:
-    """Return the violated rules of wood-stove mode: thresholds, timers and reference room."""
+    """Return the violated rules of wood-stove mode: thresholds, timers and reference room.
+
+    Parameters
+    ----------
+    settings
+        Settings holding the stove thresholds, timers and reference room.
+    """
     issues: list[Issue] = []
     enter = settings.control_stove_enter_above_k
     if settings.control_stove_exit_hysteresis_k > enter:

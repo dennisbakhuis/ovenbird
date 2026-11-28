@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { settled } from './settle';
 import { allowedHeight } from './budget';
 
 test.skip(Boolean(process.env['BASE_URL']), 'the trial flows run against the mock only');
@@ -39,7 +40,7 @@ for (const viewport of [
       await expect(page.getByTestId('trial-criteria').locator('tbody tr')).toHaveCount(6);
       await expect(page.getByTestId('runs-count')).toBeVisible();
       await expect(page.getByTestId('trial-snapshot')).toContainText(lang === 'en' ? '32' : '32');
-      await page.waitForTimeout(300);
+      await settled(page);
       const size = await page.evaluate(() => ({
         height: document.documentElement.scrollHeight,
         scroll: document.documentElement.scrollWidth,

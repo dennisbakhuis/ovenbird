@@ -1,10 +1,9 @@
 """Facts the owner states about the house, and the rough values they imply.
 
-The house model is learned from history; the owner can add what they know about the
-house (floor area, volume, build period, emitters, windows, occupants). The learner
-uses the rough values below as *weak* starting beliefs that the data can overrule,
-and the service shows them next to the learned values as "an estimate from your
-answers, not measured". Everything here is pure Python and deterministic.
+The owner can say what they know about the house (floor area, volume, build period,
+windows, occupants); the rough values below follow from those answers alone and are
+order-of-magnitude estimates, not measurements. Everything here is pure Python and
+deterministic.
 
 Heat-loss coefficient (UA, W/K, ventilation included)
     ``UA = A_floor x (transmission + ventilation)`` per m2 of heated floor area:
@@ -22,7 +21,7 @@ Heat-loss coefficient (UA, W/K, ventilation included)
     The resulting specific losses (W per m2 floor per K) are, oldest to newest,
     about 3.9, 3.3, 2.0, 1.35, 1.0 and 0.7: order-of-magnitude values. Homes of one
     period differ by up to a factor of two (form factor, renovation, airtightness,
-    how much of the house is heated), so the learner trusts them only loosely.
+    how much of the house is heated).
 
 Solar aperture (m2, applied to global horizontal irradiance)
     ``window area x orientation factor x 0.3``. The orientation factor is the
@@ -36,11 +35,6 @@ Internal gains (W, daily mean)
     ``120 W + 80 W x occupants``: a base of standby, refrigeration, lighting and pipe
     losses, and per occupant the sensible body heat over the hours at home together
     with the cooking, appliance and hot-water losses one person brings.
-
-The share of floor heating among the emitters is not a fact: the learned model cannot
-separate the two conductances it would split (the loop to the emitter and the loop to
-the room directly), so it holds the direct path (``house_floor_heating_share`` is gone;
-a stored value is ignored).
 """
 
 from __future__ import annotations
@@ -175,6 +169,24 @@ class FactEstimate:
 
 
 def _number(value: object, low: float, high: float, *, low_open: bool = False) -> float | None:
+    """Return ``value`` as a finite float within ``low`` to ``high``, else ``None``.
+
+    Parameters
+    ----------
+    value
+        Candidate read from a user-supplied facts file; booleans are rejected.
+    low
+        Lower bound of the accepted range.
+    high
+        Upper bound of the accepted range, inclusive.
+    low_open
+        When true the lower bound itself is rejected.
+
+    Returns
+    -------
+    float | None
+        The value as a float, or ``None`` when it is not a finite number in range.
+    """
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     number = float(value)
@@ -186,10 +198,12 @@ def _number(value: object, low: float, high: float, *, low_open: bool = False) -
 
 
 def _choice(value: object, options: tuple[str, ...]) -> str | None:
+    """Return ``value`` when it is one of ``options``, else ``None``."""
     return value if isinstance(value, str) and value in options else None
 
 
 def _count(value: object, low: int, high: int) -> int | None:
+    """Return ``value`` as an integer within ``low`` to ``high``, else ``None``."""
     number = _number(value, low, high)
     if number is None or number != int(number):
         return None

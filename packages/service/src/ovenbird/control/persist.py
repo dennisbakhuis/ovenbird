@@ -54,7 +54,12 @@ TIME_FIELDS: Final = frozenset(
         "stove_trusted_since",
         "stove_high_at",
         "stove_step_low_at",
+        "summer_mean_at",
+        "summer_mean_from",
     }
+)
+OPTIONAL_FIELDS: Final = frozenset(
+    {"summer_mean_c", "summer_mean_at", "summer_mean_from", "summer_active"}
 )
 ENUM_FIELDS: Final = {
     "ramp_phase": RampPhase,
@@ -76,11 +81,16 @@ def encode_state(state: OvenbirdState, now: Instant) -> str:
     Returns
     -------
     str
-        ``{"schema", "wall", "state"}`` with times as ages in seconds.
+        ``{"schema", "wall", "state"}`` with times as ages in seconds; the summer
+        switch's fields are left out while at their defaults (a missing field loads as
+        its default), so a configuration without the switch stores what it did before.
     """
     values: dict[str, Any] = {}
+    defaults = OvenbirdState()
     for item in fields(state):
         value = getattr(state, item.name)
+        if item.name in OPTIONAL_FIELDS and value == getattr(defaults, item.name):
+            continue
         if item.name in TIME_FIELDS and value is not None:
             value = now.monotonic - value
         elif isinstance(value, StrEnum):
@@ -91,6 +101,7 @@ def encode_state(state: OvenbirdState, now: Instant) -> str:
 
 
 def _number(value: Any) -> float:
+    """Return ``value`` as a float, refusing booleans and non-numbers."""
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise TypeError("not a number")
     return float(value)
@@ -143,6 +154,7 @@ def decode_state(text: str, now: Instant, max_age_s: float) -> tuple[OvenbirdSta
 
 
 def _check(default: Any, value: Any) -> Any:
+    """Return the stored ``value`` if its type fits ``default``, else raise ``TypeError``."""
     if isinstance(value, bool):
         return value
     if isinstance(default, float) or isinstance(value, float):
@@ -169,6 +181,7 @@ def load_state(path: Path, now: Instant, max_age_s: float) -> OvenbirdState | No
 
 
 def _hold(detail: dict[str, Any]) -> HoldRecord:
+    """Return the command hold record rebuilt from its stored detail."""
     until = detail.get("until")
     return HoldRecord(
         reason=str(detail.get("reason", "restored hold")),

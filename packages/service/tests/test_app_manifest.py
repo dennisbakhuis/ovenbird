@@ -31,11 +31,13 @@ REQUIRED_KEYS = {
 
 @pytest.fixture(scope="module")
 def manifest() -> dict[str, Any]:
+    """Load the add-on manifest from the app directory."""
     loaded: dict[str, Any] = yaml.safe_load((APP_DIR / "config.yaml").read_text(encoding="utf-8"))
     return loaded
 
 
 def test_required_keys(manifest: dict[str, Any]) -> None:
+    """The manifest has the required keys, the ovenbird slug, image and both architectures."""
     assert manifest.keys() >= REQUIRED_KEYS
     assert manifest["slug"] == "ovenbird"
     assert manifest["image"] == "ghcr.io/dennisbakhuis/ovenbird"
@@ -43,6 +45,7 @@ def test_required_keys(manifest: dict[str, Any]) -> None:
 
 
 def test_backups_contain_only_the_consistent_snapshot(manifest: dict[str, Any]) -> None:
+    """Hot backups exclude live database files and temporaries but keep the consistent snapshot."""
     assert manifest["backup"] == "hot"
     excluded = manifest["backup_exclude"]
     data = PurePosixPath("/data")
@@ -63,6 +66,7 @@ def test_backups_contain_only_the_consistent_snapshot(manifest: dict[str, Any]) 
 
 
 def test_dockerfile_pins_multi_arch_bases_and_uses_the_launcher() -> None:
+    """Dockerfile base images are digest-pinned and the entrypoint is the launcher."""
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     for line in dockerfile.splitlines():
         if line.startswith("FROM ") or "COPY --from=ghcr.io" in line:
@@ -72,6 +76,7 @@ def test_dockerfile_pins_multi_arch_bases_and_uses_the_launcher() -> None:
 
 
 def test_version_and_ports_match_the_service(manifest: dict[str, Any]) -> None:
+    """The manifest version, ingress port and watchdog URL match the service."""
     assert manifest["version"] == __version__
     assert manifest["ingress"] is True
     assert manifest["ingress_port"] == DEFAULT_HTTP_PORT
@@ -80,6 +85,7 @@ def test_version_and_ports_match_the_service(manifest: dict[str, Any]) -> None:
 
 
 def test_least_privilege(manifest: dict[str, Any]) -> None:
+    """The add-on has no host network, mapped folders, supervisor API or published ports."""
     assert manifest["host_network"] is False
     assert not manifest.get("map")
     assert "hassio_api" not in manifest
@@ -87,6 +93,7 @@ def test_least_privilege(manifest: dict[str, Any]) -> None:
 
 
 def test_options_match_schema_and_settings(manifest: dict[str, Any]) -> None:
+    """Option defaults are declared in the schema and the schema names real settings."""
     assert set(manifest["options"]) <= set(manifest["schema"])
     assert set(manifest["schema"]) <= set(Settings.model_fields)
     for name in ("mqtt_password", "admin_password"):
@@ -96,6 +103,7 @@ def test_options_match_schema_and_settings(manifest: dict[str, Any]) -> None:
 def test_default_options_load_as_settings(
     manifest: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """The default options load as valid settings in ingress mode."""
     path = tmp_path / "options.json"
     path.write_text(json.dumps(manifest["options"]), encoding="utf-8")
     monkeypatch.setenv("OVENBIRD_OPTIONS_FILE", str(path))
@@ -106,6 +114,7 @@ def test_default_options_load_as_settings(
 
 
 def test_translations_cover_every_option(manifest: dict[str, Any]) -> None:
+    """Every schema option has a translation in each language."""
     for language in ("en", "nl"):
         text = (APP_DIR / "translations" / f"{language}.yaml").read_text(encoding="utf-8")
         translated = yaml.safe_load(text)["configuration"]
@@ -113,6 +122,7 @@ def test_translations_cover_every_option(manifest: dict[str, Any]) -> None:
 
 
 def test_repository_manifest() -> None:
+    """The repository manifest names ovenbird, its maintainer and a GitHub URL."""
     repository = yaml.safe_load((ROOT / "repository.yaml").read_text(encoding="utf-8"))
     assert repository["name"] == "ovenbird"
     assert repository["maintainer"] == "Dennis Bakhuis"
@@ -120,5 +130,6 @@ def test_repository_manifest() -> None:
 
 
 def test_docs_files_exist() -> None:
+    """The add-on documentation and changelog exist."""
     for name in ("DOCS.md", "CHANGELOG.md"):
         assert (APP_DIR / name).is_file()

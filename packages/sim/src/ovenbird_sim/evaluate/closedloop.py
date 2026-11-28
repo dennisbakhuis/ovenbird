@@ -44,8 +44,8 @@ from typing import Any, Final, Protocol
 import numpy as np
 
 from ovenbird_core.catalogue import HeishaSignal
+from ovenbird_core.control.forecast import ForecastHour
 from ovenbird_core.control.observe import pump_actual, room_input
-from ovenbird_core.control.planner import ForecastHour
 from ovenbird_core.control.protocol import Controller, StepResult
 from ovenbird_core.control.record import DecisionRecord
 from ovenbird_core.control.types import (
@@ -86,10 +86,7 @@ LOOP_SENSOR_STEP_K: Final = 0.25
 HEARTBEAT_AGE_S: Final = 2.0
 ROOM_RESOLUTION_K: Final = 0.2
 PLAN_EVERY_S: Final = 900.0
-MODEL_PLAN_APPLIED_KEY: Final = "model_plan_applied_k"
-FEEDBACK_LEVELS: Final = frozenset(
-    {"schedule_curve_feedback", "model_plan", "rule_plan", "optimiser_plan"}
-)
+FEEDBACK_LEVELS: Final = frozenset({"schedule_curve_feedback", "rule_plan", "optimiser_plan"})
 
 
 STATIC_SIGNALS: Final[Mapping[SignalId, Value]] = MappingProxyType(
@@ -268,9 +265,9 @@ class Trace:
     hz
         Compressor frequency of heating operation at the end of each step (0 when
         stopped or defrosting).
-    plan_offset_k
-        Room-target offset of a model plan the controller applied at each tick (0 when
-        none applied).
+    plan_room_offset_k
+        Room-target offset of the plan slice handed to the controller at each tick (0
+        when none was active).
     """
 
     t: FloatArray
@@ -292,7 +289,7 @@ class Trace:
     room_fresh: FloatArray = field(default_factory=lambda: np.zeros(0))
     room_feedback: FloatArray = field(default_factory=lambda: np.zeros(0))
     hz: FloatArray = field(default_factory=lambda: np.zeros(0))
-    plan_offset_k: FloatArray = field(default_factory=lambda: np.zeros(0))
+    plan_room_offset_k: FloatArray = field(default_factory=lambda: np.zeros(0))
 
 
 def quantise(value: float, step_k: float) -> float:
@@ -444,6 +441,23 @@ def _view(
     source: SourceKind,
     max_age_s: float | None = None,
 ) -> SignalView:
+    """Return a ``SignalView`` of ``value``, fresh while younger than its maximum age.
+
+    Parameters
+    ----------
+    signal
+        Signal the value belongs to.
+    value
+        The value.
+    observed
+        When the value was observed.
+    now
+        Current time; the age is ``now - observed``.
+    source
+        Where the value comes from; sets the default maximum age.
+    max_age_s
+        Maximum age (s) before the value is stale; ``None`` uses the source's default.
+    """
     default = HA_MAX_AGE_S if source is SourceKind.HA else HEISHAMON_MAX_AGE_S
     max_age = default if max_age_s is None else max_age_s
     age = now.monotonic - observed.monotonic
@@ -499,6 +513,19 @@ class HaRoomSensor:
         self.liveness_signal = profile.liveness[0] if profile.liveness else None
 
     def _apply(self, signal: SignalId, value: float, now: Instant, at: float) -> None:
+        """Store ``value`` for ``signal`` as a Home Assistant reading stamped at ``at`` (Unix s).
+
+        Parameters
+        ----------
+        signal
+            Signal to update.
+        value
+            New value.
+        now
+            Receive time.
+        at
+            Source timestamp (Unix s).
+        """
         stamp = datetime.fromtimestamp(at, UTC)
         self.store.apply(Reading(signal, value, None, now, SourceKind.HA, source_timestamp=stamp))
 
@@ -684,7 +711,7 @@ def simulate[S](
     ladder: list[str] = []
     fresh = np.zeros(n)
     feedback = np.zeros(n)
-    plan_offset = np.zeros(n)
+    plan_room = np.zeros(n)
     plan: PlanSlice | None = None
     for k in range(n):
         t = float(times[k])
@@ -729,9 +756,8 @@ def simulate[S](
         reasons.append(result.decision.reason.value)
         ladder.append(result.decision.ladder.value)
         feedback[k] = float(result.decision.ladder.value in FEEDBACK_LEVELS)
-        applied_offset = result.decision.controller_state.get(MODEL_PLAN_APPLIED_KEY)
-        if isinstance(applied_offset, int | float):
-            plan_offset[k] = float(applied_offset)
+        if plan is not None and plan.active(snapshot.now):
+            plan_room[k] = plan.room_offset_k
         intent = result.intent(IntentKind.WATER_SETPOINT)
         if intent is not None and intent.value != applied:
             applied = intent.value
@@ -781,5 +807,5 @@ def simulate[S](
         room_fresh=fresh,
         room_feedback=feedback,
         hz=cols["hz"],
-        plan_offset_k=plan_offset,
+        plan_room_offset_k=plan_room,
     )

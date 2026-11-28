@@ -1,5 +1,8 @@
+from importlib.metadata import version
+
 from ovenbird_sim import __version__
 
 
 def test_import() -> None:
-    assert __version__ == "0.5.0"
+    """The package exposes the installed distribution version."""
+    assert __version__ == version("ovenbird-sim")

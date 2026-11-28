@@ -31,6 +31,7 @@ PUMP = {
 
 
 def test_stove_option() -> None:
+    """The stove option is off by default and carries the reference sensor and floor."""
     assert stove_option(False, "sensor.hall_temperature") is None
     stove = stove_option(True, "sensor.hall_temperature", 19.5)
     assert stove is not None
@@ -43,6 +44,7 @@ def test_stove_option() -> None:
 
 
 def test_with_stove_only_changes_ovenbird() -> None:
+    """Adding the stove changes an ovenbird controller's configuration and leaves others alone."""
     controller = OvenbirdController(OvenbirdConfig.preset("mixed", comfort_room_c=21.0))
     stoved = with_stove(controller, StoveConfig())
     assert isinstance(stoved, OvenbirdController)
@@ -51,6 +53,7 @@ def test_with_stove_only_changes_ovenbird() -> None:
 
 
 def test_reference_age() -> None:
+    """The stove reference age is the room age by default, or its own override."""
     options = OpenLoopOptions(room_max_age_s=900.0, stove=StoveConfig(reference=HALL))
     assert stove_reference(options) == (HALL, 900.0)
     longer = OpenLoopOptions(stove=StoveConfig(reference=HALL), stove_reference_max_age_s=7200.0)
@@ -59,6 +62,7 @@ def test_reference_age() -> None:
 
 
 def test_episodes_are_summarised() -> None:
+    """One stove episode in a recorded stream is summarised in the result and its text report."""
     stream: list[CaptureRecord | Reading] = []
     for k in range(0, 4 * 3600, 20):
         t = 1_800_000_000.0 + k
@@ -82,6 +86,7 @@ def test_episodes_are_summarised() -> None:
     ticks: list[Tick] = []
 
     def sink(tick: Tick) -> None:
+        """Store the tick and add it to the summary."""
         ticks.append(tick)
         summary.add(tick)
 

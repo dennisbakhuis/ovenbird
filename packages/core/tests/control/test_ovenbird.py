@@ -1,3 +1,5 @@
+"""Behaviour tests for the ovenbird controller on synthetic plant inputs."""
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -10,8 +12,6 @@ from ovenbird_core.control import (
     IntentKind,
     LadderLevel,
     Mode,
-    ModelPlanBlock,
-    ModelPlanConfig,
     OvenbirdConfig,
     OvenbirdController,
     OvenbirdState,
@@ -39,6 +39,7 @@ RUNNING = PlantView(compressor_hz=35, outlet=33.0)
 
 
 def at(seconds: float) -> Instant:
+    """Return the instant ``seconds`` after the test epoch."""
     return Instant.from_unix(T0 + seconds)
 
 
@@ -49,6 +50,26 @@ def tick(
     controller: OvenbirdController = CTRL,
     **kwargs: object,
 ) -> StepResult[OvenbirdState]:
+    """Step the controller once at ``t`` seconds on synthetic inputs for the plant.
+
+    Parameters
+    ----------
+    state
+        Controller state before the step.
+    t
+        Seconds after the test epoch.
+    plant
+        Simulated plant readings.
+    controller
+        Controller to step.
+    **kwargs
+        Extra arguments for the synthetic inputs, such as mode, override or plan.
+
+    Returns
+    -------
+    StepResult
+        The decision, intents and next state.
+    """
     return controller.step(state, synthetic_inputs(at(t), plant, **kwargs))  # type: ignore[arg-type]
 
 
@@ -58,6 +79,24 @@ def run(
     state: OvenbirdState | None = None,
     **kwargs: object,
 ) -> list[StepResult[OvenbirdState]]:
+    """Step the controller through a sequence of timed plant views.
+
+    Parameters
+    ----------
+    plants
+        Pairs of seconds after the test epoch and plant readings.
+    controller
+        Controller to step.
+    state
+        Starting state; the controller's initial state when omitted.
+    **kwargs
+        Extra arguments for the synthetic inputs, applied at every step.
+
+    Returns
+    -------
+    list[StepResult]
+        One result per step.
+    """
     current = state or controller.initial_state()
     results = []
     for t, plant in plants:
@@ -70,11 +109,15 @@ def run(
 def every_minute(
     plant: PlantView, minutes: int, start: float = 0.0
 ) -> list[tuple[float, PlantView]]:
+    """Return ``minutes`` identical plant views spaced 60 s apart from ``start``."""
     return [(start + 60.0 * i, plant) for i in range(minutes)]
 
 
 class TestCurveAndFeedback:
+    """Curve base plus the room PI feedback term."""
+
     def test_curve_only_without_room_sensor(self) -> None:
+        """Without a room sensor the setpoint is the curve value with zero feedback."""
         result = tick(CTRL.initial_state(), 0, room_signal=None)
         decision = result.decision
         assert decision.setpoint == 31
@@ -85,6 +128,7 @@ class TestCurveAndFeedback:
         assert result.intent(IntentKind.WATER_SETPOINT).value == 31  # type: ignore[union-attr]
 
     def test_proportional_term(self) -> None:
+        """A room below target adds the proportional term and is explained in the note."""
         decision = tick(CTRL.initial_state(), 0, replace(IDLE, room=20.0)).decision
         assert decision.ladder is LadderLevel.SCHEDULE_CURVE_FEEDBACK
         assert decision.term("room_feedback").value == pytest.approx(KP)  # type: ignore[union-attr]
@@ -94,6 +138,7 @@ class TestCurveAndFeedback:
         assert "below target" in decision.note
 
     def test_feedback_output_is_clamped(self) -> None:
+        """The feedback output is limited and the limit is reported as the binding."""
         decision = tick(CTRL.initial_state(), 0, replace(IDLE, room=17.0)).decision
         term = decision.term("room_feedback")
         assert term is not None
@@ -102,26 +147,31 @@ class TestCurveAndFeedback:
         assert decision.binding == "room_feedback_limit"
 
     def test_integrator_accumulates_with_exact_gain(self) -> None:
+        """The integrator accumulates error times the integral gain over time."""
         results = run(every_minute(replace(IDLE, room=20.5), 61))
         expected = MIXED.feedback.ki_per_s * 0.5 * 60.0 * 60
         assert results[-1].state.integral_k == pytest.approx(expected)
 
     def test_integration_step_is_capped_after_a_gap(self) -> None:
+        """After a long gap the integration step is capped at the configured maximum."""
         results = run([(0, replace(IDLE, room=20.0)), (7200, replace(IDLE, room=20.0))])
         cap = MIXED.feedback.max_integration_step_s
         assert results[-1].state.integral_k == pytest.approx(MIXED.feedback.ki_per_s * cap)
 
     def test_integrator_is_clamped(self) -> None:
+        """The integrator never exceeds its limit."""
         state = replace(CTRL.initial_state(), integral_k=2.999)
         results = run(every_minute(replace(IDLE, room=20.8), 200), state=state)
         assert max(r.state.integral_k for r in results) <= MIXED.feedback.integral_limit_k
 
     def test_anti_windup_when_feedback_saturated(self) -> None:
+        """The integrator stays frozen while the feedback output is saturated."""
         results = run(every_minute(replace(IDLE, room=18.0), 30))
         assert all(r.state.integral_k == 0.0 for r in results)
         assert "anti_windup" in str(results[-1].decision.controller_state["frozen_by"])
 
     def test_anti_windup_when_safety_maximum_binds(self) -> None:
+        """The integrator stays frozen while the safety maximum binds."""
         cold = replace(IDLE, outside=-20.0, room=20.0)
         results = run(every_minute(cold, 30))
         assert all(r.decision.setpoint == 40 for r in results)
@@ -130,6 +180,7 @@ class TestCurveAndFeedback:
         assert results[-1].decision.reason is ReasonCode.SAFETY_CLAMP
 
     def test_integrator_unwinds_when_error_reverses_under_saturation(self) -> None:
+        """Under saturation the integrator may still unwind when the error reverses."""
         state = replace(CTRL.initial_state(), integral_k=2.0)
         cold = replace(IDLE, outside=-20.0, room=22.0)
         results = run(every_minute(cold, 10), state=state)
@@ -137,6 +188,8 @@ class TestCurveAndFeedback:
 
 
 class TestFreezes:
+    """Integrator freezes and refusal modes."""
+
     @pytest.mark.parametrize(
         ("plant", "frozen"),
         [
@@ -146,12 +199,14 @@ class TestFreezes:
         ],
     )
     def test_integrator_frozen(self, plant: PlantView, frozen: str) -> None:
+        """The integrator holds its value during defrost, DHW or a stale room sensor."""
         state = replace(CTRL.initial_state(), integral_k=0.7)
         results = run(every_minute(plant, 10), state=state)
         assert all(r.state.integral_k == 0.7 for r in results)
         assert frozen in str(results[-1].decision.controller_state["frozen_by"])
 
     def test_integrator_frozen_during_setpoint_override(self) -> None:
+        """The integrator holds its value while a setpoint override is active."""
         state = replace(CTRL.initial_state(), integral_k=0.7)
         override = Override(OverrideKind.SETPOINT, 28)
         results = run(every_minute(replace(IDLE, room=20.0), 10), state=state, override=override)
@@ -175,6 +230,7 @@ class TestFreezes:
     def test_refusal_freezes_and_sends_nothing(
         self, plant: PlantView, mode: Mode, reason: ReasonCode
     ) -> None:
+        """A refusal sends no intents, decides no setpoint and leaves the integrator alone."""
         state = replace(CTRL.initial_state(), integral_k=0.7, setpoint=31)
         results = run(every_minute(plant, 5), state=state, mode=mode)
         for result in results:
@@ -186,7 +242,10 @@ class TestFreezes:
 
 
 class TestHoldAndModes:
+    """Hold ladder level, manual mode, overrides and shadow mode."""
+
     def test_hold_repeats_last_intents_when_outside_is_stale(self) -> None:
+        """A stale outside temperature makes the controller hold and repeat its last intents."""
         stale = replace(IDLE, stale=frozenset({HeishaSignal.OUTSIDE_TEMP}))
         first, held = run([(0, IDLE), (60, stale)])
         assert held.decision.ladder is LadderLevel.HOLD
@@ -196,11 +255,13 @@ class TestHoldAndModes:
         assert "Outside_Temp" in held.decision.note
 
     def test_hold_without_history_sends_nothing(self) -> None:
+        """Holding with no earlier setpoint sends no intents."""
         result = tick(CTRL.initial_state(), 0, replace(IDLE, outlet=None))
         assert result.decision.ladder is LadderLevel.HOLD
         assert result.intents == ()
 
     def test_manual_setpoint_applies_at_once_and_bypasses_dwell(self) -> None:
+        """A manual setpoint override applies immediately and records the actor."""
         override = Override(OverrideKind.SETPOINT, 28, actor="alex")
         first = tick(CTRL.initial_state(), 0)
         result = tick(first.state, 60, mode=Mode.MANUAL, override=override)
@@ -210,12 +271,14 @@ class TestHoldAndModes:
         assert result.decision.actor == "alex"
 
     def test_manual_setpoint_is_still_safety_clamped(self) -> None:
+        """A manual setpoint below the envelope minimum is raised to it."""
         override = Override(OverrideKind.SETPOINT, 15)
         result = tick(CTRL.initial_state(), 0, mode=Mode.MANUAL, override=override)
         assert result.decision.setpoint == 25
         assert result.decision.binding == "envelope_min"
 
     def test_manual_without_override_holds(self) -> None:
+        """Manual mode without an override holds the previous setpoint."""
         first = tick(CTRL.initial_state(), 0)
         result = tick(first.state, 60, mode=Mode.MANUAL)
         assert result.decision.ladder is LadderLevel.HOLD
@@ -223,6 +286,7 @@ class TestHoldAndModes:
         assert result.decision.setpoint == 31
 
     def test_a_held_setpoint_is_clamped_to_the_bounds_at_the_current_outside(self) -> None:
+        """A held setpoint is clamped to the current safety bounds and the change is noted."""
         state = replace(CTRL.initial_state(), setpoint=40)
         warm = replace(IDLE, outside=20.0)
         result = tick(state, 60, warm, mode=Mode.MANUAL)
@@ -240,6 +304,7 @@ class TestHoldAndModes:
         assert result.decision.controller_state["safety_high_c"] == bounds.high
 
     def test_a_held_setpoint_inside_the_bounds_is_repeated_unchanged(self) -> None:
+        """A held setpoint inside the safety bounds is repeated unchanged."""
         state = replace(CTRL.initial_state(), setpoint=31, last_change_at=at(0).monotonic)
         result = tick(state, 60, mode=Mode.MANUAL)
         assert result.decision.setpoint == 31
@@ -247,11 +312,13 @@ class TestHoldAndModes:
         assert result.state.last_change_at == at(0).monotonic
 
     def test_expired_override_is_ignored(self) -> None:
+        """An override past its end time has no effect."""
         override = Override(OverrideKind.SETPOINT, 28, until=at(30))
         result = tick(CTRL.initial_state(), 60, override=override)
         assert result.decision.setpoint == 31
 
     def test_boost_adds_to_the_setpoint(self) -> None:
+        """A boost override adds its offset to the setpoint."""
         override = Override(OverrideKind.BOOST, 2.0)
         result = tick(CTRL.initial_state(), 0, override=override)
         assert result.decision.setpoint == 33
@@ -259,6 +326,7 @@ class TestHoldAndModes:
         assert result.decision.reason is ReasonCode.OVERRIDE
 
     def test_shadow_decides_like_auto(self) -> None:
+        """Shadow mode produces the same intents and state as auto mode."""
         plant = replace(IDLE, room=20.3)
         auto = tick(CTRL.initial_state(), 0, plant)
         shadow = tick(CTRL.initial_state(), 0, plant, mode=Mode.SHADOW)
@@ -267,11 +335,15 @@ class TestHoldAndModes:
 
 
 class TestPlan:
+    """Plan slices shifting the room target or the water setpoint."""
+
     def plan(self, offset: float, source: PlanSource = PlanSource.RULE) -> PlanSlice:
+        """Build a one-hour plan slice from the test epoch with the given room offset."""
         reason = ReasonCode.PLAN_PREHEAT if offset > 0 else ReasonCode.PLAN_SETBACK
         return PlanSlice(offset, reason, at(0), at(3600), source)
 
     def test_plan_shifts_the_room_target_with_a_room_sensor(self) -> None:
+        """With a room sensor a plan offset shifts the room target and acts through feedback."""
         decision = tick(CTRL.initial_state(), 0, plan=self.plan(1.0)).decision
         assert decision.ladder is LadderLevel.RULE_PLAN
         assert decision.reason is ReasonCode.PLAN_PREHEAT
@@ -280,6 +352,7 @@ class TestPlan:
         assert decision.controller_state["room_target_c"] == pytest.approx(22.0)
 
     def test_plan_maps_through_the_curve_slope_without_room_sensor(self) -> None:
+        """Without a room sensor a plan offset maps to water through the curve slope."""
         plan = self.plan(-1.0, PlanSource.OPTIMISER)
         decision = tick(CTRL.initial_state(), 0, plan=plan, room_signal=None).decision
         assert decision.ladder is LadderLevel.OPTIMISER_PLAN
@@ -287,180 +360,64 @@ class TestPlan:
         assert decision.term("plan").value == pytest.approx(-1.6)  # type: ignore[union-attr]
         assert decision.pre_round == pytest.approx(29.4)
 
-    def test_plan_water_term_is_clamped(self) -> None:
-        decision = tick(CTRL.initial_state(), 0, plan=self.plan(5.0), room_signal=None).decision
+    def test_plan_mapped_to_water_is_clamped(self) -> None:
+        """A plan offset mapped to water is limited to the maximum plan shift."""
+        plan = self.plan(5.0, PlanSource.OPTIMISER)
+        decision = tick(CTRL.initial_state(), 0, plan=plan, room_signal=None).decision
         term = decision.term("plan")
         assert term is not None
         assert term.raw == pytest.approx(8.0)
         assert term.value == pytest.approx(MIXED.plan_max_water_k)
 
     def test_inactive_plan_is_ignored(self) -> None:
+        """A plan slice outside its interval has no effect."""
         decision = tick(CTRL.initial_state(), 4000, plan=self.plan(1.0)).decision
         assert decision.ladder is LadderLevel.SCHEDULE_CURVE_FEEDBACK
         assert decision.setpoint == 31
 
 
-def model_plan(
-    offset: float, start: float = 0.0, length: float = 1200.0, reason: ReasonCode | None = None
-) -> PlanSlice:
-    if reason is None:
-        reason = ReasonCode.PLAN_PREHEAT if offset > 0 else ReasonCode.PLAN_SETBACK
-    return PlanSlice(offset, reason, at(start), at(start + length), PlanSource.MODEL)
-
-
 STOVE_CTRL = OvenbirdController(OvenbirdConfig.preset("mixed", stove=StoveConfig()))
-RECOVERY = {
-    "stove_blocked": replace(STOVE_CTRL.initial_state(), stove_blocked=True),
-    "stove_level_blocked": replace(STOVE_CTRL.initial_state(), stove_level_blocked=True),
-    "stove_fault": replace(STOVE_CTRL.initial_state(), stove_fault=True),
-    "stove_reentry_wait": replace(STOVE_CTRL.initial_state(), stove_reentry_wait=True),
-}
 
 
-class TestModelPlan:
-    def test_shifts_the_room_target_and_reports_the_model_ladder(self) -> None:
-        decision = tick(CTRL.initial_state(), 0, plan=model_plan(-0.4)).decision
-        assert decision.ladder is LadderLevel.MODEL_PLAN
-        assert decision.reason is ReasonCode.PLAN_SETBACK
-        assert decision.controller_state["room_target_c"] == pytest.approx(20.6)
-        assert decision.term("room_feedback").value == pytest.approx(-0.4 * KP)  # type: ignore[union-attr]
-        plan = decision.term("plan")
-        assert plan is not None
-        assert (plan.raw, plan.value) == (0.0, 0.0)
-        assert plan.note == "model plan shifts room target by -0.4 K"
-        assert decision.controller_state["model_plan_requested_k"] == -0.4
-        assert decision.controller_state["model_plan_applied_k"] == -0.4
-        assert decision.controller_state["model_plan_ignored"] is None
-        assert "model plan -0.4 K on the room target" in decision.note
+def rule_plan(offset: float, length: float = 3600.0) -> PlanSlice:
+    """Build a rule-based plan slice from the test epoch with the given room offset."""
+    reason = ReasonCode.PLAN_PREHEAT if offset > 0 else ReasonCode.PLAN_SETBACK
+    return PlanSlice(offset, reason, at(0), at(length), PlanSource.RULE)
 
-    @pytest.mark.parametrize(
-        ("offset", "target"), [(-2.0, 20.5), (-0.5, 20.5), (0.3, 21.3), (2.0, 21.3)]
-    )
-    def test_is_clamped_to_the_model_bounds(self, offset: float, target: float) -> None:
-        decision = tick(CTRL.initial_state(), 0, plan=model_plan(offset)).decision
-        assert decision.controller_state["room_target_c"] == pytest.approx(target)
-        assert decision.controller_state["model_plan_requested_k"] == offset
-        assert decision.controller_state["model_plan_applied_k"] == pytest.approx(target - 21.0)
 
-    def test_clamped_note_says_so(self) -> None:
-        plan = tick(CTRL.initial_state(), 0, plan=model_plan(-2.0)).decision.term("plan")
-        assert plan is not None
-        assert plan.note.endswith("(asked -2.00 K, cut to the model bounds)")
+class TestRulePlan:
+    """Rule-based plans and their interaction with wood-stove mode."""
 
-    def test_configured_bounds_apply(self) -> None:
-        cfg = OvenbirdConfig.preset(
-            "mixed", model_plan=ModelPlanConfig(max_setback_k=0.2, max_preheat_k=0.1)
-        )
-        ctrl = OvenbirdController(cfg)
-        low = tick(ctrl.initial_state(), 0, controller=ctrl, plan=model_plan(-0.5)).decision
-        high = tick(ctrl.initial_state(), 0, controller=ctrl, plan=model_plan(0.3)).decision
-        assert low.controller_state["room_target_c"] == pytest.approx(20.8)
-        assert high.controller_state["room_target_c"] == pytest.approx(21.1)
-
-    @pytest.mark.parametrize(
-        "changes", [{"max_setback_k": 1.01}, {"max_preheat_k": 0.51}, {"max_setback_k": -0.1}]
-    )
-    def test_bounds_cannot_exceed_the_ceilings(self, changes: dict[str, float]) -> None:
-        with pytest.raises(ValueError, match="ModelPlanConfig"):
-            ModelPlanConfig(**changes)
-
-    def test_bounds_cut_to_zero_mean_no_plan(self) -> None:
-        cfg = OvenbirdConfig.preset("mixed", model_plan=ModelPlanConfig(max_preheat_k=0.0))
-        ctrl = OvenbirdController(cfg)
-        decision = tick(ctrl.initial_state(), 0, controller=ctrl, plan=model_plan(0.3)).decision
-        assert decision.ladder is LadderLevel.SCHEDULE_CURVE_FEEDBACK
-        assert decision.reason is ReasonCode.ROOM_FEEDBACK
-        assert decision.controller_state["room_target_c"] == pytest.approx(21.0)
-        assert decision.term("plan").note == "model plan +0.3 K cut to 0 by the model bounds"  # type: ignore[union-attr]
-
-    def test_reason_follows_the_sign_whatever_the_slice_says(self) -> None:
-        plan = model_plan(-0.3, reason=ReasonCode.PLAN_PREHEAT)
-        decision = tick(CTRL.initial_state(), 0, plan=plan).decision
-        assert decision.reason is ReasonCode.PLAN_SETBACK
-
-    def test_rule_plans_are_not_clamped(self) -> None:
-        rule = PlanSlice(2.0, ReasonCode.PLAN_PREHEAT, at(0), at(3600), PlanSource.RULE)
-        decision = tick(CTRL.initial_state(), 0, plan=rule).decision
+    def test_rule_plans_within_the_bound_are_not_clamped(self) -> None:
+        """A rule plan within the bound shifts the room target and is not clamped."""
+        decision = tick(CTRL.initial_state(), 0, plan=rule_plan(0.8)).decision
         assert decision.ladder is LadderLevel.RULE_PLAN
-        assert decision.controller_state["room_target_c"] == pytest.approx(23.0)
-        assert "model_plan_requested_k" not in decision.controller_state
+        assert decision.controller_state["room_target_c"] == pytest.approx(21.8)
+        assert decision.term("plan").note == "shifts room target by +0.8 K"  # type: ignore[union-attr]
+        assert not any(key.startswith("model_plan") for key in decision.controller_state)
 
-    def test_never_maps_to_water_without_a_room_sensor(self) -> None:
-        decision = tick(CTRL.initial_state(), 0, plan=model_plan(-0.5), room_signal=None).decision
-        assert decision.ladder is LadderLevel.CURVE_ONLY
-        assert decision.reason is ReasonCode.CURVE
-        assert decision.pre_round == pytest.approx(31.0)
-        plan = decision.term("plan")
+    def test_is_paused_during_a_stove_episode(self) -> None:
+        """A rule plan is paused while a wood-stove episode is active."""
+        hot = replace(IDLE, room=22.9)
+        result = tick(STOVE_CTRL.initial_state(), 0, hot, STOVE_CTRL, plan=rule_plan(0.3))
+        assert result.state.stove_active
+        plan = result.decision.term("plan")
         assert plan is not None
-        assert (plan.raw, plan.value) == (0.0, 0.0)
-        assert plan.note == (
-            "model plan -0.5 K ignored: no trusted room value (a model plan never maps to water)"
-        )
-        assert decision.controller_state["model_plan_ignored"] == "room_untrusted"
-        assert decision.controller_state["model_plan_applied_k"] == 0.0
-        assert "model plan -0.5 K ignored" in decision.note
-
-    @pytest.mark.parametrize("stale", [True, False])
-    def test_has_no_effect_from_the_tick_the_room_value_is_lost(self, stale: bool) -> None:
-        plan = model_plan(-0.5)
-        fresh = replace(IDLE, room=21.0)
-        lost = (
-            replace(fresh, stale=frozenset({ROOM_SIGNAL})) if stale else replace(fresh, room=None)
-        )
-        planned = run([(0, fresh), (60, lost)], plan=plan)
-        plain = run([(0, fresh), (60, lost)])
-        decision = planned[-1].decision
-        assert planned[0].decision.ladder is LadderLevel.MODEL_PLAN
-        assert decision.ladder is plain[-1].decision.ladder
-        assert decision.binding == "dwell"
-        assert decision.term("plan").value == 0.0  # type: ignore[union-attr]
-        expected = ModelPlanBlock.ROOM_UNTRUSTED.value
-        assert decision.controller_state["model_plan_ignored"] == expected
-        assert planned[0].state.integral_k == plain[0].state.integral_k
-        assert decision.pre_round == pytest.approx(plain[-1].decision.pre_round)
-
-    def test_is_ignored_during_a_stove_episode(self) -> None:
-        hot = replace(IDLE, room=22.6)
-        decision = tick(STOVE_CTRL.initial_state(), 0, hot, STOVE_CTRL, plan=model_plan(0.3))
-        assert decision.state.stove_active
-        assert decision.decision.controller_state["model_plan_ignored"] == "stove_active"
-        assert decision.decision.ladder is LadderLevel.SCHEDULE_CURVE_FEEDBACK
-        assert decision.decision.reason is not ReasonCode.PLAN_PREHEAT
-
-    @pytest.mark.parametrize("flag", sorted(RECOVERY))
-    def test_is_ignored_while_the_stove_detection_recovers(self, flag: str) -> None:
-        state = RECOVERY[flag]
-        warm = replace(IDLE, room=22.2)
-        result = tick(state, 0, warm, STOVE_CTRL, plan=model_plan(-0.5))
-        assert not result.state.stove_active
-        assert result.decision.controller_state["model_plan_ignored"] == "stove_recovery"
-        assert result.decision.controller_state["room_target_c"] == pytest.approx(21.0)
-        assert result.decision.ladder is LadderLevel.SCHEDULE_CURVE_FEEDBACK
-
-    def test_applies_again_once_the_room_has_cooled(self) -> None:
-        state = replace(STOVE_CTRL.initial_state(), stove_blocked=True)
-        result = tick(state, 0, replace(IDLE, room=21.2), STOVE_CTRL, plan=model_plan(-0.5))
-        assert not result.state.stove_blocked
-        assert result.decision.ladder is LadderLevel.MODEL_PLAN
-        assert result.decision.controller_state["room_target_c"] == pytest.approx(20.5)
-
-    def test_a_slice_valid_for_too_long_is_ignored(self) -> None:
-        decision = tick(CTRL.initial_state(), 0, plan=model_plan(-0.5, length=7200.0)).decision
-        assert decision.controller_state["model_plan_ignored"] == "slice_too_long"
-        assert decision.ladder is LadderLevel.SCHEDULE_CURVE_FEEDBACK
-
-    def test_an_expired_slice_is_no_plan(self) -> None:
-        decision = tick(CTRL.initial_state(), 1300, plan=model_plan(-0.5)).decision
-        assert decision.ladder is LadderLevel.SCHEDULE_CURVE_FEEDBACK
-        assert "model_plan_requested_k" not in decision.controller_state
+        assert plan.value == 0.0
+        assert plan.note == "paused by wood-stove mode"
 
     def test_no_plan_records_have_no_model_fields(self) -> None:
+        """Without a plan the record notes it and has no model plan fields."""
         decision = tick(CTRL.initial_state(), 0).decision
+        assert decision.term("plan").note == "no plan"  # type: ignore[union-attr]
         assert not any(key.startswith("model_plan") for key in decision.controller_state)
 
 
 class TestStages:
+    """Dwell, deadband, rounding and defrost hold of the setpoint stage."""
+
     def test_dwell_holds_a_change(self) -> None:
+        """A setpoint change is held until the minimum dwell time has passed."""
         cold = replace(IDLE, room=20.0)
         results = run([(0, IDLE), (60, cold), (MIXED.stages.dwell_s, cold)])
         assert results[0].decision.setpoint == 31
@@ -470,6 +427,7 @@ class TestStages:
         assert results[2].decision.setpoint == 33
 
     def test_deadband_and_rounding_hysteresis(self) -> None:
+        """Small changes are held by rounding hysteresis or the deadband; larger ones apply."""
         first = tick(CTRL.initial_state(), 0)
         later = 10_000.0
         rounding = tick(first.state, later, replace(IDLE, room=21.0 - 0.6 / KP))
@@ -483,6 +441,7 @@ class TestStages:
         assert moved.decision.setpoint == 32
 
     def test_reference_starts_from_the_reported_target(self) -> None:
+        """Without a previous setpoint the stage starts from the pump's reported water target."""
         plant = replace(IDLE, water_target=32, room=21.0 - 0.6 / KP)
         result = tick(CTRL.initial_state(), 0, plant)
         assert result.decision.pre_round == pytest.approx(31.6)
@@ -490,6 +449,7 @@ class TestStages:
         assert result.state.last_change_at is None
 
     def test_no_decrease_during_defrost(self) -> None:
+        """During defrost the setpoint is not lowered, and may fall again afterwards."""
         warm = replace(RUNNING, room=22.0)
         first = tick(CTRL.initial_state(), 0, replace(RUNNING, room=20.0))
         assert first.decision.setpoint == 33
@@ -503,11 +463,13 @@ class TestStages:
         assert after.decision.setpoint == 29
 
     def test_flip_distance_in_room_kelvin(self) -> None:
+        """The flip distance is expressed in room kelvin when a room sensor is used."""
         decision = tick(CTRL.initial_state(), 0).decision
         assert decision.flip_input == ROOM_SIGNAL
         assert decision.flip_distance == pytest.approx(MIXED.stages.deadband_k / KP)
 
     def test_flip_distance_in_outside_kelvin_on_the_curve(self) -> None:
+        """Without a room sensor the flip distance is in outside kelvin."""
         decision = tick(CTRL.initial_state(), 0, room_signal=None).decision
         assert decision.flip_input == HeishaSignal.OUTSIDE_TEMP
         assert decision.flip_distance == pytest.approx(1.0 / 0.6)
@@ -516,6 +478,22 @@ class TestStages:
 def start_sequence(
     outlets: list[float], controller: OvenbirdController = CTRL, defrost: int = 0
 ) -> list[StepResult[OvenbirdState]]:
+    """Run an idle step followed by running steps with the given outlet temperatures.
+
+    Parameters
+    ----------
+    outlets
+        Outlet water temperatures in °C, one per minute after the idle start.
+    controller
+        Controller to step.
+    defrost
+        Defrost state reported while running.
+
+    Returns
+    -------
+    list[StepResult]
+        One result per step, including the idle one.
+    """
     plants = [(0.0, replace(IDLE, outlet=25.0, room=None))]
     for i, outlet in enumerate(outlets, start=1):
         running = replace(IDLE, compressor_hz=30, outlet=outlet, room=None, defrost=defrost)
@@ -524,7 +502,10 @@ def start_sequence(
 
 
 class TestStartRamp:
+    """Start ramp limiting the setpoint after a compressor start."""
+
     def test_start_caps_just_under_outlet_but_not_below_curve_minus_k(self) -> None:
+        """A start caps the setpoint just under the outlet, but not far below the curve."""
         results = start_sequence([25.0])
         start = results[-1]
         assert start.state.ramp_phase is RampPhase.HOLD
@@ -534,11 +515,13 @@ class TestStartRamp:
         assert start.decision.reason is ReasonCode.START_RAMP
 
     def test_cap_tracks_the_outlet(self) -> None:
+        """The ramp cap follows the rising outlet temperature."""
         results = start_sequence([25.0, 26.0, 27.0, 28.0, 29.0])
         assert results[-1].state.ramp_cap == pytest.approx(28.0)
         assert results[-1].decision.setpoint == 28
 
     def test_releases_after_hold_at_the_configured_rate(self) -> None:
+        """After the hold time the cap is released at the configured rate."""
         minutes = int(MIXED.ramp.hold_s / 60) + 31
         results = start_sequence([25.0] * minutes)
         hold_end = int(MIXED.ramp.hold_s / 60)
@@ -549,11 +532,13 @@ class TestStartRamp:
         assert released == pytest.approx(26.0 + MIXED.ramp.release_k_per_h * 30 / 60, abs=0.1)
 
     def test_ends_when_the_outlet_reaches_the_target(self) -> None:
+        """The ramp ends once the outlet reaches the target."""
         results = start_sequence([25.0, 33.0])
         assert results[-1].state.ramp_phase is RampPhase.IDLE
         assert results[-1].decision.term("start_ramp").value == 0.0  # type: ignore[union-attr]
 
     def test_defrost_pauses_the_clock_and_never_ramps_down(self) -> None:
+        """Defrost pauses the ramp clock and never lowers the setpoint."""
         results = start_sequence([27.0, 28.0])
         state = results[-1].state
         cap = state.ramp_cap
@@ -572,15 +557,18 @@ class TestStartRamp:
             assert result.decision.setpoint >= results[-1].decision.setpoint  # type: ignore[operator]
 
     def test_no_ramp_for_radiators(self) -> None:
+        """The radiators preset has no start ramp."""
         radiators = OvenbirdController(OvenbirdConfig.preset("radiators"))
         results = start_sequence([25.0], radiators)
         assert results[-1].state.ramp_phase is RampPhase.IDLE
 
     def test_no_ramp_when_the_start_is_a_defrost(self) -> None:
+        """A start that is a defrost does not begin a ramp."""
         results = start_sequence([25.0], defrost=1)
         assert results[-1].state.ramp_phase is RampPhase.IDLE
 
     def test_no_ramp_or_window_when_the_start_was_not_seen(self) -> None:
+        """Without an observed start there is no ramp and no cycling window."""
         result = tick(CTRL.initial_state(), 0, replace(RUNNING, outlet=36.0, room=None))
         assert result.state.ramp_phase is RampPhase.IDLE
         assert result.state.run_started_at is None
@@ -588,7 +576,10 @@ class TestStartRamp:
 
 
 class TestCyclingProtection:
+    """Cycling floor keeping the setpoint off the pump's stop rule."""
+
     def test_floor_keeps_setpoint_off_the_stop_rule(self) -> None:
+        """The floor keeps the setpoint within the stop delta of the outlet temperature."""
         results = start_sequence([25.0, 34.0, 35.0])
         decision = results[-1].decision
         assert decision.setpoint is not None
@@ -597,11 +588,13 @@ class TestCyclingProtection:
         assert decision.reason is ReasonCode.CYCLING_PROTECT
 
     def test_floor_raise_is_bounded(self) -> None:
+        """The floor raise is bounded and cannot follow a very high outlet."""
         results = start_sequence([25.0, 40.0])
         decision = results[-1].decision
         assert decision.setpoint == 34
 
     def test_decrease_keeps_headroom(self) -> None:
+        """A decrease is limited by the floor and narrated as such."""
         results = start_sequence([25.0, 35.5])
         assert results[-1].decision.setpoint == 34
         later = tick(
@@ -616,6 +609,7 @@ class TestCyclingProtection:
         assert "raises to" not in later.decision.note
 
     def test_floor_raise_is_narrated_as_a_raise(self) -> None:
+        """A floor that raises the setpoint is narrated as a raise."""
         results = start_sequence([25.0, 34.0, 35.0])
         decision = results[-1].decision
         assert decision.binding == "cycling_floor"
@@ -627,6 +621,7 @@ class TestCyclingProtection:
         assert "limits the decrease" not in decision.note
 
     def test_no_floor_after_the_min_run_window(self) -> None:
+        """The floor no longer applies after the minimum run window."""
         results = start_sequence([25.0])
         later = tick(
             results[-1].state,
@@ -638,7 +633,10 @@ class TestCyclingProtection:
 
 
 class TestSafety:
+    """Safety clamp on boosts, hard limits and moving envelopes."""
+
     def test_boost_cannot_exceed_the_envelope(self) -> None:
+        """A large boost is clamped to the envelope maximum."""
         result = tick(CTRL.initial_state(), 0, override=Override(OverrideKind.BOOST, 20.0))
         assert result.decision.setpoint == 36
         assert result.decision.binding == "envelope_max"
@@ -648,11 +646,13 @@ class TestSafety:
         assert safety.value == pytest.approx(36.0)
 
     def test_hard_maximum_in_the_cold(self) -> None:
+        """In severe cold the hard maximum supply limits even a large boost."""
         plant = replace(IDLE, outside=-25.0)
         result = tick(CTRL.initial_state(), 0, plant, override=Override(OverrideKind.BOOST, 20.0))
         assert result.decision.setpoint == 40
 
     def test_held_setpoint_is_clamped_when_the_envelope_moves(self) -> None:
+        """A held setpoint is lowered when warmer weather lowers the envelope."""
         first = tick(CTRL.initial_state(), 0, replace(IDLE, outside=-10.0))
         assert first.decision.setpoint == 39
         warm = tick(first.state, 60, replace(IDLE, outside=20.0))
@@ -665,11 +665,15 @@ class TestSafety:
 
 
 class TestOptionalIntents:
+    """Optional intents: pump duty and quiet mode."""
+
     def test_off_by_default(self) -> None:
+        """Only the water setpoint intent is sent by default."""
         result = tick(CTRL.initial_state(), 0, RUNNING)
         assert [i.kind for i in result.intents] == [IntentKind.WATER_SETPOINT]
 
     def test_pump_duty(self) -> None:
+        """The pump duty follows heating and idle state with the configured delay."""
         controller = OvenbirdController(replace(MIXED, pump_duty=PumpDutyConfig()))
         idle = replace(IDLE, max_pump_duty=102)
         results = run(
@@ -689,6 +693,7 @@ class TestOptionalIntents:
         assert results[-1].intent(IntentKind.MAX_PUMP_DUTY).reason is ReasonCode.PUMP_DUTY_IDLE  # type: ignore[union-attr]
 
     def test_no_pump_duty_intent_during_defrost(self) -> None:
+        """No pump duty is commanded during defrost, and it resumes afterwards."""
         controller = OvenbirdController(replace(MIXED, pump_duty=PumpDutyConfig()))
         defrost = replace(RUNNING, defrost=1, max_pump_duty=159)
         results = run(
@@ -714,6 +719,7 @@ class TestOptionalIntents:
         assert "no duty command" not in results[-1].decision.note
 
     def test_after_defrost_the_next_intent_is_the_normal_one(self) -> None:
+        """After defrost the pump duty returns to the normal heating or idle value."""
         controller = OvenbirdController(replace(MIXED, pump_duty=PumpDutyConfig()))
         results = run(
             [
@@ -735,6 +741,7 @@ class TestOptionalIntents:
         assert idle.reason is ReasonCode.PUMP_DUTY_IDLE
 
     def test_hold_in_defrost_repeats_no_pump_duty(self) -> None:
+        """Holding during defrost repeats the setpoint but not the pump duty."""
         controller = OvenbirdController(replace(MIXED, pump_duty=PumpDutyConfig()))
         first = tick(controller.initial_state(), 0, RUNNING, controller)
         stale = replace(RUNNING, defrost=1, stale=frozenset({HeishaSignal.OUTSIDE_TEMP}))
@@ -744,6 +751,7 @@ class TestOptionalIntents:
         assert held.intent(IntentKind.MAX_PUMP_DUTY) is None
 
     def test_dhw_keeps_the_heat_duty_after_the_compressor_stops(self) -> None:
+        """During a DHW run the heating pump duty is kept even after the compressor stops."""
         controller = OvenbirdController(replace(MIXED, pump_duty=PumpDutyConfig()))
         dhw = replace(IDLE, valve=1)
         results = run([(0, RUNNING), (60, dhw), (420, dhw), (1200, dhw)], controller)
@@ -752,6 +760,7 @@ class TestOptionalIntents:
         assert "DHW run in progress: integrator frozen, no decrease" in results[-1].decision.note
 
     def test_quiet_schedule(self) -> None:
+        """A quiet window produces a quiet-mode intent with the scheduled level."""
         quiet = QuietModeConfig(windows=(QuietWindow(time(0), time(23, 59), 2),))
         controller = OvenbirdController(replace(MIXED, quiet=quiet))
         result = tick(controller.initial_state(), 0, controller=controller)
@@ -762,18 +771,25 @@ class TestOptionalIntents:
 
 
 class TestNotes:
+    """Wording of the decision notes."""
+
     def test_no_negative_zero(self) -> None:
+        """The note never prints a negative zero."""
         decision = tick(CTRL.initial_state(), 0, replace(IDLE, room=21.02)).decision
         assert "PI adds -0.0 K" not in decision.note
         assert "PI adds +0.0 K" in decision.note
 
     def test_periodic_note_has_no_cooling_authority(self) -> None:
+        """The periodic note does not mention cooling authority."""
         decision = tick(CTRL.initial_state(), 0, replace(IDLE, room=20.5)).decision
         assert "authority" not in decision.note
 
 
 class TestRecord:
+    """Contents of the decision record."""
+
     def test_terms_and_state_are_complete(self) -> None:
+        """The record has all terms, the state keys, the used inputs and a closing note."""
         decision = tick(CTRL.initial_state(), 0, replace(IDLE, room=20.4)).decision
         names = [term.name for term in decision.terms]
         assert names == ["curve", "room_feedback", "plan", "start_ramp", "cycling_floor", "safety"]
@@ -793,6 +809,7 @@ class TestRecord:
         assert decision.intents == tick(CTRL.initial_state(), 0, replace(IDLE, room=20.4)).intents
 
     def test_terms_add_up_to_the_safety_input(self) -> None:
+        """The curve plus the additive kelvin terms equal the raw input of the safety term."""
         decision = start_sequence([25.0, 34.0])[-1].decision
         additive = sum(t.value for t in decision.terms if t.unit == "K")
         curve = decision.term("curve")

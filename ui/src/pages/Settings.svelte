@@ -17,10 +17,12 @@
   import type { LiveStore } from '$lib/core/live.svelte';
   import { buildHash, router } from '$lib/core/router.svelte';
   import { changesIn, sectionOf, SECTIONS, type SectionId } from '$lib/core/schema';
+  import { changedFeatureFields } from '$lib/settings/features';
   import { t } from '$lib/core/settings.svelte';
   import BehaviourSection from './settings/BehaviourSection.svelte';
   import CurveSection from './settings/CurveSection.svelte';
   import EmitterSection from './settings/EmitterSection.svelte';
+  import FeaturesSection from './settings/FeaturesSection.svelte';
   import Overview from './settings/Overview.svelte';
   import PumpDutySection from './settings/PumpDutySection.svelte';
   import QuietSection from './settings/QuietSection.svelte';
@@ -45,7 +47,9 @@
   const missing = $derived(cfg.schemaState === 'missing' || ctl.configMissing);
   const sectionName = (id: SectionId) => t(`section_${id}` as 'section_curve');
   const changes = (id: SectionId) =>
-    changesIn(schema, draft.changes, SECTIONS.find((s) => s.id === id)?.groups ?? []);
+    id === 'features'
+      ? changedFeatureFields(schema, draft.changes)
+      : changesIn(schema, draft.changes, SECTIONS.find((s) => s.id === id)?.groups ?? []);
 
   function pick(event: Event): void {
     const id = (event.currentTarget as HTMLSelectElement).value;
@@ -143,6 +147,8 @@
 
         {#if !section}
           <Overview {ctl} {schema} {config} />
+        {:else if section.id === 'features'}
+          <FeaturesSection {schema} {config} />
         {:else if section.id === 'curve'}
           <CurveSection {live} {ctl} {schema} {config} />
         {:else if section.id === 'room'}

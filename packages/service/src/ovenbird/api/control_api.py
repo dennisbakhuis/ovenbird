@@ -1,18 +1,21 @@
-"""Control endpoints: pause/resume, wood-stove mode, release a hold, audit, series.
+"""Control endpoints: pause/resume, wood-stove mode, boost, away, features, holds, audit.
 
-``POST control/pause`` and ``control/stove`` need ``operate``, ``control/resume`` and
+``POST control/pause``, ``control/stove``, ``POST``/``DELETE control/boost`` and
+``PUT``/``DELETE control/away`` need ``operate``, ``control/resume`` and
 ``release-hold`` need ``admin``; all follow the request rules of
 :mod:`ovenbird.api.deps`. ``GET audit`` (also ``?format=csv``) is admin-only;
-``GET decisions/series`` is open to every role.
+``GET decisions/series``, ``control/dayshift``, ``control/boost``, ``control/away`` and
+``control/features`` are open to every role.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Annotated, Final
+from typing import Annotated, Any, Final
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
@@ -23,7 +26,13 @@ from ovenbird.api.export import AUDIT_COLUMNS, Format, csv_response
 from ovenbird.api.models.base import returns
 from ovenbird.api.models.control import (
     AuditPage,
+    AwayResult,
+    AwayStatus,
+    BoostResult,
+    BoostStatus,
+    DayShift,
     DecisionSeries,
+    Features,
     ModeChange,
     ReleaseHoldResult,
     StoveResult,
@@ -31,7 +40,9 @@ from ovenbird.api.models.control import (
 from ovenbird.clock import iso_from_unix, iso_z
 from ovenbird.config import Settings
 from ovenbird.configstore import ConfigManager, ConfigRefusedError
+from ovenbird.control.features import features_payload
 from ovenbird.control.loop import ControlLoop
+from ovenbird.control.roomtarget import RoomTargetError
 from ovenbird.history.journal import query_decision_series, series_step
 from ovenbird.payloads import Json
 from ovenbird.stove.request import StoveRequestError, parse_wall
@@ -103,7 +114,15 @@ async def resume(deps: ControlDeps, request: Request) -> Json | JSONResponse:
 
 
 async def stove(deps: ControlDeps, request: Request) -> Json:
-    """``POST control/stove``: switch wood-stove mode on or off."""
+    """``POST control/stove``: switch wood-stove mode on or off.
+
+    Parameters
+    ----------
+    deps
+        Control dependencies.
+    request
+        Request carrying the JSON body (``on``, optional ``until``).
+    """
     who = require_role(request, deps.settings, Role.OPERATE, deps.audit)
     body = await read_json(request)
     on = body.get("on")
@@ -124,6 +143,128 @@ async def stove(deps: ControlDeps, request: Request) -> Json:
     if deps.config is not None:
         deps.config.audit(who.actor, "stove_request", accepted.to_json())
     return {"request": accepted.to_json(), "stove": deps.control.stove_status()}
+
+
+def _loop(deps: ControlDeps) -> ControlLoop:
+    """Return the control loop.
+
+    Raises
+    ------
+    HTTPException
+        ``409`` without one.
+    """
+    if deps.control is None:
+        raise HTTPException(409, "this service has no control loop")
+    return deps.control
+
+
+def _number(body: dict[str, Any], key: str) -> float | None:
+    """Return the optional finite number ``key`` of a body.
+
+    Raises
+    ------
+    HTTPException
+        ``400`` when it is set and no finite number.
+    """
+    value = body.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        raise HTTPException(400, f"{key} must be a number")
+    return float(value)
+
+
+def _until(body: dict[str, Any]) -> datetime | None:
+    """Return the optional ISO 8601 ``until`` of a body.
+
+    Raises
+    ------
+    HTTPException
+        ``400`` when it is set and no ISO 8601 time.
+    """
+    raw = optional_text(body, "until", MAX_UNTIL)
+    try:
+        return None if raw is None else parse_wall(raw)
+    except ValueError:
+        raise HTTPException(400, "until must be an ISO 8601 time") from None
+
+
+async def boost_get(deps: ControlDeps) -> Json:
+    """``GET control/boost``: the boost in force, if any, and its settings."""
+    return _loop(deps).boost_status()
+
+
+async def boost_post(deps: ControlDeps, request: Request) -> Json:
+    """``POST control/boost``: raise (or lower) the room target for a while."""
+    who = require_role(request, deps.settings, Role.OPERATE, deps.audit)
+    body = await read_json(request)
+    offset_k, target_c = _number(body, "offset_k"), _number(body, "target_c")
+    duration_s, until = _number(body, "duration_s"), _until(body)
+    loop = _loop(deps)
+    try:
+        accepted = loop.request_boost(
+            offset_k=offset_k,
+            target_c=target_c,
+            duration_s=duration_s,
+            until=until,
+            actor=who.actor.name,
+        )
+    except RoomTargetError as exc:
+        raise HTTPException(exc.status, str(exc)) from None
+    if deps.config is not None:
+        deps.config.audit(who.actor, "boost", accepted.to_json())
+    return {"request": accepted.to_json(), "boost": loop.boost_status()}
+
+
+async def boost_delete(deps: ControlDeps, request: Request) -> Json:
+    """``DELETE control/boost``: end the boost now."""
+    who = require_role(request, deps.settings, Role.OPERATE, deps.audit)
+    loop = _loop(deps)
+    ended = loop.end_boost(who.actor.name)
+    if ended is not None and deps.config is not None:
+        deps.config.audit(who.actor, "boost_end", ended.to_json())
+    return {"request": None if ended is None else ended.to_json(), "boost": loop.boost_status()}
+
+
+async def away_get(deps: ControlDeps) -> Json:
+    """``GET control/away``: the away period, if any, and its settings."""
+    return _loop(deps).away_status()
+
+
+async def away_put(deps: ControlDeps, request: Request) -> Json:
+    """``PUT control/away``: set an away period until a time."""
+    who = require_role(request, deps.settings, Role.OPERATE, deps.audit)
+    body = await read_json(request)
+    until = _until(body)
+    if until is None:
+        raise HTTPException(400, "until is required")
+    target_c, lead_s = _number(body, "target_c"), _number(body, "comfort_lead_s")
+    loop = _loop(deps)
+    try:
+        accepted = loop.request_away(
+            target_c=target_c, until=until, lead_s=lead_s, actor=who.actor.name
+        )
+    except RoomTargetError as exc:
+        raise HTTPException(exc.status, str(exc)) from None
+    if deps.config is not None:
+        deps.config.audit(who.actor, "away", accepted.to_json())
+    return {"request": accepted.to_json(), "away": loop.away_status()}
+
+
+async def away_delete(deps: ControlDeps, request: Request) -> Json:
+    """``DELETE control/away``: end the away period now (comfort applies again)."""
+    who = require_role(request, deps.settings, Role.OPERATE, deps.audit)
+    loop = _loop(deps)
+    ended = loop.end_away(who.actor.name)
+    if ended is not None and deps.config is not None:
+        deps.config.audit(who.actor, "away_end", ended.to_json())
+    return {"request": None if ended is None else ended.to_json(), "away": loop.away_status()}
+
+
+async def features(deps: ControlDeps) -> Json:
+    """``GET control/features``: every switchable feature with its state."""
+    settings = deps.config.settings if deps.config is not None else deps.settings
+    return features_payload(_loop(deps), settings)
 
 
 async def release_hold(deps: ControlDeps, request: Request) -> Json:
@@ -159,7 +300,21 @@ async def audit_events(
     limit: Annotated[int, Query(ge=1, le=MAX_AUDIT)] = DEFAULT_AUDIT,
     output: Annotated[Format, Query(alias="format")] = "json",
 ) -> Json | Response:
-    """``GET audit``: audit events (JSON or CSV)."""
+    """``GET audit``: audit events (JSON or CSV).
+
+    Parameters
+    ----------
+    deps
+        Control dependencies.
+    request
+        Incoming request (admin only).
+    start, end
+        Period bounds (ISO 8601); defaults apply when omitted.
+    limit
+        Most events to return.
+    output
+        ``json`` or ``csv``.
+    """
     require_role(request, deps.settings, Role.ADMIN)
     since, until = deps.window(start, end)
     events = (
@@ -188,7 +343,17 @@ def decision_series(
     end: Annotated[str | None, Query(alias="to")] = None,
     step: Annotated[int | None, Query()] = None,
 ) -> Json:
-    """``GET decisions/series``: the controller's decisions over time."""
+    """``GET decisions/series``: the controller's decisions over time.
+
+    Parameters
+    ----------
+    deps
+        Control dependencies.
+    start, end
+        Period bounds (ISO 8601); defaults apply when omitted.
+    step
+        Bucket width in seconds; chosen from the period when omitted.
+    """
     since, until = deps.window(start, end)
     t0, t1 = since.timestamp(), until.timestamp()
     resolved = series_step(t0, t1) if step is None else step
@@ -198,6 +363,14 @@ def decision_series(
         raise HTTPException(400, str(exc)) from None
     columns["at"] = [iso_from_unix(ts) for ts in columns["at"]]
     return {"from": iso_z(since), "to": iso_z(until), "step": resolved, **columns}
+
+
+def dayshift(deps: ControlDeps) -> Json:
+    """``GET control/dayshift``: the sun day shift's mode, phase, offset, reasons and guards."""
+    runner = deps.control.dayshift if deps.control is not None else None
+    if runner is None:
+        raise HTTPException(409, "this service has no control loop")
+    return runner.status()
 
 
 def build_control_router(
@@ -232,7 +405,15 @@ def build_control_router(
     router.post("/control/pause", **returns(ModeChange, encoder=True))(bound(pause, deps))
     router.post("/control/resume", **returns(ModeChange, encoder=True))(bound(resume, deps))
     router.post("/control/stove", **returns(StoveResult))(bound(stove, deps))
+    router.get("/control/boost", **returns(BoostStatus))(bound(boost_get, deps))
+    router.post("/control/boost", **returns(BoostResult))(bound(boost_post, deps))
+    router.delete("/control/boost", **returns(BoostResult))(bound(boost_delete, deps))
+    router.get("/control/away", **returns(AwayStatus))(bound(away_get, deps))
+    router.put("/control/away", **returns(AwayResult))(bound(away_put, deps))
+    router.delete("/control/away", **returns(AwayResult))(bound(away_delete, deps))
+    router.get("/control/features", **returns(Features))(bound(features, deps))
     router.post("/control/release-hold", **returns(ReleaseHoldResult))(bound(release_hold, deps))
     router.get("/audit", **returns(AuditPage, encoder=True))(bound(audit_events, deps))
     router.get("/decisions/series", **returns(DecisionSeries))(bound(decision_series, deps))
+    router.get("/control/dayshift", **returns(DayShift))(bound(dayshift, deps))
     return router

@@ -49,6 +49,7 @@ from ovenbird.history.schema import (
     quarantine,
 )
 from ovenbird.history.snapshot import restore_snapshot, write_snapshot
+from ovenbird.sql import sql
 
 LOGGER = logging.getLogger("ovenbird.configstore")
 STORE_NAME: Final = "config.db"
@@ -262,8 +263,10 @@ class ConfigStore:
         """Return the newest version, if any."""
         with self._lock:
             row = self._conn.execute(
-                f"SELECT {VERSION_COLUMNS} FROM config_version "  # noqa: S608
-                "ORDER BY version DESC LIMIT 1"
+                sql(
+                    "SELECT {columns} FROM config_version ORDER BY version DESC LIMIT 1",
+                    columns=VERSION_COLUMNS,
+                )
             ).fetchone()
         return None if row is None else ConfigVersion.from_row(row)
 
@@ -271,7 +274,10 @@ class ConfigStore:
         """Return version ``version``, if stored."""
         with self._lock:
             row = self._conn.execute(
-                f"SELECT {VERSION_COLUMNS} FROM config_version WHERE version = ?",  # noqa: S608
+                sql(
+                    "SELECT {columns} FROM config_version WHERE version = ?",
+                    columns=VERSION_COLUMNS,
+                ),
                 (version,),
             ).fetchone()
         return None if row is None else ConfigVersion.from_row(row)
@@ -280,8 +286,10 @@ class ConfigStore:
         """Return the newest ``limit`` versions, newest first."""
         with self._lock:
             rows = self._conn.execute(
-                f"SELECT {VERSION_COLUMNS} FROM config_version "  # noqa: S608
-                "ORDER BY version DESC LIMIT ?",
+                sql(
+                    "SELECT {columns} FROM config_version ORDER BY version DESC LIMIT ?",
+                    columns=VERSION_COLUMNS,
+                ),
                 (limit,),
             ).fetchall()
         return [ConfigVersion.from_row(row) for row in rows]
@@ -327,8 +335,11 @@ class ConfigStore:
                 parent = None if row[0] is None else int(row[0])
                 version = 1 if parent is None else parent + 1
                 self._conn.execute(
-                    f"INSERT INTO config_version ({VERSION_COLUMNS}) "  # noqa: S608
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+                    sql(
+                        "INSERT INTO config_version ({columns}) VALUES ({marks}, NULL)",
+                        columns=VERSION_COLUMNS,
+                        marks=9,
+                    ),
                     (
                         version,
                         now_ts,
@@ -370,11 +381,13 @@ class ConfigStore:
     def count_since(self, ts: float, origins: Iterable[Origin]) -> int:
         """Return the number of versions of ``origins`` written at or after ``ts``."""
         names = [origin.value for origin in origins]
-        marks = ", ".join("?" for _ in names)
         with self._lock:
             row = self._conn.execute(
-                f"SELECT COUNT(*) FROM config_version WHERE created_ts >= ? "  # noqa: S608
-                f"AND origin IN ({marks})",
+                sql(
+                    "SELECT COUNT(*) FROM config_version WHERE created_ts >= ? "
+                    "AND origin IN ({marks})",
+                    marks=len(names),
+                ),
                 (ts, *names),
             ).fetchone()
         return int(row[0])
@@ -382,10 +395,12 @@ class ConfigStore:
     def last_created(self, origins: Iterable[Origin]) -> float | None:
         """Return when the newest version of ``origins`` was written."""
         names = [origin.value for origin in origins]
-        marks = ", ".join("?" for _ in names)
         with self._lock:
             row = self._conn.execute(
-                f"SELECT MAX(created_ts) FROM config_version WHERE origin IN ({marks})",  # noqa: S608
+                sql(
+                    "SELECT MAX(created_ts) FROM config_version WHERE origin IN ({marks})",
+                    marks=len(names),
+                ),
                 names,
             ).fetchone()
         return None if row[0] is None else float(row[0])
@@ -399,7 +414,21 @@ class ConfigStore:
         *,
         source_ip: str | None = None,
     ) -> None:
-        """Append one audit row."""
+        """Append one audit row.
+
+        Parameters
+        ----------
+        ts
+            Unix time of the event.
+        actor
+            Who did it.
+        action
+            What was done.
+        detail
+            Further facts, stored as JSON.
+        source_ip
+            Client address, when there is one.
+        """
         text = json.dumps(dict(detail or {}), sort_keys=True, separators=COMPACT, default=str)
         with self._lock:
             self._conn.execute(

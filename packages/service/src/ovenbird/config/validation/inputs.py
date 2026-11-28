@@ -55,6 +55,23 @@ def _input_issue(
     topics: set[str],
     signals: set[str],
 ) -> Issue | None:
+    """Return the first rule the input at ``index`` breaks, or ``None``.
+
+    Parameters
+    ----------
+    index
+        Position of the input in the configured list.
+    topic
+        MQTT topic the input reads.
+    signal
+        Signal id the input feeds.
+    board
+        HeishaMon parser whose topics the input must not shadow.
+    topics
+        Topics of the inputs seen so far, to catch duplicates.
+    signals
+        Signal ids of the inputs seen so far, to catch duplicates.
+    """
     if board.reserves(topic):
         return Issue(
             FIELD,

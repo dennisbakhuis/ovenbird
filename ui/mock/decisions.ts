@@ -3,6 +3,8 @@ import type {
   AlarmEvent,
   AlarmsResponse,
   AuditEvent,
+  AwayStatus,
+  BoostStatus,
   CommandEvent,
   ControlStatus,
   Decision,
@@ -12,6 +14,7 @@ import type {
   Monitor,
   StateValue,
   StoveStatus,
+  SummerStatus,
   Term,
 } from '../src/lib/core/types';
 
@@ -206,7 +209,6 @@ export function buildRecord(
     roomStale?: boolean;
     stove?: StoveMock | null;
     targetC?: number;
-    modelPlanK?: number;
   } = {},
 ): Built {
   const comfort = options.targetC ?? TARGET_C;
@@ -218,9 +220,7 @@ export function buildRecord(
       ? 'curve_only'
       : cycleScenario;
   const roomStale = scenario === 'curve_only';
-  const planShift =
-    scenario === 'normal' && !options.stove?.episode ? (options.modelPlanK ?? 0) : 0;
-  const target = round1(comfort + planShift);
+  const target = round1(comfort);
   const stoveConfig = options.stove?.enabled ? options.stove : null;
   const stoveOn = stoveActiveAt(stoveConfig, ms) && !roomStale;
   const roomBase = roomFacts(ms, roomStale);
@@ -552,8 +552,6 @@ export function buildRecord(
       'defrost in progress: integrator frozen, no decrease',
       'defrost: the pump sets its own duty; no duty command',
     );
-  if (planShift !== 0)
-    noteParts.push(`plan from the house model shifts the room target by ${signed(planShift)} K`);
   if (ramp < 0) noteParts.push(`start ramp caps at ${(curve + ramp).toFixed(1)} °C`);
   if (scenario === 'cycling') noteParts.push(`cycling floor raises to ${setpoint} °C`);
   if (scenario === 'override') noteParts.push('override by admin: 33 °C');
@@ -566,15 +564,6 @@ export function buildRecord(
         ? `setpoint stays ${setpoint} °C, no decrease during defrost`
         : `setpoint ${setpoint} °C`;
   const note = `${noteParts.join('; ')}; ${outcome}.`;
-  if (planShift !== 0) {
-    reason = planShift < 0 ? 'plan_setback' : 'plan_preheat';
-    Object.assign(extra, {
-      model_plan_requested_k: planShift,
-      model_plan_applied_k: planShift,
-      model_plan_ignored: null,
-    });
-    return base('model_plan', reason, note, terms, setpoint, preRound, binding, extra);
-  }
   return base('schedule_curve_feedback', reason, note, terms, setpoint, preRound, binding, extra);
 }
 
@@ -588,7 +577,6 @@ export interface ConfigAt {
 
 export interface DecisionOptions {
   roomStaleSince?: number | null;
-  modelPlanK?: number;
   stove?: StoveMock | null;
   configAt?: (ms: number) => ConfigAt;
 }
@@ -613,12 +601,10 @@ export function makeDecision(
     roomStale: stale(ms),
     stove: options.stove,
     targetC: config?.comfortC,
-    modelPlanK: options.modelPlanK,
   });
   const previous = buildRecord(ms - MINUTE, mode, {
     roomStale: stale(ms - MINUTE),
     stove: options.stove,
-    modelPlanK: options.modelPlanK,
   }).record.setpoint;
   const minute = Math.floor(ms / MINUTE) * MINUTE;
   const at = new Date(minute).toISOString();
@@ -705,7 +691,6 @@ export function makeSeries(
   nowMs: number,
   stove: StoveMock | null = null,
   configAt?: (ms: number) => ConfigAt,
-  modelPlanK = 0,
 ): DecisionSeries {
   const stepMs = Math.max(stepSeconds, 60) * 1000;
   const out: DecisionSeries = {
@@ -736,7 +721,6 @@ export function makeSeries(
     const { record } = buildRecord(t, 'auto', {
       stove,
       targetC: config?.comfortC,
-      modelPlanK,
     });
     const named = (name: string) => record.terms.find((item) => item.name === name)?.value ?? null;
     const safety = record.terms.find((item) => item.name === 'safety');
@@ -834,6 +818,41 @@ const NO_STOVE: StoveStatus = {
   exit_c: null,
   reference_c: null,
   request: null,
+};
+
+const NO_BOOST: BoostStatus = {
+  enabled: true,
+  active: false,
+  paused: null,
+  shift_k: null,
+  target_c: null,
+  remaining_s: null,
+  default_s: 7200,
+  default_k: 1,
+  request: null,
+};
+
+const NO_AWAY: AwayStatus = {
+  enabled: true,
+  active: false,
+  phase: null,
+  paused: null,
+  target_c: null,
+  until: null,
+  comfort_from: null,
+  default_target_c: 16,
+  default_lead_s: 21_600,
+  request: null,
+};
+
+const NO_SUMMER: SummerStatus = {
+  enabled: false,
+  active: false,
+  mean_c: null,
+  mean_tau_s: null,
+  off_c: null,
+  on_c: null,
+  warming_up: false,
 };
 
 export type MockControl = ControlStatus & { safety: NonNullable<ControlStatus['safety']> };
@@ -975,6 +994,9 @@ export function makeControl(nowMs: number, state: MockState, pumpWaterC = 29): M
     },
     config_version: state.configVersion ?? configVersionAt(nowMs, nowMs),
     stove: NO_STOVE,
+    boost: NO_BOOST,
+    away: NO_AWAY,
+    summer: NO_SUMMER,
   };
 }
 

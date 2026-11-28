@@ -25,6 +25,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, TypeAdapter
 
+from ovenbird import __version__
 from ovenbird.api.app import create_app
 from ovenbird.api.openapi import routes
 from ovenbird.config import Settings
@@ -55,192 +56,15 @@ OUTSIDE = "main/Outside_Temp"
 WINDOW = {"from": "2026-11-02T00:00:00Z", "to": "2026-11-02T03:20:00Z"}
 TICKET = re.compile(rb'"ticket":"[A-Za-z0-9_-]+"')
 PARAM = re.compile(r"\{[^}]+\}")
-UNORDERED = frozenset({"insight_house_ready"})
-BUILDING = {
-    "c_water": 2.5e6,
-    "c_mass": 4.0e7,
-    "c_air": 1.0e7,
-    "h_water_mass": 400.0,
-    "h_water_air": 5.0,
-    "h_mass_air": 800.0,
-    "h_air_out": 145.0,
-    "solar_aperture_m2": 3.0,
-    "solar_mass_fraction": 0.0,
-    "q_int_w": 300.0,
-    "q_int_modulation": 0.0,
-    "q_int_peak_hour": 19.0,
-}
-GATES = {
-    "heat_loss": {
-        "ok": True,
-        "uses": ["insulation_score", "curve_proposal", "whatif_steady_state", "balance"],
-        "checks": {
-            "signature": {
-                "ok": True,
-                "value": 40.0,
-                "limit": 30,
-                "outside_span_k": 14.0,
-                "outside_span_limit_k": 10.0,
-            },
-            "excitation": {
-                "ok": True,
-                "value": 32.0,
-                "limit": 20,
-                "outside_range_k": 12.5,
-                "outside_range_limit_k": 10.0,
-            },
-            "ua_interval": {"ok": True, "value": 0.152, "limit": 0.3},
-            "ua_agreement": {"ok": True, "value": 0.034, "limit": 0.2},
-            "ua_stability": {
-                "ok": True,
-                "value": 0.028,
-                "limit": 0.15,
-                "folds": 2,
-                "fold_ua_w_per_k": [141.0, 149.0],
-            },
-        },
-        "needed": [],
-        "reasons": [],
-        "message": None,
-        "shortfall": {"heating_days": 0, "outside_span_k": 0.0},
-    },
-    "dynamics": {
-        "ok": True,
-        "uses": ["whatif_cool_down", "room_target_planner"],
-        "checks": {"skill_6h": {"ok": True, "value": 0.12, "limit": 0.0}},
-        "needed": [],
-        "reasons": [],
-        "message": None,
-        "diagnostics": {
-            "skill_24h": -0.05,
-            "note": "reported, not gated: in a room the controller holds at a "
-            "flat temperature, 'no change' is hard to beat a day ahead",
-        },
-    },
-    "sun": {
-        "ok": False,
-        "uses": ["water_planner"],
-        "checks": {
-            "sunny_days": {"ok": False, "value": 3.0, "limit": 5, "days": 14},
-            "sun_skill": {"ok": True, "value": 0.21, "limit": 0.0},
-            "sun_response": {
-                "ok": True,
-                "value": 0.92,
-                "limit": [0.67, 1.5],
-                "interval": [0.7, 1.2],
-                "origins": 14,
-            },
-        },
-        "needed": ["more_sunny_days"],
-        "reasons": ["3 sunny held-out days < 5"],
-        "message": "2 more sunny days needed to check the model's sun response",
-    },
-}
-INSIGHT = {
-    "schema": "ovenbird.house-insight/1",
-    "model": "house-20261101",
-    "ua": {
-        "w_per_k": 145.0,
-        "interval_90": [136.0, 156.0],
-        "interval_source": "bootstrap_and_folds",
-        "bootstrap_interval_90": [137.0, 154.0],
-        "fold_w_per_k": [141.0, 149.0],
-        "source": "rc_model",
-    },
-    "time_constant_h": {"value": 50.0, "interval_90": [45.0, 60.0]},
-    "heat_capacity_kwh_per_k": 14.6,
-    "capacities_kwh_per_k": {"loop": 0.69, "emitter": 11.11, "building": 2.78},
-    "emitter_time_constant_h": {"value": 9.26, "interval_90": [7.5, 11.0]},
-    "structure": {
-        "name": "chain",
-        "fixed": {
-            "h_water_air": 5.0,
-            "solar_mass_fraction": 0.0,
-            "q_int_modulation": 0.0,
-            "q_int_peak_hour": 19.0,
-        },
-        "free": [
-            "c_water",
-            "c_mass",
-            "c_air",
-            "h_water_mass",
-            "h_mass_air",
-            "h_air_out",
-            "solar_aperture_m2",
-            "q_int_w",
-        ],
-        "nodes": {"c_water": "loop", "c_mass": "emitter", "c_air": "building"},
-    },
-    "internal_gains_w": {
-        "value": 300.0,
-        "interval_90": [120.0, 480.0],
-        "identified": False,
-        "label": "net_free_heat",
-        "note": "net free heat, not separable from the heat loss",
-        "at_zero": False,
-        "ua_w_per_k_per_100_w": 6.7,
-    },
-    "excitation": {
-        "excited": True,
-        "days": 40,
-        "heating_days": 32,
-        "outside_range_k": 12.5,
-        "ua_relative_width": 0.14,
-        "ua_tight": True,
-        "rules": {"heating_days": 20, "outside_range_k": 10.0, "ua_relative_width": 0.3},
-        "needed": {"heating_days": 0, "outside_range_k": 0.0},
-        "reasons": [],
-    },
-    "credibility": {
-        "credible": True,
-        "gates": GATES,
-        "checks": {
-            "signature": True,
-            "excitation": True,
-            "ua_consistent": True,
-            "ua_stable": True,
-            "predictive": True,
-            "sun": False,
-        },
-        "needed": {"heating_days": 0, "outside_span_k": 0.0},
-        "message": None,
-    },
-    "validation": {
-        "held_out_room_rmse_k": 0.4,
-        "persistence_room_rmse_k": 0.45,
-        "skill_horizon_h": 6.0,
-        "skill_at_horizon": 0.12,
-        "series_rmse_k": 0.41,
-        "series_bias_k": -0.1,
-    },
-    "at_bound": [
-        {
-            "parameter": "solar_aperture_m2",
-            "value": 6.0,
-            "side": "upper",
-            "limit": 6.0,
-            "kind": "owner",
-        }
-    ],
-    "score": {"state": "stale value from the learner"},
-    "proposal": {
-        "based_on_curve": [[-10.0, 39.0], [0.0, 34.0], [15.0, 25.0]],
-        "curve": [[-10.0, 38.0], [0.0, 33.5], [15.0, 25.0]],
-        "credible": True,
-        "points": [
-            {"outside_c": -10.0, "water_c": 38.0},
-            {"outside_c": 0.0, "water_c": 33.5},
-            {"outside_c": 15.0, "water_c": 25.0},
-        ],
-    },
-}
 
 
 async def no_sleep(_: float) -> None:
-    return None
+    """Skip sleeping so control retries run instantly."""
+    return
 
 
 def admin() -> dict[str, str]:
+    """Build the Basic admin credentials and request marker headers."""
     token = base64.b64encode(f"admin:{PASSWORD}".encode()).decode()
     return {"Authorization": f"Basic {token}", "X-Ovenbird-Request": "1"}
 
@@ -320,26 +144,6 @@ CASES = (
     ),
     Case("weather", "GET", "/weather", {"back_h": 4, "ahead_h": 6}),
     Case("insight_daily", "GET", "/insight/daily", {"days": 2}),
-    Case("insight_house_not_run", "GET", "/insight/house"),
-    Case("insight_house_series_missing", "GET", "/insight/house/series"),
-    Case("insight_house_whatif_missing", "GET", "/insight/house/whatif"),
-    Case("insight_house_balance_missing", "GET", "/insight/house/balance"),
-    Case("insight_house_ready", "GET", "/insight/house"),
-    Case("insight_house_history", "GET", "/insight/house/history"),
-    Case("insight_house_series", "GET", "/insight/house/series"),
-    Case("insight_house_whatif", "GET", "/insight/house/whatif"),
-    Case(
-        "insight_house_whatif_scenario",
-        "GET",
-        "/insight/house/whatif",
-        {"outside_c": -8, "comfort_c": 21, "sun_wm2": 120, "stove_w": 2000},
-    ),
-    Case("insight_house_whatif_range", "GET", "/insight/house/whatif", {"outside_c": 99}),
-    Case("insight_house_balance", "GET", "/insight/house/balance"),
-    Case("insight_house_control", "GET", "/insight/house/control"),
-    Case("proposal_draft", "POST", "/insight/house/proposal/draft", body={}),
-    Case("insight_house_run", "GET", "/insight/house/run"),
-    Case("insight_house_run_unavailable", "POST", "/insight/house/run", body={}),
     Case("divergence", "GET", "/shadow/divergence", WINDOW),
     Case(
         "explain",
@@ -360,10 +164,22 @@ CASES = (
     Case("live_ticket", "POST", "/live/ticket", body={}),
     Case("archive", "GET", "/archive"),
     Case("archive_delete_missing", "POST", "/archive/delete", body={"period": "2026-10"}),
+    Case("insight_basics", "GET", "/insight/basics"),
+    Case("control_dayshift", "GET", "/control/dayshift"),
+    Case("boost_post", "POST", "/control/boost", body={"offset_k": 1.0, "duration_s": 3600}),
+    Case("boost_get", "GET", "/control/boost"),
+    Case("boost_bad", "POST", "/control/boost", body={"offset_k": 5.0}),
+    Case("away_put", "PUT", "/control/away", body={"until": "2026-11-05T18:00:00Z"}),
+    Case("away_get", "GET", "/control/away"),
+    Case("boost_while_away", "POST", "/control/boost", body={"target_c": 22.0}),
+    Case("features", "GET", "/control/features"),
+    Case("away_delete", "DELETE", "/control/away", body={}),
+    Case("boost_delete", "DELETE", "/control/boost", body={}),
 )
 
 
 def write_history(path: Path, rows: list[DecisionRow]) -> None:
+    """Write the minute-by-minute history samples plus shadow decisions, commands and alarms."""
     database = HistoryDatabase(open_history(path))
     try:
         batch: list[Sample] = []
@@ -402,86 +218,6 @@ def write_history(path: Path, rows: list[DecisionRow]) -> None:
         conn.close()
 
 
-def write_models(root: Path) -> None:
-    models = root / "models"
-    models.mkdir(parents=True, exist_ok=True)
-    house_file = {"schema": "ovenbird.plant-params/1", "params": {"building": BUILDING}}
-    (models / "house-20261101.json").write_text(json.dumps(house_file), encoding="utf-8")
-    rows = [
-        [
-            datetime.fromtimestamp(T0 + 900 * k, UTC).isoformat(timespec="seconds"),
-            20.5 + k / 100.0,
-            None if k < 4 else 20.4 + k / 100.0,
-        ]
-        for k in range(12)
-    ]
-    series = {
-        "schema": "ovenbird.house-series/1",
-        "model": "house-20261101",
-        "step_s": 900,
-        "columns": ["ts", "room_measured", "room_predicted_24h"],
-        "rows": rows,
-        "out_of_sample_from": datetime.fromtimestamp(T0, UTC).isoformat(timespec="seconds"),
-        "events": [
-            {
-                "kind": "stove_mode",
-                "from": datetime.fromtimestamp(T0 + 3600, UTC).isoformat(timespec="seconds"),
-                "to": datetime.fromtimestamp(T0 + 5400, UTC).isoformat(timespec="seconds"),
-                "tail_to": datetime.fromtimestamp(T0 + 7200, UTC).isoformat(timespec="seconds"),
-            }
-        ],
-        "rmse_k": 0.1,
-        "bias_k": -0.1,
-        "points": 8,
-    }
-    (models / "series-20261101.json").write_text(json.dumps(series), encoding="utf-8")
-    (models / "insight-20261101.json").write_text(json.dumps(INSIGHT), encoding="utf-8")
-    current = {
-        "model": "house-20261101",
-        "house": "house-20261101.json",
-        "insight": "insight-20261101.json",
-        "promoted_at": "2026-11-01T18:00:00+00:00",
-    }
-    (models / "current.json").write_text(json.dumps(current), encoding="utf-8")
-    runs = [
-        {
-            "model": "house-20261101",
-            "data_to": "2026-11-01T18:00:00+00:00",
-            "promoted": True,
-            "ua_w_per_k": 145.0,
-            "ua_interval_90": [136.0, 156.0],
-            "credible": True,
-            "challenger_room_rmse_k": 0.4,
-        }
-    ]
-    (models / "index.json").write_text(json.dumps({"runs": runs}), encoding="utf-8")
-    status = {
-        "outcome": "kept_champion",
-        "warnings": [],
-        "champion_revalidation": {
-            "model": "house-20261101",
-            "at": "2026-11-02T03:00:00+00:00",
-            "source": "revalidated",
-            "data_to": "2026-11-02T03:00:00+00:00",
-            "fitted_to": "2026-11-01T18:00:00+00:00",
-            "from": "2026-11-01T18:00:00+00:00",
-            "to": "2026-11-02T00:00:00+00:00",
-            "origins": 20,
-            "in_sample": False,
-            "room_rmse_k": 0.35,
-            "persistence_room_rmse_k": 0.4,
-            "skill_horizon_h": 6.0,
-            "skill": 0.1,
-            "series_rmse_k": 0.38,
-            "series_bias_k": -0.12,
-            "credible": True,
-            "reasons": [],
-            "gates": GATES,
-        },
-    }
-    (models / "status.json").write_text(json.dumps(status), encoding="utf-8")
-
-
 @dataclass
 class Rig:
     """The service assembled on a fake clock, with history written."""
@@ -494,6 +230,7 @@ class Rig:
 
 @pytest.fixture
 def rig(make_settings: Callable[..., Settings], tmp_path: Path) -> Rig:
+    """Assemble the service on a fake clock with ten ticks of control and history written."""
     settings = make_settings(
         control_mode="auto",
         allow_commands=True,
@@ -574,8 +311,8 @@ def rig(make_settings: Callable[..., Settings], tmp_path: Path) -> Rig:
 
 
 def portable(raw: bytes, root: Path) -> bytes:
-    """Return a body with the temporary directory and the random ticket replaced."""
-    text = raw.replace(str(root).encode(), b"<tmp>")
+    """Return a body with the temporary directory, version and random ticket replaced."""
+    text = raw.replace(str(root).encode(), b"<tmp>").replace(__version__.encode(), b"<version>")
     return TICKET.sub(b'"ticket":"<ticket>"', text)
 
 
@@ -583,8 +320,6 @@ def recorded(rig: Rig) -> Iterator[tuple[Case, int, bytes]]:
     """Run every case in order on one client; yield its status and portable body."""
     with TestClient(rig.app, client=("10.0.0.2", 50000)) as client:
         for case in CASES:
-            if case.name == "insight_house_ready":
-                write_models(rig.settings.data_dir)
             response = client.request(
                 case.method,
                 f"/api/v1{case.path}",
@@ -597,6 +332,7 @@ def recorded(rig: Rig) -> Iterator[tuple[Case, int, bytes]]:
 
 
 def test_every_route_answers_its_recorded_bytes(rig: Rig) -> None:
+    """Every case's status and body equal the recorded snapshot, recording it when updating."""
     update = os.environ.get(UPDATE_ENV) == "1"
     SNAPSHOTS.mkdir(parents=True, exist_ok=True)
     statuses: dict[str, int] = {}
@@ -606,10 +342,7 @@ def test_every_route_answers_its_recorded_bytes(rig: Rig) -> None:
         if update or not path.exists():
             path.write_bytes(body + b"\n")
         expected = path.read_bytes()
-        if case.name in UNORDERED:
-            assert json.loads(body) == json.loads(expected), case.name
-        else:
-            assert body + b"\n" == expected, f"{case.name} changed; set {UPDATE_ENV}=1 if intended"
+        assert body + b"\n" == expected, f"{case.name} changed; set {UPDATE_ENV}=1 if intended"
     index = SNAPSHOTS / "statuses.json"
     text = json.dumps(statuses, indent=2) + "\n"
     if update or not index.exists():
@@ -643,6 +376,7 @@ def model_of(app: FastAPI, method: str, path: str) -> Any:
 
 
 def test_every_recorded_body_fits_its_response_model(rig: Rig) -> None:
+    """Every recorded success body validates against its route's model with no undeclared keys."""
     statuses = json.loads((SNAPSHOTS / "statuses.json").read_text(encoding="utf-8"))
     for case in CASES:
         model = model_of(rig.app, case.method, f"/api/v1{case.path}")

@@ -4,6 +4,7 @@ import type { IconName } from './icons';
 import type { ConfigDoc, ConfigSchema, FieldDef, Tier } from './types';
 
 export const SECTIONS = [
+  { id: 'features', groups: [], icon: 'power' },
   { id: 'curve', groups: ['curve'], icon: 'chart' },
   { id: 'room', groups: ['room', 'feedback', 'monitors'], icon: 'thermometer' },
   { id: 'pump-duty', groups: ['pump', 'pump_duty'], icon: 'pump' },
@@ -12,7 +13,7 @@ export const SECTIONS = [
   { id: 'quiet', groups: ['quiet'], icon: 'moon' },
   { id: 'emitter', groups: ['emitter'], icon: 'flame' },
   { id: 'weather', groups: ['weather'], icon: 'weather' },
-  { id: 'house', groups: ['house', 'house_bounds', 'house_learning', 'model_plan'], icon: 'home' },
+  { id: 'house', groups: ['house'], icon: 'home' },
   { id: 'ha', groups: ['ha'], icon: 'link' },
   { id: 'mqtt', groups: ['mqtt'], icon: 'globe' },
   { id: 'data', groups: ['history'], icon: 'download' },
@@ -201,12 +202,6 @@ export function checkField(
       typeof base === 'string' ? base : undefined,
     );
     if (problems.some((p) => p !== null)) return { error: 'mqtt_inputs_invalid', warning: null };
-  }
-  if (def.type === 'dates') {
-    if (!Array.isArray(value) || value.some((day) => typeof day !== 'string'))
-      return { error: 'not_dates', warning: null };
-    if (def.max_items !== undefined && value.length > def.max_items)
-      return { error: 'too_many', warning: null };
   }
   if (def.type === 'windows') {
     const items = Array.isArray(value) ? value : null;

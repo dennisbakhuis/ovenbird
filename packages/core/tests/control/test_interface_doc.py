@@ -51,9 +51,11 @@ def documented_values(name: str) -> list[str]:
     "cls", [ControlInputs, RoomInput, StepResult, CommandIntent, DecisionRecord]
 )
 def test_dataclass_fields_match_the_doc(cls: type) -> None:
+    """The fields documented for each interface dataclass equal the real fields in order."""
     assert documented_fields(cls.__name__) == [item.name for item in fields(cls)]
 
 
 @pytest.mark.parametrize("enum", [IntentKind, LadderLevel, ReasonCode, RoomProfile])
 def test_enum_values_match_the_doc(enum: type[StrEnum]) -> None:
+    """The values documented for each interface enum equal the real values in order."""
     assert documented_values(enum.__name__) == [item.value for item in enum]

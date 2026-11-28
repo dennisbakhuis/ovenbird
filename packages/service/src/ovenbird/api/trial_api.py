@@ -40,7 +40,21 @@ async def trial_status(
     baseline_start: Annotated[str | None, Query(alias="baseline_from")] = None,
     baseline_end: Annotated[str | None, Query(alias="baseline_to")] = None,
 ) -> Json:
-    """``GET trial/status``: the go-live checklist and the trial summary."""
+    """``GET trial/status``: the go-live checklist and the trial summary.
+
+    Parameters
+    ----------
+    deps
+        Supervision dependencies (settings, supervision facade, window parser).
+    start
+        Start of the trial window; ISO time, default as the service decides.
+    end
+        End of the trial window; ISO time.
+    baseline_start
+        Start of the baseline window the trial is compared with.
+    baseline_end
+        End of the baseline window.
+    """
     supervision = deps.supervision
     trial = span(deps.window, start, end)
     baseline = span(deps.window, baseline_start, baseline_end)
@@ -110,7 +124,16 @@ async def release_status(deps: SupervisionDeps) -> Json:
 
 
 async def release(deps: SupervisionDeps, request: Request) -> JSONResponse:
-    """``POST control/release``: hand control back to the pump (or rehearse it)."""
+    """``POST control/release``: hand control back to the pump (or rehearse it).
+
+    Parameters
+    ----------
+    deps
+        Supervision dependencies (settings, audit trail, control loop).
+    request
+        Incoming request; it needs the admin role and a JSON body with the optional ``rehearsal``,
+        ``dry`` and ``reason``.
+    """
     who = require_role(request, deps.settings, Role.ADMIN, deps.audit)
     body = await read_json(request)
     rehearsal = body.get("rehearsal", False)

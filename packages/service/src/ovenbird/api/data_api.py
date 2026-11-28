@@ -141,7 +141,13 @@ def history_signals(deps: DataDeps) -> Json:
 
 
 def history_storage(deps: DataDeps) -> Json:
-    """``GET history/storage``: database size per table and resolution, and the projection."""
+    """``GET history/storage``: database size per table and resolution, and the projection.
+
+    Parameters
+    ----------
+    deps
+        Data dependencies.
+    """
     settings = deps.config.settings if deps.config is not None else deps.settings
     writer = deps.writer
     marker = None if writer is None else (writer.compaction.last_at, writer.retention)
@@ -181,6 +187,7 @@ async def history_compact(deps: DataDeps, request: Request) -> Json:
 
 
 def _signal_list(signals: str) -> list[str] | None:
+    """Return the signal ids named by the ``signals`` query value, or ``None`` for ``all``."""
     if signals.strip() == "all":
         return None
     names = list(dict.fromkeys(part.strip() for part in signals.split(",") if part.strip()))
@@ -258,7 +265,25 @@ def export_series(
     layout: Annotated[LayoutName, Query()] = "long",
     output: Annotated[StreamFormat, Query(alias="format")] = "csv",
 ) -> Response:
-    """``GET export/series``: signal history as a streamed CSV or NDJSON download."""
+    """``GET export/series``: signal history as a streamed CSV or NDJSON download.
+
+    Parameters
+    ----------
+    deps
+        Data dependencies.
+    request
+        Incoming request (its ``Accept-Encoding`` selects gzip).
+    signals
+        ``all`` or comma-separated signal ids.
+    start, end
+        Period bounds (ISO 8601); defaults apply when omitted.
+    step
+        Bucket width in seconds.
+    layout
+        ``long`` (one row per value) or ``wide`` (one column per signal).
+    output
+        ``csv`` or ``ndjson``.
+    """
     path = deps.settings.history_path
     t0, t1 = bounds(deps, start, end)
     seconds = STEP_IDS[step]
@@ -276,7 +301,17 @@ def export_series(
 
 
 def journal_items(path: Path, kind: JournalKind, start: float, end: float) -> Iterator[Json]:
-    """Yield the API form of every journal row of ``kind`` in ``[start, end)``, oldest first."""
+    """Yield the API form of every journal row of ``kind`` in ``[start, end)``, oldest first.
+
+    Parameters
+    ----------
+    path
+        History database.
+    kind
+        Journal to read.
+    start, end
+        Half-open period, Unix seconds.
+    """
     if kind == "decisions":
         for decision in iter_decisions(path, start, end):
             yield decision.payload()
@@ -318,7 +353,21 @@ def export_journal(
     end: Annotated[str | None, Query(alias="to")] = None,
     output: Annotated[StreamFormat, Query(alias="format")] = "csv",
 ) -> Response:
-    """``GET export/journal/{kind}``: decisions, commands, alarms or forecasts, streamed."""
+    """``GET export/journal/{kind}``: decisions, commands, alarms or forecasts, streamed.
+
+    Parameters
+    ----------
+    deps
+        Data dependencies.
+    request
+        Incoming request (its ``Accept-Encoding`` selects gzip).
+    kind
+        Journal to export.
+    start, end
+        Period bounds (ISO 8601); defaults apply when omitted.
+    output
+        ``csv`` or ``ndjson``.
+    """
     t0, t1 = bounds(deps, start, end)
     items = journal_items(deps.settings.history_path, kind, t0, t1)
     name = download_name(kind, iso_from_unix(t0), output)
@@ -370,7 +419,15 @@ def build_archive(deps: DataDeps, folder: Path) -> Path:
 
 
 async def export_archive(deps: DataDeps, request: Request) -> Response:
-    """``GET export/archive``: a fresh copy of ``history.db``, the configuration and a manifest."""
+    """``GET export/archive``: a fresh copy of ``history.db``, the configuration and a manifest.
+
+    Parameters
+    ----------
+    deps
+        Data dependencies.
+    request
+        Incoming request (admin only).
+    """
     require_role(request, deps.settings, Role.ADMIN)
     settings = deps.settings
     path = settings.history_path

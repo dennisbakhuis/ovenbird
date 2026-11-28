@@ -52,7 +52,20 @@ def csv_text(columns: Sequence[str], rows: Iterable[Mapping[str, Any]]) -> str:
 def csv_response(
     name: str, columns: Sequence[str], rows: Iterable[Mapping[str, Any]], stamp: str
 ) -> Response:
-    """Return a CSV download named ``ovenbird-<name>-<stamp>.csv``."""
+    """Return a CSV download named ``ovenbird-<name>-<stamp>.csv``.
+
+    Parameters
+    ----------
+    name
+        Export name in the filename.
+    columns
+        Column names, in output order.
+    rows
+        Rows keyed by column name.
+    stamp
+        Timestamp text in the filename; other characters than letters, digits, ``-`` and ``_``
+        become ``-``.
+    """
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in stamp)
     return Response(
         csv_text(columns, rows),
@@ -158,7 +171,19 @@ def download_name(name: str, stamp: str, extension: str) -> str:
 def stream_response(
     chunks: Iterable[str], output: StreamFormat, filename: str, *, gzip: bool
 ) -> StreamingResponse:
-    """Return a streamed CSV or NDJSON download, gzip-encoded when the client accepts it."""
+    """Return a streamed CSV or NDJSON download, gzip-encoded when the client accepts it.
+
+    Parameters
+    ----------
+    chunks
+        Pre-rendered text chunks to stream.
+    output
+        Stream format; ``csv`` or NDJSON, which sets the media type.
+    filename
+        File name offered to the client.
+    gzip
+        Whether to gzip-encode the stream.
+    """
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
         "Cache-Control": "no-store",

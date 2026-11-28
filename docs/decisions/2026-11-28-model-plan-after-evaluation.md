@@ -4,6 +4,8 @@ Date: 2026-11-28. Source: [model-plan.md](../evaluation/model-plan.md),
 [design.md](../design.md), "Planner".
 Amends: [The learned house model in the controller](2026-11-27-learned-model-in-controller.md)
 (2026-11-27), point 1 and the alternative "Direct water feed-forward from the model".
+Superseded by: [The house model is removed](2026-11-28-house-model-removed.md)
+(2026-11-28). Neither planner is kept; both are removed in 0.6.0.
 
 ## Decision
 

@@ -52,7 +52,9 @@ code                      severity  condition
                                     (in deice mode 2 at least the profile's
                                     longest mode 2 defrost + :data:`DEICE_MARGIN_S`)
 ``room_below_floor``      warning   room temperature below the comfort floor for the
-                                    sustain time
+                                    sustain time; a night set-back of the room target
+                                    lowers the floor with it, by at most
+                                    ``room_setback_max_k``
 ``room_sensor_silent``    warning   ``on_change`` room sensor: no proof of life (the
                                     value or a liveness signal) for longer than the
                                     silence limit
@@ -65,11 +67,29 @@ code                      severity  condition
                                     connection or no successful ``get_states``
                                     re-read) for the sustain time; held room values
                                     fall back to the 1800 s limit
+``compressor_starts``     warning   more compressor starts than
+                                    ``safety_starts_per_hour_max`` in the last hour and
+                                    in the hour before, or than
+                                    ``safety_starts_per_day_max`` in 24 h
+                                    (:mod:`ovenbird.control.starts`; a defrost's
+                                    restart is no start); off with
+                                    ``safety_starts_alarm_enabled``
 ========================  ========  ==================================================
 
 Every finding carries the monitor's ``limit``, its ``unit`` and ``direction``
 (``above`` or ``below``); state monitors have none. ``defrost_stuck``'s limit
 applies to the defrost's duration, not to its ``value`` (the defrost flag).
+
+**Comfort floor and plan set-back.** The floor is ``comfort - safety_room_floor_k``. A
+plan slice that lowers the room target (a night set-back) would otherwise bring the
+room close to it by design, so :func:`evaluate` takes the room-target shift the
+controller applies (``room_shift_k``, from :class:`SafetyMonitor`'s ``room_shift``) and
+lowers the floor by a negative shift, never by more than ``room_setback_max_k`` (the
+controller's bound on a rule slice). A raised target never lifts the floor, and without
+a shift the floor is the static one, so a room that is really too cold still alarms.
+A manual target below comfort (away, or a cooler room by boost) lowers the floor to that
+target minus ``safety_room_floor_k`` (``lowered_target_c``) for as long as it is set,
+the return phase of away included.
 
 The room sensor and link monitors read the same store views as the controller
 (ages include liveness signals, the link state is the store's), so the alarms, the
@@ -96,6 +116,7 @@ from ovenbird.control.alarms import (
     AlarmEventKind,
     Severity,
 )
+from ovenbird.control.starts import StartCounter, StartCounts, starts_exceeded
 from ovenbird.payloads import Json, defrost_payload
 from ovenbird_core import (
     HeishaSignal,
@@ -106,6 +127,7 @@ from ovenbird_core import (
     Snapshot,
     SourceKind,
 )
+from ovenbird_core.control.config import DEFAULT_PLAN_RULE_MAX_K
 from ovenbird_core.control.observe import as_number
 from ovenbird_core.control.types import RoomProfile
 from ovenbird_core.derived import compressor_running, defrost_active, dhw_active
@@ -164,6 +186,9 @@ class MonitorConfig:
         Comfort floor; ``None`` disables the comfort-floor monitor.
     room_floor_sustain_s
         The room must stay below the floor this long to alarm.
+    room_setback_max_k
+        Largest night set-back of the room target that lowers the comfort floor
+        (the controller's bound on a rule plan slice).
     room_profile
         Reporting profile of the room sensor; ``None`` disables the room sensor
         monitors.
@@ -178,6 +203,11 @@ class MonitorConfig:
     defrost_low_flow
         What a ``low_flow_defrost`` does (``safety_defrost_low_flow``): ``auto``,
         ``alarm`` or ``log``.
+    room_floor_k
+        Distance of the comfort floor below the room target (``safety_room_floor_k``);
+        a manual target below comfort lowers the floor by it.
+    starts_per_hour_max, starts_per_day_max
+        Limits of the ``compressor_starts`` monitor; ``None`` disables it.
     """
 
     max_supply_c: float
@@ -189,12 +219,16 @@ class MonitorConfig:
     room_signal: SignalId | None = None
     room_floor_c: float | None = None
     room_floor_sustain_s: float = 1800.0
+    room_setback_max_k: float = DEFAULT_PLAN_RULE_MAX_K
     room_profile: RoomProfile | None = None
     room_report_interval_s: float = 300.0
     room_silence_limit_s: float = 86_400.0
     ha_enabled: bool = False
     ha_link_sustain_s: float = HA_LINK_SUSTAIN_S
     defrost_low_flow: DefrostLowFlowMode = "auto"
+    room_floor_k: float | None = None
+    starts_per_hour_max: int | None = None
+    starts_per_day_max: int | None = None
 
     @property
     def max_setpoint(self) -> int:
@@ -216,11 +250,19 @@ def monitor_config(settings: Settings, max_supply_c: float) -> MonitorConfig:
         room_signal=settings.control_room_signal,
         room_floor_c=None if floor_k is None else settings.control_comfort_c - floor_k,
         room_floor_sustain_s=settings.safety_room_floor_sustain_s,
+        room_setback_max_k=settings.control_plan_rule_max_k,
         room_profile=profile.kind if settings.control_room_signal is not None else None,
         room_report_interval_s=profile.report_interval_s,
         room_silence_limit_s=profile.silence_limit_s,
         ha_enabled=settings.ha_enabled,
         defrost_low_flow=settings.safety_defrost_low_flow,
+        room_floor_k=floor_k,
+        starts_per_hour_max=(
+            settings.safety_starts_per_hour_max if settings.safety_starts_alarm_enabled else None
+        ),
+        starts_per_day_max=(
+            settings.safety_starts_per_day_max if settings.safety_starts_alarm_enabled else None
+        ),
     )
 
 
@@ -346,16 +388,19 @@ class DeiceOnset:
 
 
 def _fresh(snapshot: Snapshot, signal: SignalId) -> SignalView | None:
+    """Return the reading of ``signal`` when it is fresh, else ``None``."""
     view = snapshot.get(signal)
     return view if view is not None and view.fresh else None
 
 
 def _number(snapshot: Snapshot, signal: SignalId) -> float | None:
+    """Return the fresh numeric value of ``signal``, or ``None`` when stale or not numeric."""
     view = _fresh(snapshot, signal)
     return None if view is None else as_number(view.value)
 
 
 def _name(signal: SignalId) -> str:
+    """Return the HeishaMon topic name of ``signal`` without its ``main/`` prefix."""
     return signal.removeprefix("main/")
 
 
@@ -409,6 +454,25 @@ def _sustained(
     message: str,
     value: float | int | str | None,
 ) -> Finding:
+    """Return a finding that turns active only after the condition has held for ``sustain_s``.
+
+    Parameters
+    ----------
+    code
+        Alarm the finding belongs to.
+    present
+        Whether the alarm condition holds now.
+    since
+        When each condition was first seen; updated for ``code``.
+    now
+        Current time.
+    sustain_s
+        Seconds the condition must hold before it is active.
+    message
+        Finding text.
+    value
+        Measured value shown with the finding.
+    """
     if not present:
         return Finding(code, MonitorStatus.OK, message, value)
     first = since.get(code, now)
@@ -417,12 +481,26 @@ def _sustained(
 
 
 def _unknown(code: AlarmCode, what: str, since: Since) -> Finding:
+    """Return an ``unknown`` finding for an input (``what``) that is missing or stale."""
     return Finding(code, MonitorStatus.UNKNOWN, f"{what} unknown or stale", None, since.get(code))
 
 
 def _setpoint(
     config: MonitorConfig, snapshot: Snapshot, since: Since, desired: int | None
 ) -> Finding:
+    """Return the finding for a water setpoint, reported or wanted, above the maximum supply.
+
+    Parameters
+    ----------
+    config
+        Monitor limits.
+    snapshot
+        Current signal readings.
+    since
+        When each condition was first seen.
+    desired
+        Setpoint in °C the controller wants to send, ``None`` when it has none.
+    """
     code = AlarmCode.SETPOINT_ABOVE_MAX
     limit = config.max_setpoint
     readings = list(setpoint_readings(snapshot.get))
@@ -440,6 +518,10 @@ def _setpoint(
 
 
 def _outlet(config: MonitorConfig, snapshot: Snapshot, since: Since) -> Finding:
+    """Return the finding for an outlet temperature above the supply limit plus margin.
+
+    Suspended during a DHW run.
+    """
     code = AlarmCode.OUTLET_OVERSHOOT
     outlet = _number(snapshot, HeishaSignal.OUTLET_TEMP)
     if outlet is None:
@@ -454,6 +536,10 @@ def _outlet(config: MonitorConfig, snapshot: Snapshot, since: Since) -> Finding:
 
 
 def _flow(config: MonitorConfig, snapshot: Snapshot, since: Since) -> Finding:
+    """Return the finding for a flow below the minimum while the compressor runs.
+
+    Suspended during a defrost (see ``_flow_defrost``).
+    """
     code = AlarmCode.LOW_FLOW
     flow = _number(snapshot, HeishaSignal.PUMP_FLOW)
     if defrost_active(snapshot).value is True:
@@ -477,6 +563,19 @@ def _flow(config: MonitorConfig, snapshot: Snapshot, since: Since) -> Finding:
 def _flow_defrost(
     config: MonitorConfig, snapshot: Snapshot, since: Since, deice: DeiceOnset | None
 ) -> Finding:
+    """Return the finding for a low flow during a defrost, judged against the expected de-ice mode.
+
+    Parameters
+    ----------
+    config
+        Monitor limits.
+    snapshot
+        Current signal readings.
+    since
+        When each condition was first seen.
+    deice
+        Defrost onset, ``None`` outside a defrost.
+    """
     code = AlarmCode.LOW_FLOW_DEFROST
     defrost = defrost_active(snapshot).value
     if defrost is None:
@@ -517,6 +616,7 @@ def _flow_defrost(
 
 
 def _error(snapshot: Snapshot, since: Since) -> Finding:
+    """Return the finding for an error code reported by the pump."""
     code = AlarmCode.PUMP_ERROR
     view = _fresh(snapshot, HeishaSignal.ERROR)
     if view is None:
@@ -529,6 +629,7 @@ def _error(snapshot: Snapshot, since: Since) -> Finding:
 
 
 def _heater(snapshot: Snapshot, since: Since) -> Finding:
+    """Return the finding for a running backup heater (it heats at COP 1)."""
     code = AlarmCode.BACKUP_HEATER
     internal = _number(snapshot, HeishaSignal.INTERNAL_HEATER_STATE)
     external = _number(snapshot, HeishaSignal.EXTERNAL_HEATER_STATE)
@@ -549,6 +650,7 @@ def _heater(snapshot: Snapshot, since: Since) -> Finding:
 
 
 def _heater_allowed(snapshot: Snapshot, since: Since) -> Finding:
+    """Return the finding for a pump that may use its backup heater for room heating."""
     code = AlarmCode.BACKUP_HEATER_ALLOWED
     value = _number(snapshot, HeishaSignal.ROOM_HEATER_STATE)
     if value is None:
@@ -560,6 +662,7 @@ def _heater_allowed(snapshot: Snapshot, since: Since) -> Finding:
 
 
 def _heating_off(snapshot: Snapshot, since: Since) -> Finding:
+    """Return the finding for an outside temperature at or above the pump's own heating cut-off."""
     code = AlarmCode.HEATING_OFF_OUTDOOR
     outside = _number(snapshot, HeishaSignal.OUTSIDE_TEMP)
     cutoff = _number(snapshot, HeishaSignal.HEATING_OFF_OUTDOOR_TEMP)
@@ -573,12 +676,26 @@ def _heating_off(snapshot: Snapshot, since: Since) -> Finding:
 
 
 def _defrost_limit(config: MonitorConfig, deice: DeiceOnset | None) -> float:
+    """Return the longest allowed defrost in seconds, extended to the expected de-ice limit."""
     return max(config.defrost_max_s, deice.limit_s) if deice is not None else config.defrost_max_s
 
 
 def _defrost(
     config: MonitorConfig, snapshot: Snapshot, since: Since, deice: DeiceOnset | None
 ) -> Finding:
+    """Return the finding for a defrost that runs longer than its limit.
+
+    Parameters
+    ----------
+    config
+        Monitor limits.
+    snapshot
+        Current signal readings.
+    since
+        When each condition was first seen.
+    deice
+        Defrost onset, ``None`` outside a defrost.
+    """
     code = AlarmCode.DEFROST_STUCK
     defrost = defrost_active(snapshot).value
     if defrost is None:
@@ -588,21 +705,118 @@ def _defrost(
     return _sustained(code, defrost, since, snapshot.now, limit, message, int(defrost))
 
 
-def _room(config: MonitorConfig, snapshot: Snapshot, since: Since) -> Finding | None:
+def room_floor(
+    config: MonitorConfig,
+    room_shift_k: float | None = None,
+    lowered_target_c: float | None = None,
+) -> float | None:
+    """Return the comfort floor in force at a room-target shift.
+
+    Parameters
+    ----------
+    config
+        Thresholds (the static floor and the largest set-back it follows).
+    room_shift_k
+        Shift of the room target the controller applies (its effective target minus
+        comfort); ``None`` without one.
+    lowered_target_c
+        A manual room target below comfort (away or a cooler boost); ``None`` without one.
+
+    Returns
+    -------
+    float or None
+        The static floor lowered by a negative shift, by at most
+        ``room_setback_max_k``; a positive or missing shift keeps the static floor. A
+        manual target lowers it further to that target minus ``room_floor_k``.
+        ``None`` when the monitor is disabled.
+    """
+    if config.room_floor_c is None:
+        return None
+    floor = config.room_floor_c
+    if room_shift_k is not None and math.isfinite(room_shift_k):
+        floor += max(-config.room_setback_max_k, min(0.0, room_shift_k))
+    if (
+        lowered_target_c is not None
+        and config.room_floor_k is not None
+        and math.isfinite(lowered_target_c)
+    ):
+        floor = min(floor, lowered_target_c - config.room_floor_k)
+    return floor
+
+
+def _room(
+    config: MonitorConfig, snapshot: Snapshot, since: Since, floor: float | None
+) -> Finding | None:
+    """Return the comfort-floor finding against ``floor`` (``None`` when disabled).
+
+    Parameters
+    ----------
+    config
+        Monitor limits.
+    snapshot
+        Current signal readings.
+    since
+        When each condition was first seen.
+    floor
+        Comfort floor in °C now in force, lowered by a set-back.
+    """
     code = AlarmCode.ROOM_BELOW_FLOOR
-    if config.room_signal is None or config.room_floor_c is None:
+    if config.room_signal is None or config.room_floor_c is None or floor is None:
         return None
     room = _number(snapshot, config.room_signal)
     if room is None:
         return _unknown(code, "room temperature", since)
-    floor = config.room_floor_c
     message = f"room {room:.1f} °C against a comfort floor of {floor:.1f} °C"
+    if floor < config.room_floor_c:
+        setback = config.room_floor_c - floor
+        message += f" ({config.room_floor_c:.1f} °C lowered by the {setback:.1f} K set-back)"
     return _sustained(
         code, room < floor, since, snapshot.now, config.room_floor_sustain_s, message, room
     )
 
 
+def _starts(
+    config: MonitorConfig, snapshot: Snapshot, since: Since, counts: StartCounts | None
+) -> Finding | None:
+    """Return the ``compressor_starts`` finding (``None`` when the monitor is off).
+
+    Parameters
+    ----------
+    config
+        Monitor limits.
+    snapshot
+        Current signal readings.
+    since
+        When each condition was first seen.
+    counts
+        Compressor starts in the last hour and day, ``None`` when not counted.
+    """
+    hour_max, day_max = config.starts_per_hour_max, config.starts_per_day_max
+    if hour_max is None or day_max is None or counts is None:
+        return None
+    code = AlarmCode.COMPRESSOR_STARTS
+    why = starts_exceeded(counts, hour_max, day_max)
+    if why is None:
+        message = (
+            f"{counts.last_hour} compressor starts in the last hour, {counts.last_day} in 24 h "
+            f"(limits {hour_max} per hour, {day_max} per day)"
+        )
+        return Finding(code, MonitorStatus.OK, message, counts.last_hour)
+    return Finding(code, MonitorStatus.ACTIVE, why, counts.last_hour, since.get(code, snapshot.now))
+
+
 def _room_sensor(config: MonitorConfig, snapshot: Snapshot, since: Since) -> Finding | None:
+    """Return the finding for a silent or overdue room sensor, or ``None`` without a room profile.
+
+    Parameters
+    ----------
+    config
+        Monitor limits.
+    snapshot
+        Current signal readings.
+    since
+        When each condition was first seen.
+    """
     if config.room_signal is None or config.room_profile is None:
         return None
     view = snapshot.get(config.room_signal)
@@ -629,6 +843,7 @@ UNIT_REASON: Final = f"{ParseErrorKind.UNIT.value}: "
 
 
 def _room_unit(config: MonitorConfig, snapshot: Snapshot, since: Since) -> Finding | None:
+    """Return the finding for a Home Assistant room value refused for its unit, or ``None``."""
     if config.room_signal is None or not config.room_signal.startswith(HA_SIGNAL_PREFIX):
         return None
     code = AlarmCode.ROOM_UNIT_REFUSED
@@ -641,6 +856,7 @@ def _room_unit(config: MonitorConfig, snapshot: Snapshot, since: Since) -> Findi
 
 
 def _ha_link(config: MonitorConfig, snapshot: Snapshot, since: Since) -> Finding | None:
+    """Return the finding for a down Home Assistant link, or ``None`` when HA is not used."""
     if not config.ha_enabled:
         return None
     code = AlarmCode.HA_LINK_DOWN
@@ -655,8 +871,27 @@ def _ha_link(config: MonitorConfig, snapshot: Snapshot, since: Since) -> Finding
 
 
 def _bounds(
-    code: AlarmCode, config: MonitorConfig, snapshot: Snapshot, deice: DeiceOnset | None
+    code: AlarmCode,
+    config: MonitorConfig,
+    snapshot: Snapshot,
+    deice: DeiceOnset | None,
+    floor: float | None,
 ) -> tuple[float | None, str | None, Direction | None]:
+    """Return a monitor's limit, its unit and direction (``floor``: the comfort floor).
+
+    Parameters
+    ----------
+    code
+        Alarm whose limit is wanted.
+    config
+        Monitor limits.
+    snapshot
+        Current signal readings (for limits the pump reports).
+    deice
+        Defrost onset, for the defrost limit.
+    floor
+        Comfort floor in °C now in force.
+    """
     match code:
         case AlarmCode.SETPOINT_ABOVE_MAX:
             return float(config.max_setpoint), "°C", "above"
@@ -669,19 +904,41 @@ def _bounds(
         case AlarmCode.DEFROST_STUCK:
             return _defrost_limit(config, deice), "s", "above"
         case AlarmCode.ROOM_BELOW_FLOOR:
-            return config.room_floor_c, "°C", "below"
+            return floor, "°C", "below"
         case AlarmCode.ROOM_SENSOR_SILENT:
             return config.room_silence_limit_s, "s", "above"
         case AlarmCode.ROOM_REPORT_OVERDUE:
             return OVERDUE_FACTOR * config.room_report_interval_s, "s", "above"
+        case AlarmCode.COMPRESSOR_STARTS:
+            limit = config.starts_per_hour_max
+            return (None if limit is None else float(limit)), "starts/h", "above"
         case _:
             return None, None, None
 
 
 def _with_bounds(
-    finding: Finding, config: MonitorConfig, snapshot: Snapshot, deice: DeiceOnset | None
+    finding: Finding,
+    config: MonitorConfig,
+    snapshot: Snapshot,
+    deice: DeiceOnset | None,
+    floor: float | None,
 ) -> Finding:
-    limit, unit, direction = _bounds(finding.code, config, snapshot, deice)
+    """Return ``finding`` with its monitor's limit, unit and direction.
+
+    Parameters
+    ----------
+    finding
+        Finding to complete.
+    config
+        Monitor limits.
+    snapshot
+        Current signal readings.
+    deice
+        Defrost onset, for the defrost limit.
+    floor
+        Comfort floor in °C now in force.
+    """
+    limit, unit, direction = _bounds(finding.code, config, snapshot, deice, floor)
     return replace(finding, limit=limit, unit=unit, direction=direction)
 
 
@@ -692,6 +949,9 @@ def evaluate(
     *,
     desired_setpoint: int | None = None,
     deice: DeiceOnset | None = None,
+    room_shift_k: float | None = None,
+    lowered_target_c: float | None = None,
+    starts: StartCounts | None = None,
 ) -> tuple[dict[AlarmCode, Instant], tuple[Finding, ...]]:
     """Run every monitor once.
 
@@ -708,6 +968,13 @@ def evaluate(
     deice
         Model profile and the values at the start of the running defrost (latched
         by :class:`SafetyMonitor`); ``None`` treats the pump as an unknown model.
+    room_shift_k
+        Shift of the room target the controller applies (a night set-back is
+        negative); lowers the comfort floor, see :func:`room_floor`.
+    lowered_target_c
+        A manual room target below comfort (away, a cooler boost); lowers the floor.
+    starts
+        Compressor start counts for ``compressor_starts`` (``None``: not evaluated).
 
     Returns
     -------
@@ -715,6 +982,7 @@ def evaluate(
         The updated first-seen instants (a condition's entry survives ``unknown``
         and is dropped on ``ok``) and one finding per monitor.
     """
+    floor = room_floor(config, room_shift_k, lowered_target_c)
     findings = [
         _setpoint(config, snapshot, since, desired_setpoint),
         _outlet(config, snapshot, since),
@@ -727,14 +995,15 @@ def evaluate(
         _defrost(config, snapshot, since, deice),
     ]
     for optional in (
-        _room(config, snapshot, since),
+        _room(config, snapshot, since, floor),
         _room_sensor(config, snapshot, since),
         _room_unit(config, snapshot, since),
         _ha_link(config, snapshot, since),
+        _starts(config, snapshot, since, starts),
     ):
         if optional is not None:
             findings.append(optional)
-    findings = [_with_bounds(finding, config, snapshot, deice) for finding in findings]
+    findings = [_with_bounds(finding, config, snapshot, deice, floor) for finding in findings]
     updated: dict[AlarmCode, Instant] = {}
     for finding in findings:
         if finding.status in (MonitorStatus.PENDING, MonitorStatus.ACTIVE):
@@ -767,6 +1036,15 @@ class SafetyMonitor:
         Receives the active critical alarms; ``None`` without publishing.
     desired
         Returns the controller's current water setpoint.
+    room_shift
+        Returns the shift of the room target the controller applies (its effective
+        target minus comfort, ``None`` without one); lowers the comfort floor during a
+        night set-back. ``None``: the static floor.
+    lowered_target
+        Returns a manual room target below comfort (away, a cooler boost); lowers the
+        comfort floor to it. ``None``: no manual target.
+    starts
+        Counts the compressor starts for ``compressor_starts``; ``None``: not counted.
     interval_s
         Seconds between evaluations.
     sleep
@@ -789,6 +1067,9 @@ class SafetyMonitor:
         *,
         adapter: SafetySink | None = None,
         desired: Callable[[], int | None] | None = None,
+        room_shift: Callable[[], float | None] | None = None,
+        lowered_target: Callable[[], float | None] | None = None,
+        starts: StartCounter | None = None,
         interval_s: float = SAFETY_INTERVAL_S,
         sleep: Sleep | None = None,
     ) -> None:
@@ -797,6 +1078,9 @@ class SafetyMonitor:
         self.runtime = runtime
         self.adapter = adapter
         self.desired = desired
+        self.room_shift = room_shift
+        self.lowered_target = lowered_target
+        self.starts = starts
         self.interval_s = interval_s
         self._sleep = sleep
         self._since: dict[AlarmCode, Instant] = {}
@@ -809,10 +1093,27 @@ class SafetyMonitor:
         self.evaluations = 0
 
     def check(self, now: Instant | None = None) -> tuple[Finding, ...]:
-        """Evaluate once, update alarms, the adapter and the health check."""
+        """Evaluate once, update alarms, the adapter and the health check.
+
+        Parameters
+        ----------
+        now
+            Evaluation time; the runtime clock when omitted.
+
+        Returns
+        -------
+        tuple of Finding
+            One finding per monitor.
+        """
         moment = now or self.runtime.clock()
         snapshot = self.runtime.store.snapshot(moment)
         desired = self.desired() if self.desired is not None else None
+        shift = self.room_shift() if self.room_shift is not None else None
+        lowered = self.lowered_target() if self.lowered_target is not None else None
+        counts = None
+        if self.starts is not None:
+            self.starts.observe(snapshot)
+            counts = self.starts.counts(moment.wall.timestamp())
         self._latch_deice(snapshot)
         self._since, self.findings = evaluate(
             self.config,
@@ -820,6 +1121,9 @@ class SafetyMonitor:
             self._since,
             desired_setpoint=desired,
             deice=self.deice if self._defrosting else None,
+            room_shift_k=shift,
+            lowered_target_c=lowered,
+            starts=counts,
         )
         for finding in self.findings:
             if self._log_only(finding.code):
@@ -844,6 +1148,7 @@ class SafetyMonitor:
         return self.findings
 
     def _latch_deice(self, snapshot: Snapshot) -> None:
+        """Follow the pump model and defrost onset so the expected de-ice mode is known."""
         view = snapshot.get(HeishaSignal.HEAT_PUMP_MODEL)
         model = view.value if view is not None and view.reason is None else None
         if model is not None and model != self._model:
@@ -866,6 +1171,7 @@ class SafetyMonitor:
             self._defrosting = defrost
 
     def _log_only(self, code: AlarmCode) -> bool:
+        """Return whether ``code`` is only journalled, never raised, under the defrost policy."""
         if code is not AlarmCode.LOW_FLOW_DEFROST:
             return False
         mode = None if self.deice is None else self.deice.mode
@@ -878,6 +1184,7 @@ class SafetyMonitor:
                 return mode == 2
 
     def _journal_only(self, finding: Finding, moment: Instant) -> None:
+        """Journal a logged-only finding when it starts and ends, and clear any raised alarm."""
         code = finding.code
         if self.alarms.is_active(code):
             self.alarms.clear(code, moment, LOGGED_ONLY)
@@ -889,11 +1196,13 @@ class SafetyMonitor:
             self._close_log(code, finding.message, moment)
 
     def _close_log(self, code: AlarmCode, message: str, moment: Instant) -> None:
+        """Journal the end of a logged-only finding."""
         self._logged.discard(code)
         detail = {"logged_only": True, **self._deice_detail()}
         self._journal(code, AlarmEventKind.CLEARED, message, moment, detail)
 
     def _deice_detail(self) -> dict[str, Any]:
+        """Return the de-ice details for journal entries (empty before a defrost)."""
         return {} if self.deice is None else self.deice.detail()
 
     def _journal(
@@ -904,6 +1213,21 @@ class SafetyMonitor:
         moment: Instant,
         detail: dict[str, Any],
     ) -> None:
+        """Log and record an informational alarm event for a logged-only finding.
+
+        Parameters
+        ----------
+        code
+            Alarm the event is about.
+        kind
+            Whether it started or cleared.
+        message
+            Event text.
+        moment
+            Time of the event.
+        detail
+            Structured detail of the event.
+        """
         LOGGER.warning("%s %s (logged only): %s", code.value, kind.value, message)
         self.alarms.record(AlarmEvent(moment, code.value, Severity.INFO, kind, message, detail))
 

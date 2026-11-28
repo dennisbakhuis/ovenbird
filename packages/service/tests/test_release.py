@@ -41,16 +41,21 @@ ACTOR = Actor("admin from 10.0.0.2", "10.0.0.2")
 
 
 def basic(user: str, password: str) -> dict[str, str]:
+    """Return HTTP Basic authorization headers for the given credentials."""
     token = base64.b64encode(f"{user}:{password}".encode()).decode()
     return {"Authorization": f"Basic {token}"}
 
 
 async def no_sleep(_: float) -> None:
-    return None
+    """Replace asyncio sleep so the control loop never waits in tests."""
+    return
 
 
 class Rig:
+    """Control loop, command adapter and release manager wired to a fake clock and ingest."""
+
     def __init__(self, settings: Settings, facts: Facts | None = None) -> None:
+        """Build the rig; facts persist snapshot and rehearsal records."""
         self.clock = FakeClock()
         self.runtime = Runtime(clock=self.clock)
         self.ingest = MqttIngest(settings, self.runtime)
@@ -65,13 +70,16 @@ class Rig:
         self.sent: list[Command] = []
 
     def pump(self, **overrides: str) -> None:
+        """Ingest the standard heat-pump messages with optional payload overrides."""
         for message in pump_messages(BASE, **overrides):
             self.ingest.ingest(message)
 
     def report(self, name: str, value: str) -> None:
+        """Ingest one HeishaMon main topic value."""
         self.ingest.ingest(inbound(f"{BASE}/main/{name}", value))
 
     def step_adapter(self) -> Command | None:
+        """Tick the adapter once and mark any returned command as published."""
         now = self.clock()
         store = self.runtime.store
         command = self.adapter.tick(
@@ -85,10 +93,12 @@ class Rig:
 
 @pytest.fixture
 def settings(make_settings: Callable[..., Settings]) -> Settings:
+    """Publishing settings on a non-loopback host with an admin password."""
     return make_settings(**PUBLISH, http_host="0.0.0.0", admin_password=ADMIN)
 
 
 def go_live(rig: Rig) -> PumpSnapshot:
+    """Feed pump values, tick the loop and return the go-live snapshot."""
     rig.pump(Z1_Water_Target_Temp="30", Max_Pump_Duty="159", Quiet_Mode_Level="0")
     rig.loop.tick()
     snapshot = rig.release.snapshot
@@ -97,6 +107,7 @@ def go_live(rig: Rig) -> PumpSnapshot:
 
 
 def test_the_snapshot_is_taken_at_go_live_before_anything_is_sent(settings: Settings) -> None:
+    """Going live captures the pump's current settings before any command is sent."""
     rig = Rig(settings)
     snapshot = go_live(rig)
     assert snapshot.items == {"water_setpoint": 30, "max_pump_duty": 159, "quiet_mode": 0}
@@ -118,6 +129,7 @@ def test_the_snapshot_is_taken_at_go_live_before_anything_is_sent(settings: Sett
 def test_a_stale_value_is_filled_in_later_and_a_resume_keeps_the_snapshot(
     settings: Settings,
 ) -> None:
+    """A missing value is filled in later and a pause-resume keeps the original snapshot."""
     rig = Rig(settings)
     messages = [m for m in pump_messages(BASE) if not m.topic.endswith("Quiet_Mode_Level")]
     for message in messages:
@@ -144,6 +156,7 @@ def test_a_stale_value_is_filled_in_later_and_a_resume_keeps_the_snapshot(
 
 
 def test_release_restores_through_the_adapter_and_then_pauses(settings: Settings) -> None:
+    """Release restores changed settings via the adapter, verifies them, then pauses control."""
     rig = Rig(settings)
     go_live(rig)
     rig.clock.advance(30)
@@ -189,6 +202,7 @@ def test_release_restores_through_the_adapter_and_then_pauses(settings: Settings
 
 
 def test_a_new_go_live_after_a_release_takes_a_new_snapshot(settings: Settings) -> None:
+    """Going live again after a release captures a fresh snapshot."""
     rig = Rig(settings)
     first = go_live(rig)
     run = rig.release.start(ACTOR, rehearsal=False, reason=None)
@@ -210,6 +224,7 @@ def test_a_new_go_live_after_a_release_takes_a_new_snapshot(settings: Settings) 
 
 
 def test_release_refusals(settings: Settings, make_settings: Callable[..., Settings]) -> None:
+    """Release is refused without a snapshot, while one runs, and when not publishing."""
     rig = Rig(settings)
     with pytest.raises(ReleaseRefusedError) as missing:
         rig.release.start(ACTOR, rehearsal=False, reason=None)
@@ -229,6 +244,7 @@ def test_release_refusals(settings: Settings, make_settings: Callable[..., Setti
 
 
 def test_a_release_that_does_not_settle_times_out_and_still_pauses(settings: Settings) -> None:
+    """A release whose restore never settles times out and still pauses control."""
     rig = Rig(settings)
     go_live(rig)
     rig.pump(Z1_Water_Target_Temp="34")
@@ -246,6 +262,7 @@ def test_a_release_that_does_not_settle_times_out_and_still_pauses(settings: Set
 
 
 def test_release_from_a_pause_restores_and_stays_paused(settings: Settings) -> None:
+    """Releasing from a paused state restores the values and ends paused."""
     rig = Rig(settings)
     go_live(rig)
     rig.loop.guard.hold.paused = True
@@ -266,6 +283,7 @@ def test_release_from_a_pause_restores_and_stays_paused(settings: Settings) -> N
 def test_release_api_needs_admin_and_reports_the_run(
     settings: Settings, make_settings: Callable[..., Settings]
 ) -> None:
+    """The release API needs admin rights and valid input, and reports run, pause and audit."""
     clock = FakeClock()
     runtime = Runtime(clock=clock)
     manager = ConfigManager.open(settings, clock)
@@ -329,6 +347,7 @@ def test_release_api_needs_admin_and_reports_the_run(
 def test_the_envelope_rule_is_recognised_when_it_corrects_the_pump(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """A pump-side envelope correction after an out-of-band value is counted once as evidence."""
     facts = Facts()
     rig = Rig(make_settings(**PUBLISH, envelope_rule_installed=True), facts)
     watch = rig.loop.envelope
@@ -356,6 +375,7 @@ def test_the_envelope_rule_is_recognised_when_it_corrects_the_pump(
 
 
 def test_a_change_no_rule_explains_is_not_evidence(make_settings: Callable[..., Settings]) -> None:
+    """A change the envelope rule does not explain is not counted as evidence."""
     rig = Rig(make_settings(**PUBLISH, envelope_rule_installed=True))
     watch = rig.loop.envelope
     assert watch is not None
@@ -375,6 +395,7 @@ def test_a_change_no_rule_explains_is_not_evidence(make_settings: Callable[..., 
 def test_node_red_writing_the_rule_value_in_shadow_is_not_evidence(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """In shadow mode a rule-valued write by another writer is not evidence."""
     clock = FakeClock()
     runtime = Runtime(clock=clock)
     facts = Facts()
@@ -400,6 +421,7 @@ def test_node_red_writing_the_rule_value_in_shadow_is_not_evidence(
 def test_the_adapters_recognised_rule_correction_proves_the_rule_once(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """A recognised rule correction proves the envelope rule; repeats count once."""
     rig = Rig(make_settings(**PUBLISH, envelope_rule_installed=True))
     watch = rig.loop.envelope
     assert watch is not None
@@ -433,6 +455,7 @@ def test_the_adapters_recognised_rule_correction_proves_the_rule_once(
 def test_a_command_in_flight_at_release_is_waited_for_and_then_restored(
     settings: Settings,
 ) -> None:
+    """A command in flight at release is awaited, then the original value is restored."""
     rig = Rig(settings)
     go_live(rig)
     command = rig.step_adapter()
@@ -464,6 +487,7 @@ def test_a_command_in_flight_at_release_is_waited_for_and_then_restored(
 
 
 def test_the_release_does_not_finish_while_a_command_is_in_flight(settings: Settings) -> None:
+    """A release stays unfinished while a command is still in flight."""
     rig = Rig(settings)
     go_live(rig)
     command = rig.step_adapter()
@@ -474,6 +498,7 @@ def test_the_release_does_not_finish_while_a_command_is_in_flight(settings: Sett
 
 
 def test_the_restore_is_clamped_to_the_envelope_band(settings: Settings) -> None:
+    """The restore target is clamped into the envelope band for the current outside temperature."""
     rig = Rig(settings)
     go_live(rig)
     safety = rig.loop.controller.config.safety
@@ -496,6 +521,7 @@ def test_the_restore_is_clamped_to_the_envelope_band(settings: Settings) -> None
 
 
 def test_an_incomplete_release_keeps_the_snapshot_for_the_resume(settings: Settings) -> None:
+    """An incomplete release keeps its snapshot so a later release can finish the restore."""
     rig = Rig(settings)
     first = go_live(rig)
     rig.clock.advance(30)
@@ -520,6 +546,7 @@ def test_an_incomplete_release_keeps_the_snapshot_for_the_resume(settings: Setti
 
 
 def test_a_crash_in_the_middle_of_a_release_leaves_a_trace(settings: Settings) -> None:
+    """A restart mid-release is reported as interrupted with an alarm and stays paused."""
     clock = FakeClock()
     manager = ConfigManager.open(settings, clock)
     runtime = Runtime(clock=clock)
@@ -563,17 +590,23 @@ def test_a_crash_in_the_middle_of_a_release_leaves_a_trace(settings: Settings) -
 
 
 class FailingConfig:
+    """Config stand-in whose pause storage always fails."""
+
     def __init__(self, manager: ConfigManager) -> None:
+        """Wrap a real config manager used for auditing."""
         self.manager = manager
 
     def store_pause(self, actor: Actor, reason: str) -> None:
+        """Fail as a full or broken disk would."""
         raise sqlite3.OperationalError("disk I/O error")
 
     def audit(self, *args: Any) -> None:
+        """Delegate auditing to the wrapped manager."""
         self.manager.audit(*args)
 
 
 def test_a_storage_error_leaves_no_release_stuck(settings: Settings) -> None:
+    """A storage failure on release start gives 503 and leaves no release or pause behind."""
     rig = Rig(settings)
     go_live(rig)
     rig.pump(Z1_Water_Target_Temp="34")
@@ -599,6 +632,7 @@ def test_a_storage_error_leaves_no_release_stuck(settings: Settings) -> None:
 def test_a_snapshot_can_be_captured_and_dry_rehearsed_in_shadow(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """In shadow a snapshot can be captured and rehearsed dry, but not for real."""
     clock = FakeClock()
     runtime = Runtime(clock=clock)
     facts = Facts()
@@ -642,6 +676,7 @@ def test_a_snapshot_can_be_captured_and_dry_rehearsed_in_shadow(
 def test_capture_is_refused_while_ovenbird_controls_and_go_live_replaces_it(
     settings: Settings,
 ) -> None:
+    """Capture is refused while ovenbird controls, and a go-live snapshot replaces a manual one."""
     rig = Rig(settings)
     rig.loop.guard.hold.paused = True
     rig.pump(Z1_Water_Target_Temp="29", Max_Pump_Duty="159", Quiet_Mode_Level="0")
@@ -666,6 +701,7 @@ def test_capture_is_refused_while_ovenbird_controls_and_go_live_replaces_it(
 
 
 def test_snapshot_and_dry_release_endpoints(make_settings: Callable[..., Settings]) -> None:
+    """The snapshot and dry release endpoints capture, plan and audit in shadow mode."""
     settings = make_settings(control_mode="shadow", http_host="0.0.0.0", admin_password=ADMIN)
     clock = FakeClock()
     runtime = Runtime(clock=clock)

@@ -48,6 +48,7 @@ from ovenbird.history.journal import (
 )
 from ovenbird.history.writer import HistoryWriter
 from ovenbird.service import build_service
+from ovenbird.sql import sql
 from ovenbird.testing import FakeMqttClient
 
 HOUR = 3600.0
@@ -59,6 +60,7 @@ SETTLED = LAG_S + REWIND_S + 60.0
 
 
 def minutes(start: float, end: float, signal: str = "main/Outlet_Temp") -> list[Sample]:
+    """Build one-minute NUMBER samples of ``signal`` between two epoch timestamps."""
     count = int((end - start) // 60)
     return [
         Sample(signal, "°C", SampleKind.NUMBER, start + 60 * i, 30.0 + (i % 5), 600.0)
@@ -67,6 +69,7 @@ def minutes(start: float, end: float, signal: str = "main/Outlet_Temp") -> list[
 
 
 def decision(ts: float, version: int | None = 3) -> DecisionRow:
+    """Return a decision journal row at ``ts`` stamped with the given config ``version``."""
     record = json.dumps({"note": "tick", "setpoint": 31}, sort_keys=True)
     return DecisionRow(
         ts, "ovenbird", "shadow", "curve_only", "curve", 31, record, "[]", "[]", version
@@ -74,6 +77,19 @@ def decision(ts: float, version: int | None = 3) -> DecisionRow:
 
 
 def fill(path: Path, start: float, end: float, *, every: float = 600.0) -> None:
+    """Fill a history database with samples, decisions, a command, an alarm and a forecast.
+
+    Parameters
+    ----------
+    path
+        History database file to create or extend.
+    start
+        First timestamp (epoch s) to fill.
+    end
+        Timestamp (epoch s) up to which to fill.
+    every
+        Spacing in seconds between decision journal rows.
+    """
     conn = open_history(path)
     db = HistoryDatabase(conn)
     db.write_batch(minutes(start, end))
@@ -91,6 +107,7 @@ def fill(path: Path, start: float, end: float, *, every: float = 600.0) -> None:
 
 
 def count(path: Path, sql: str, params: Sequence[Any] = ()) -> int:
+    """Return the first column of the first row of ``sql`` run on the database at ``path``."""
     conn = sqlite3.connect(path)
     try:
         return int(conn.execute(sql, params).fetchone()[0])
@@ -99,6 +116,7 @@ def count(path: Path, sql: str, params: Sequence[Any] = ()) -> int:
 
 
 def unpack(zip_path: Path, folder: Path) -> tuple[Path, dict[str, Any], dict[str, Any] | None]:
+    """Extract a month zip into ``folder`` and return its database path, manifest and config."""
     folder.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path) as zf:
         zf.extractall(folder)
@@ -109,16 +127,19 @@ def unpack(zip_path: Path, folder: Path) -> tuple[Path, dict[str, Any], dict[str
 
 
 def config_source(start: float, end: float, used: Sequence[int | None]) -> dict[str, Any]:
+    """Stand-in config source that reports a fixed config version 3 as used, whatever the window."""
     return {"ovenbird_config": 1, "version": 3, "values": {}, "used": list(used)}
 
 
 @pytest.fixture
 def history(tmp_path: Path) -> Path:
+    """Return the path of the live history database inside a temporary data folder."""
     return tmp_path / "data" / "history.db"
 
 
 @pytest.fixture
 def archiver(history: Path) -> MonthArchiver:
+    """Return a UTC month archiver on the temporary history with a generous time budget."""
     return MonthArchiver(
         history,
         history.parent / "archive",
@@ -129,6 +150,7 @@ def archiver(history: Path) -> MonthArchiver:
 
 
 def test_month_bounds_follow_the_local_time_zone() -> None:
+    """Month bounds, lookup, successor and day count follow the local time zone, including DST."""
     start, end = Month(2026, 10).bounds("Europe/Amsterdam")
     assert datetime.fromtimestamp(start, UTC).isoformat() == "2026-09-30T22:00:00+00:00"
     assert datetime.fromtimestamp(end, UTC).isoformat() == "2026-10-31T23:00:00+00:00"
@@ -138,6 +160,7 @@ def test_month_bounds_follow_the_local_time_zone() -> None:
 
 
 def test_periods_parse_and_seasons_run_august_to_july() -> None:
+    """Months and seasons parse, bad input is rejected and a season spans August to July."""
     assert str(Month.parse("2026-03")) == "2026-03"
     with pytest.raises(ArchiveError):
         Month.parse("2026-13")
@@ -156,6 +179,7 @@ def test_periods_parse_and_seasons_run_august_to_july() -> None:
 def test_a_finished_month_is_frozen_with_its_data_only(
     history: Path, archiver: MonthArchiver, tmp_path: Path
 ) -> None:
+    """A finished month freezes into a zip with its own rows, a manifest and the used config."""
     fill(history, JAN + 10 * DAY, FEB + 2 * DAY)
     assert archiver.step(FEB + 2 * DAY) is False
     folder = archiver.folder
@@ -189,6 +213,7 @@ def test_a_finished_month_is_frozen_with_its_data_only(
 def test_rows_read_back_like_the_live_history(
     history: Path, archiver: MonthArchiver, tmp_path: Path
 ) -> None:
+    """Decisions read from the frozen month equal those read from the live history."""
     fill(history, JAN, FEB + DAY)
     archiver.step(FEB + DAY)
     database, _, _ = unpack(archiver.folder.frozen_path(Month(2027, 1)), tmp_path / "jan")
@@ -199,6 +224,7 @@ def test_rows_read_back_like_the_live_history(
 
 
 def test_steps_are_idempotent_and_progressive(history: Path, archiver: MonthArchiver) -> None:
+    """Repeated steps copy nothing twice and a later step extends the working copy up to the lag."""
     fill(history, JAN, JAN + 5 * DAY)
     archiver.step(JAN + 3 * DAY)
     working = archiver.folder.open_path(Month(2027, 1))
@@ -213,6 +239,7 @@ def test_steps_are_idempotent_and_progressive(history: Path, archiver: MonthArch
 
 
 def test_a_month_waits_until_it_has_settled(history: Path, archiver: MonthArchiver) -> None:
+    """A finished month is only frozen once the settle delay after its end has passed."""
     fill(history, JAN + 20 * DAY, FEB + DAY)
     archiver.step(FEB + HOUR)
     assert not archiver.folder.frozen()
@@ -222,6 +249,7 @@ def test_a_month_waits_until_it_has_settled(history: Path, archiver: MonthArchiv
 
 
 def test_a_late_rollup_update_is_copied_again(history: Path, archiver: MonthArchiver) -> None:
+    """A rollup revised inside the rewind window is copied into the working copy again."""
     fill(history, JAN, JAN + DAY)
     archiver.step(JAN + DAY)
     conn = sqlite3.connect(history)
@@ -236,6 +264,7 @@ def test_a_late_rollup_update_is_copied_again(history: Path, archiver: MonthArch
 
 
 def test_catch_up_runs_within_its_budget_oldest_first(history: Path) -> None:
+    """With a zero budget, catch-up needs several steps and freezes the oldest months first."""
     fill(history, JAN + 20 * DAY, MAR + DAY)
     slow = MonthArchiver(history, history.parent / "archive", timezone="UTC", budget_s=0.0)
     steps = 0
@@ -250,6 +279,7 @@ def test_catch_up_runs_within_its_budget_oldest_first(history: Path) -> None:
 def test_crash_leftovers_are_cleaned_and_frozen_months_kept(
     history: Path, archiver: MonthArchiver
 ) -> None:
+    """Crash leftovers are removed while frozen months stay untouched."""
     fill(history, JAN, FEB + DAY)
     archiver.step(FEB + DAY)
     folder = archiver.folder
@@ -266,6 +296,7 @@ def test_crash_leftovers_are_cleaned_and_frozen_months_kept(
 
 
 def test_an_interrupted_freeze_is_redone(history: Path, archiver: MonthArchiver) -> None:
+    """A freeze interrupted by a leftover temporary zip is redone from scratch."""
     fill(history, JAN, FEB + DAY)
     archiver.step(JAN + 20 * DAY)
     (archiver.folder.path / "2027-01.zip.tmp").write_bytes(b"half")
@@ -274,6 +305,7 @@ def test_an_interrupted_freeze_is_redone(history: Path, archiver: MonthArchiver)
 
 
 def test_months_without_data_are_skipped(history: Path, archiver: MonthArchiver) -> None:
+    """A month without data is recorded as empty and never gets a working copy."""
     fill(history, JAN, JAN + DAY)
     fill(history, MAR, MAR + DAY)
     archiver.step(MAR + DAY)
@@ -284,6 +316,7 @@ def test_months_without_data_are_skipped(history: Path, archiver: MonthArchiver)
 
 
 def test_deleted_months_are_not_frozen_again(history: Path, archiver: MonthArchiver) -> None:
+    """A month the user deleted is remembered and not frozen again."""
     fill(history, JAN, FEB + DAY)
     archiver.step(FEB + DAY)
     assert archiver.folder.delete([Month(2027, 1)]) == ["2027-01"]
@@ -293,6 +326,7 @@ def test_deleted_months_are_not_frozen_again(history: Path, archiver: MonthArchi
 
 
 def test_a_disabled_archive_does_nothing(history: Path, archiver: MonthArchiver) -> None:
+    """A disabled archiver does no work and creates no folder."""
     fill(history, JAN, FEB + DAY)
     archiver.configure(enabled=False, timezone="UTC")
     assert archiver.step(FEB + DAY) is False
@@ -300,6 +334,7 @@ def test_a_disabled_archive_does_nothing(history: Path, archiver: MonthArchiver)
 
 
 def test_low_disk_space_is_reported_and_skipped(history: Path) -> None:
+    """Too little free disk space makes a step fail with an error and freeze nothing."""
     fill(history, JAN, FEB + DAY)
     archiver = MonthArchiver(
         history,
@@ -315,6 +350,7 @@ def test_low_disk_space_is_reported_and_skipped(history: Path) -> None:
 
 
 def test_retention_waits_until_the_archive_has_caught_up(history: Path) -> None:
+    """Retention deletes nothing while the archive is behind and starts once it has caught up."""
     fill(history, JAN, JAN + 10 * DAY)
     wall = {"now": JAN + 10 * DAY}
     archiver = MonthArchiver(history, history.parent / "archive", timezone="UTC", budget_s=0.0)
@@ -346,6 +382,7 @@ def test_retention_waits_until_the_archive_has_caught_up(history: Path) -> None:
 
 @pytest.mark.slow
 def test_a_one_day_retention_loses_nothing_in_daily_operation(history: Path) -> None:
+    """With one-day retention, a frozen month still holds every minute and decision."""
     conn = open_history(history)
     conn.close()
     wall = {"now": JAN}
@@ -377,6 +414,7 @@ def test_a_one_day_retention_loses_nothing_in_daily_operation(history: Path) -> 
 
 
 def test_listing_groups_years_and_seasons(history: Path, archiver: MonthArchiver) -> None:
+    """The listing reports months newest first and groups them into years and seasons."""
     fill(history, JAN, MAR + DAY)
     archiver.step(MAR + DAY)
     body = listing(archiver.folder, "UTC")
@@ -399,6 +437,7 @@ def test_listing_groups_years_and_seasons(history: Path, archiver: MonthArchiver
 def test_a_bundle_holds_the_months_and_a_combined_manifest(
     history: Path, archiver: MonthArchiver, tmp_path: Path
 ) -> None:
+    """A year bundle holds the frozen month zips and a combined manifest that marks the gaps."""
     fill(history, JAN, MAR + DAY)
     archiver.step(MAR + DAY)
     frozen = archiver.folder.frozen()
@@ -420,6 +459,7 @@ def test_a_bundle_holds_the_months_and_a_combined_manifest(
 def test_the_open_month_downloads_as_it_stands(
     history: Path, archiver: MonthArchiver, tmp_path: Path
 ) -> None:
+    """The open month can be exported as a partial, unfrozen zip with its coverage."""
     fill(history, JAN, JAN + 5 * DAY)
     archiver.step(JAN + 5 * DAY)
     out = tmp_path / "out"
@@ -441,13 +481,14 @@ def test_the_open_month_downloads_as_it_stands(
 
 
 def test_reused_journal_ids_are_still_archived(history: Path, archiver: MonthArchiver) -> None:
+    """Journal rows are still archived when a recreated journal reuses earlier row ids."""
     fill(history, JAN, JAN + DAY)
     archiver.step(JAN + DAY)
     working = archiver.folder.open_path(Month(2027, 1))
     before = count(working, "SELECT count(*) FROM decision")
     conn = sqlite3.connect(history)
     for table in ("decision", "command", "alarm"):
-        conn.execute(f"DELETE FROM {table}")  # noqa: S608
+        conn.execute(sql("DELETE FROM {table}", table=table))
     conn.commit()
     conn.close()
     later = JAN + DAY + HOUR
@@ -467,6 +508,7 @@ def test_reused_journal_ids_are_still_archived(history: Path, archiver: MonthArc
 
 
 def rollups_of(path: Path, name: str, lo: float, hi: float) -> int:
+    """Count the one-minute rollups of signal ``name`` with buckets in ``[lo, hi)``."""
     return count(
         path,
         "SELECT count(*) FROM rollup JOIN signal ON signal.id = rollup.signal_id "
@@ -478,6 +520,7 @@ def rollups_of(path: Path, name: str, lo: float, hi: float) -> int:
 def test_a_new_history_with_other_ids_is_archived_by_name(
     history: Path, archiver: MonthArchiver
 ) -> None:
+    """A recreated live history with other ids is archived by signal name without duplicates."""
     fill(history, JAN, JAN + DAY)
     archiver.step(JAN + DAY)
     working = archiver.folder.open_path(Month(2027, 1))
@@ -507,6 +550,24 @@ def test_a_new_history_with_other_ids_is_archived_by_name(
 def failing_archiver(
     history: Path, free: dict[str, int], events: list[tuple[str, bool, str]], **options: Any
 ) -> MonthArchiver:
+    """Build an archiver whose disk space and alarm hook are controlled by the test.
+
+    Parameters
+    ----------
+    history
+        Live history database path.
+    free
+        Mutable mapping whose ``bytes`` entry is the reported free disk space.
+    events
+        List that receives ``(code, active, text)`` for every alarm change.
+    **options
+        Extra keyword arguments passed to the archiver.
+
+    Returns
+    -------
+    MonthArchiver
+        Archiver requiring one megabyte of free space.
+    """
     return MonthArchiver(
         history,
         history.parent / "archive",
@@ -519,6 +580,7 @@ def failing_archiver(
 
 
 def test_a_failed_step_keeps_retention_waiting_up_to_its_bound(history: Path) -> None:
+    """A failing archive holds retention back until the maximum wait has passed."""
     fill(history, JAN, JAN + 10 * DAY)
     wall = {"now": JAN + 10 * DAY}
     free = {"bytes": 10}
@@ -549,6 +611,7 @@ def test_a_failed_step_keeps_retention_waiting_up_to_its_bound(history: Path) ->
 
 
 def test_repeated_failures_raise_an_alarm_that_a_success_clears(history: Path) -> None:
+    """Repeated step failures raise the archive-failing alarm once and a later success clears it."""
     fill(history, JAN, JAN + DAY)
     free = {"bytes": 10}
     events: list[tuple[str, bool, str]] = []
@@ -572,6 +635,7 @@ def test_repeated_failures_raise_an_alarm_that_a_success_clears(history: Path) -
 
 
 def test_a_damaged_working_copy_is_quarantined_and_rebuilt(history: Path) -> None:
+    """A corrupt working copy is moved aside, rebuilt and reported by an alarm."""
     fill(history, JAN, JAN + 3 * DAY)
     events: list[tuple[str, bool, str]] = []
     archiver = failing_archiver(history, {"bytes": 10**12}, events, budget_s=600.0)
@@ -593,6 +657,7 @@ def test_a_damaged_working_copy_is_quarantined_and_rebuilt(history: Path) -> Non
 
 
 def test_damaged_pages_are_found_when_the_service_starts(history: Path) -> None:
+    """Page-level damage in a working copy is found on the first step after a restart."""
     fill(history, JAN, JAN + 3 * DAY)
     first = MonthArchiver(history, history.parent / "archive", timezone="UTC", budget_s=600.0)
     first.step(JAN + 2 * DAY)
@@ -614,6 +679,7 @@ def test_damaged_pages_are_found_when_the_service_starts(history: Path) -> None:
 def test_a_damaged_live_history_leaves_the_working_copy_alone(
     history: Path, archiver: MonthArchiver
 ) -> None:
+    """A corrupt live history makes the step fail without touching the working copy."""
     fill(history, JAN, JAN + 2 * DAY)
     archiver.step(JAN + DAY)
     working = archiver.folder.open_path(Month(2027, 1))
@@ -628,6 +694,7 @@ def test_a_damaged_live_history_leaves_the_working_copy_alone(
 
 
 def freeze_in_slices(archiver: MonthArchiver, now: float, *, until_verifying: bool) -> int:
+    """Step the archiver until idle, or until zip verification starts, and return the step count."""
     steps = 0
     while True:
         build = archiver.zip_build
@@ -640,6 +707,7 @@ def freeze_in_slices(archiver: MonthArchiver, now: float, *, until_verifying: bo
 
 
 def test_freezing_runs_in_slices_while_retention_waits(history: Path, tmp_path: Path) -> None:
+    """Freezing runs in small slices, holds retention meanwhile and yields a verified zip."""
     fill(history, JAN, FEB + DAY)
     archiver = MonthArchiver(
         history, history.parent / "archive", timezone="UTC", budget_s=0.0, zip_slice=4096
@@ -668,6 +736,7 @@ def test_freezing_runs_in_slices_while_retention_waits(history: Path, tmp_path: 
 
 
 def test_a_zip_that_does_not_verify_keeps_the_working_copy(history: Path) -> None:
+    """A zip failing verification is discarded, the working copy kept and the freeze retried."""
     fill(history, JAN, FEB + DAY)
     archiver = MonthArchiver(
         history, history.parent / "archive", timezone="UTC", budget_s=0.0, zip_slice=4096
@@ -696,6 +765,7 @@ def test_a_zip_that_does_not_verify_keeps_the_working_copy(history: Path) -> Non
 
 
 def test_leftover_build_folders_are_removed_at_start(tmp_path: Path) -> None:
+    """Start-up cleanup removes leftover download build folders and nothing else."""
     data = tmp_path / "data"
     leftover = data / ".archive-k2j3h4"
     leftover.mkdir(parents=True)
@@ -714,6 +784,7 @@ def test_leftover_build_folders_are_removed_at_start(tmp_path: Path) -> None:
 async def test_the_service_cleans_up_at_start_and_shows_archive_alarms(
     make_settings: Callable[..., Settings],
 ) -> None:
+    """The service removes leftover build folders at start and shows archive alarms on its board."""
     settings = make_settings()
     service = build_service(settings, mqtt_connect=FakeMqttClient)
     leftover = settings.data_dir / ".archive-abc123"
@@ -738,6 +809,7 @@ async def test_the_service_cleans_up_at_start_and_shows_archive_alarms(
 
 
 def test_folder_state_survives_a_broken_file(tmp_path: Path) -> None:
+    """A corrupt state file reads as empty and the folder can record new state afterwards."""
     folder = ArchiveFolder(tmp_path / "archive")
     folder.path.mkdir()
     (folder.path / "state.json").write_text("{not json")

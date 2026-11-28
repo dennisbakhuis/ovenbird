@@ -25,13 +25,17 @@ ACTOR = "admin from 192.168.1.20"
 
 
 def guard(mode: Mode = Mode.AUTO, hold: ModeHold | None = None) -> PublishGuard:
+    """Build a publish guard in the given mode and hold that permits publishing."""
     return PublishGuard(
         mode, True, "mosquitto", 1883, frozenset({"mosquitto"}), hold=hold or ModeHold()
     )
 
 
 class Pump:
+    """Fake heat pump holding reported setting values with observation times."""
+
     def __init__(self, clock: FakeClock) -> None:
+        """Start with healthy default values, all observed now and none stale."""
         self.clock = clock
         self.values: dict[str, int] = {
             HeishaSignal.HEATING_MODE: 1,
@@ -49,11 +53,13 @@ class Pump:
         self.stale: set[str] = set()
 
     def report(self, signal: str, value: int) -> None:
+        """Report a new value for the signal half a second later."""
         self.clock.advance(0.5)
         self.values[signal] = value
         self.observed[signal] = self.clock()
 
     def read(self, signal: str) -> SignalView | None:
+        """Return a view of the signal, stale if marked so, or None if unreported."""
         if signal not in self.values:
             return None
         return SignalView(
@@ -71,7 +77,10 @@ class Pump:
 
 
 class Rig:
+    """Command adapter on a fake pump, clock and alarm board with a journal of events."""
+
     def __init__(self, publish: PublishGuard | None = None, **overrides: Any) -> None:
+        """Build the adapter with test limits, overriding the config values given."""
         values: dict[str, Any] = {
             "base": BASE,
             "setpoint_register": "setcurves_target_high",
@@ -96,6 +105,7 @@ class Rig:
     def request(
         self, setting: PumpSetting, value: Any, expect: Any = None, actor: str = ACTOR
     ) -> CommandEvent:
+        """Request an operator write, defaulting the expected value to the reported one."""
         current = self.pump.values.get(PUMP_SETTINGS[setting].signal)
         return self.adapter.request_setting(
             setting,
@@ -107,6 +117,7 @@ class Rig:
         )
 
     def tick(self, advance: float = 0.0) -> Any:
+        """Advance the clock, tick the adapter and mark any command as published."""
         self.clock.advance(advance)
         command = self.adapter.tick(self.clock(), self.pump.read)
         if command is not None:
@@ -114,12 +125,14 @@ class Rig:
         return command
 
     def refusal(self, setting: PumpSetting, value: Any, expect: Any = None) -> SettingRefusedError:
+        """Request a write that must be refused and return the refusal."""
         with pytest.raises(SettingRefusedError) as caught:
             self.request(setting, value, expect)
         return caught.value
 
 
 def test_the_second_allowlist_is_exactly_three_settings() -> None:
+    """The operator allowlist holds three settings with their topics, clamp ranges and payloads."""
     config = AdapterConfig(BASE, "setcurves_target_high", (20, 40), (80, 200))
     assert config.setting_topics() == {
         f"{BASE}/commands/SetFloorHeatDelta",
@@ -135,6 +148,7 @@ def test_the_second_allowlist_is_exactly_three_settings() -> None:
 
 @pytest.mark.parametrize("setting", list(PumpSetting))
 def test_each_setting_is_written_and_verified(setting: PumpSetting) -> None:
+    """Each setting is queued, sent and verified, journalled and counted against the budget."""
     rig = Rig()
     spec = PUMP_SETTINGS[setting]
     current = rig.pump.values[spec.signal]
@@ -173,6 +187,7 @@ def test_each_setting_is_written_and_verified(setting: PumpSetting) -> None:
     ],
 )
 def test_values_are_refused_not_clamped(setting: PumpSetting, value: Any, code: str) -> None:
+    """Out-of-range and non-integer values are refused with 422 instead of clamped."""
     rig = Rig()
     refused = rig.refusal(setting, value)
     assert (refused.status, refused.code) == (422, code)
@@ -181,6 +196,7 @@ def test_values_are_refused_not_clamped(setting: PumpSetting, value: Any, code: 
 
 
 def test_compare_and_set_on_the_reported_value() -> None:
+    """A write needs the expected value to match the reported fresh value and to change it."""
     rig = Rig()
     refused = rig.refusal(PumpSetting.HEAT_DELTA, 4, expect=6)
     assert (refused.status, refused.code, refused.params) == (409, "value_changed", {"reported": 5})
@@ -198,6 +214,7 @@ def test_compare_and_set_on_the_reported_value() -> None:
     [(HeishaSignal.DEFROSTING_STATE, "defrost"), (HeishaSignal.THREEWAY_VALVE_STATE, "dhw")],
 )
 def test_refused_during_a_defrost_or_a_dhw_run(signal: str, code: str) -> None:
+    """Writes are refused during a defrost or a hot-water run, or when that state is unknown."""
     rig = Rig()
     rig.pump.report(signal, 1)
     refused = rig.refusal(PumpSetting.HEAT_DELTA, 4)
@@ -207,6 +224,7 @@ def test_refused_during_a_defrost_or_a_dhw_run(signal: str, code: str) -> None:
 
 
 def test_a_queued_write_is_dropped_when_a_defrost_starts() -> None:
+    """A queued write is dropped when a defrost starts before it is sent."""
     rig = Rig()
     rig.request(PumpSetting.HEAT_DELTA, 4)
     rig.pump.report(HeishaSignal.DEFROSTING_STATE, 1)
@@ -222,12 +240,14 @@ def test_a_queued_write_is_dropped_when_a_defrost_starts() -> None:
     ids=["shadow", "paused"],
 )
 def test_refused_in_shadow(publish: PublishGuard) -> None:
+    """Writes are refused with 409 when the guard is in shadow mode or paused."""
     rig = Rig(publish)
     refused = rig.refusal(PumpSetting.HEAT_DELTA, 4)
     assert (refused.status, refused.code) == (409, "not_publishing")
 
 
 def test_refused_during_a_hold_and_a_safety_hold() -> None:
+    """Writes are refused during a foreign-writer hold and a safety hold."""
     rig = Rig()
     rig.adapter.submit(
         [CommandIntent(IntentKind.WATER_SETPOINT, 31, ReasonCode.CURVE)], rig.clock()
@@ -246,6 +266,7 @@ def test_refused_during_a_hold_and_a_safety_hold() -> None:
 
 
 def test_one_write_at_a_time() -> None:
+    """A second write is refused while one is queued or in flight."""
     rig = Rig()
     rig.request(PumpSetting.HEAT_DELTA, 4)
     refused = rig.refusal(PumpSetting.PUMP_FLOWRATE_MODE, 1)
@@ -255,6 +276,7 @@ def test_one_write_at_a_time() -> None:
 
 
 def test_a_write_behind_ovenbird_s_own_command_waits_and_is_sent_once() -> None:
+    """A write behind a queued command of ovenbird waits for it and is sent once."""
     rig = Rig()
     (own,) = rig.adapter.submit(
         [CommandIntent(IntentKind.WATER_SETPOINT, 31, ReasonCode.CURVE)], rig.clock()
@@ -278,6 +300,7 @@ def test_a_write_behind_ovenbird_s_own_command_waits_and_is_sent_once() -> None:
 
 
 def test_a_failed_verification_alarms_without_holding_setpoint_control() -> None:
+    """A write whose verification fails raises an alarm without holding setpoint control."""
     rig = Rig()
     rig.request(PumpSetting.HEAT_DELTA, 4)
     assert rig.tick() is not None
@@ -305,6 +328,7 @@ def test_a_failed_verification_alarms_without_holding_setpoint_control() -> None
 
 
 def _write(rig: Rig, setting: PumpSetting) -> None:
+    """Write a new low value for the setting and verify it, leaving it counted."""
     spec = PUMP_SETTINGS[setting]
     current = rig.pump.values[spec.signal]
     value = spec.low if current != spec.low else spec.low + 1
@@ -315,6 +339,7 @@ def _write(rig: Rig, setting: PumpSetting) -> None:
 
 
 def test_rate_limits_per_setting_and_per_day() -> None:
+    """Writes are limited per setting and per day."""
     rig = Rig()
     for setting in PumpSetting:
         _write(rig, setting)
@@ -332,6 +357,7 @@ def test_rate_limits_per_setting_and_per_day() -> None:
 
 
 def test_the_write_budget_is_shared_and_counted() -> None:
+    """The daily write budget counts operator writes and refuses beyond it."""
     rig = Rig(daily_budget=1)
     rig.request(PumpSetting.HEAT_DELTA, 4)
     rig.tick()
@@ -344,6 +370,7 @@ def test_the_write_budget_is_shared_and_counted() -> None:
 
 
 def test_restored_requests_keep_the_rate_limit() -> None:
+    """Operator requests restored from the journal keep their rate limit."""
     rig = Rig()
     stamp = rig.clock().wall.timestamp()
     rig.adapter.restore(
@@ -354,6 +381,7 @@ def test_restored_requests_keep_the_rate_limit() -> None:
 
 
 def test_a_remote_change_is_an_info_alarm_not_a_hold() -> None:
+    """A change by someone else is an info alarm that clears later, not a hold."""
     rig = Rig()
     rig.tick()
     rig.pump.report(HeishaSignal.HEAT_DELTA, 7)
@@ -366,6 +394,7 @@ def test_a_remote_change_is_an_info_alarm_not_a_hold() -> None:
 
 
 def test_ovenbird_s_own_write_is_not_a_remote_change() -> None:
+    """A verified write by ovenbird itself does not raise the remote-change alarm."""
     rig = Rig()
     rig.tick()
     rig.request(PumpSetting.HEAT_DELTA, 4)
@@ -377,6 +406,7 @@ def test_ovenbird_s_own_write_is_not_a_remote_change() -> None:
 
 
 def test_operator_commands_stay_out_of_the_arbiter_and_reconcile() -> None:
+    """Operator commands do not appear in the arbiter's view or reconcile, only in the status."""
     rig = Rig()
     rig.request(PumpSetting.HEAT_DELTA, 4)
     view = rig.adapter.view()
@@ -389,6 +419,7 @@ def test_operator_commands_stay_out_of_the_arbiter_and_reconcile() -> None:
 
 
 def test_the_controller_cannot_write_a_pump_setting() -> None:
+    """The controller cannot submit a pump setting as an intent."""
     rig = Rig()
     intent = CommandIntent(PumpSetting.HEAT_DELTA, 4, ReasonCode.CURVE)  # type: ignore[arg-type]
     (event,) = rig.adapter.submit([intent], rig.clock())

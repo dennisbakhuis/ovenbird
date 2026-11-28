@@ -16,6 +16,14 @@ export interface QuietWindow {
 }
 
 /**
+ * Whether a value is a 24-hour clock time written `HH:MM`; used to give a text field of the
+ * schema (which has no clock type) a time input.
+ */
+export function isClockTime(value: unknown): boolean {
+  return typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+/**
  * Coerce an unknown value to quiet-mode windows, or null when it is not a list of them.
  */
 export function asWindows(value: unknown): QuietWindow[] | null {

@@ -45,6 +45,7 @@ QUIET_ALARM: Final = AlarmCode.ROOM_SENSOR_QUIET.value
 
 
 def _room_limit(run: FullRun) -> tuple[float, str]:
+    """Return the room-value age limit in s and the room profile name the run uses."""
     settings = run.settings
     profile = settings.control_room_profile
     if profile == "on_change":
@@ -58,6 +59,22 @@ def _band_check(scenario: Scenario, run: FullRun, end: float, what: str) -> Chec
     A room already at or below the band edge when the fault begins (the P part
     carrying it on a cold night) may drift by the sensor's step, which the
     controller cannot resolve; the band hours are reported.
+
+    Parameters
+    ----------
+    scenario
+        Scenario holding the room samples; the band statistics are written to its notes.
+    run
+        The full run, for the comfort target and the room quantum.
+    end
+        End of the examined window, unix seconds.
+    what
+        Phrase completing the verdict text (the period examined).
+
+    Returns
+    -------
+    Check
+        Pass if the room never fell below the band less one sensor step.
     """
     comfort = run.config.profile.comfort_c
     band = comfort - BAND_K
@@ -92,10 +109,12 @@ class HaLinkDown(Scenario):
         """Disconnect and reconnect the HA input."""
 
         def down(r: FullRun, t: float) -> None:
+            """Disconnect the HA input."""
             assert r.ha is not None
             r.ha.disconnect()
 
         def up(r: FullRun, t: float) -> None:
+            """Reconnect the HA input."""
             assert r.ha is not None
             r.ha.connect(t)
 
@@ -142,6 +161,7 @@ class HaLinkDown(Scenario):
 
 
 def _last_life(run: FullRun) -> float:
+    """Return the time of the latest state report in HA, or NaN if there is none."""
     if run.ha is None:
         return math.nan
     times = [state.last_reported for state in run.ha.states.values()]
@@ -149,6 +169,17 @@ def _last_life(run: FullRun) -> float:
 
 
 def _ramp(value: float | None, full: float, zero: float) -> float:
+    """Return a linear ramp from 1 at ``full`` down to 0 at ``zero``.
+
+    Parameters
+    ----------
+    value
+        Age or duration in s; ``None`` counts as fresh.
+    full
+        Value up to which the result is 1.
+    zero
+        Value from which the result is 0.
+    """
     if value is None or value <= full:
         return 1.0
     if value >= zero:
@@ -208,7 +239,18 @@ class RoomSensorSilent(Scenario):
         run.feed.mute(self.start, self.start + self.silent_s)
 
     def checks(self, run: FullRun) -> list[Check]:
-        """Value used only within the limit, curve only after it, the alarm when present."""
+        """Value used only within the limit, curve only after it, the alarm when present.
+
+        Parameters
+        ----------
+        run
+            The finished full run.
+
+        Returns
+        -------
+        list[Check]
+            One verdict per checked behaviour.
+        """
         limit, profile = _room_limit(run)
         self.notes["room_limit_s"] = limit
         self.notes["room_profile"] = profile
@@ -306,6 +348,7 @@ class RoomSensorSilent(Scenario):
 
 
 def _feedback_back(scenario: Scenario, run: FullRun, resume: float) -> Check:
+    """Check that the next room report makes the room usable again within one tick."""
     first_report = scenario.notes.get("first_report_after")
     if first_report is None:
         return Check(
@@ -340,7 +383,18 @@ class RoomSensorDiesWarm(Scenario):
         run.feed.stick(value, self.start, self.start + self.silent_s)
 
     def checks(self, run: FullRun) -> list[Check]:
-        """Stuck value used only within the limit, no cool-down, decay when present."""
+        """Stuck value used only within the limit, no cool-down, decay when present.
+
+        Parameters
+        ----------
+        run
+            The finished full run.
+
+        Returns
+        -------
+        list[Check]
+            One verdict per checked behaviour.
+        """
         limit, profile = _room_limit(run)
         self.notes["room_limit_s"] = limit
         self.notes["room_profile"] = profile
@@ -442,11 +496,13 @@ class HaRereadFails(Scenario):
         """Fail the re-reads, then let them succeed again."""
 
         def fail(r: FullRun, t: float) -> None:
+            """Make the HA re-reads fail."""
             assert r.ha is not None
             r.ha.reads_fail = True
             self.notes["failed_before"] = r.ha.failed_reads
 
         def heal(r: FullRun, t: float) -> None:
+            """Let the HA re-reads succeed again and count the failed ones."""
             assert r.ha is not None
             r.ha.reads_fail = False
             self.notes["failed_reads"] = r.ha.failed_reads - self.notes["failed_before"]
@@ -510,6 +566,7 @@ class RoomSensorFailsHigh(Scenario):
         """Enable wood-stove mode, make the sensor fail high, heal it, disable the mode."""
 
         def fail(r: FullRun, t: float) -> None:
+            """Bias the room sensor high for the fault duration."""
             assert r.feed is not None
             start = self.start + self.fault_at_s
             r.feed.bias(self.offset_k, start, start + self.fault_s)
@@ -519,7 +576,18 @@ class RoomSensorFailsHigh(Scenario):
         self.at(self.window_s - 2 * TICK_S, _stove_mode(False, self.name))
 
     def checks(self, run: FullRun) -> list[Check]:
-        """Fault recognised, no stove episode, implausible flagged, no cooling, recovery."""
+        """Fault recognised, no stove episode, implausible flagged, no cooling, recovery.
+
+        Parameters
+        ----------
+        run
+            The finished full run.
+
+        Returns
+        -------
+        list[Check]
+            One verdict per checked behaviour.
+        """
         profile = run.system.loop.controller.config.room
         comfort = run.settings.control_comfort_c
         start = self.start + self.fault_at_s

@@ -104,6 +104,19 @@ def unpack(body: bytes, dictionary: bytes | None) -> tuple[str, str, str]:
 
 
 def _sql_pack(record: str, arbiter: str, commands: str, dictionary: bytes | None) -> bytes:
+    """Pack a decision for the SQL function used by migrations.
+
+    Parameters
+    ----------
+    record
+        Decision record JSON.
+    arbiter
+        Arbiter JSON.
+    commands
+        Commands JSON.
+    dictionary
+        Compression dictionary, if any.
+    """
     return pack(record, arbiter, commands, dictionary)
 
 
@@ -152,6 +165,7 @@ class DecisionPacker:
         self._loaded = False
 
     def _load(self, conn: sqlite3.Connection) -> None:
+        """Load the newest stored dictionary."""
         row = conn.execute(
             "SELECT id, created_ts, data FROM decision_dictionary ORDER BY id DESC LIMIT 1"
         ).fetchone()
@@ -232,6 +246,7 @@ def unpacker(conn: sqlite3.Connection) -> Unpacker:
     cache = DictionaryCache(conn)
 
     def run(body: bytes, dictionary_id: int | None) -> tuple[str, str, str]:
+        """Unpack a stored body with the dictionary it was packed with."""
         return unpack(bytes(body), cache.get(dictionary_id))
 
     return run

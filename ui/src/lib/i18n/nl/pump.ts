@@ -5,9 +5,6 @@ export const pump: Record<keyof typeof en, string> = {
   navSettings: 'Instellingen',
   navMore: 'Meer',
   moreTitle: 'Meer',
-  moreAboutPump: 'Live pompwaarden en de paar pompinstellingen die je kunt wijzigen.',
-  moreAboutActivity: 'Alarmen, blokkades, opdrachten en het auditlogboek.',
-  moreAboutSystem: 'Gezondheid, signalen en regelmodus.',
   pumpTitle: 'Pomp',
   pumpFailed: 'Pompinstellingen konden niet worden geladen.',
   pumpUnavailable: 'Pompinstellingen zijn niet beschikbaar in deze versie van de service.',
@@ -86,7 +83,6 @@ export const pump: Record<keyof typeof en, string> = {
     'COP over {n} uur bij buitentemperaturen van {min} tot {max}, tussen {low} en {high}.{trend}',
   copWhy:
     'Elk punt is één uur waarin de pomp stroom gebruikte. Uren met een ontdooicyclus liggen laag. COP is warmte eruit gedeeld door elektriciteit erin.',
-  insightSlot: 'Dagoverzicht',
   pumpSettingsTitle: 'Instellingen die je kunt wijzigen',
   settingsRefused: 'Pompinstellingen kunnen nu niet worden gewijzigd',
   settingsRefusedWhy: 'Gemeld door de service',

@@ -38,37 +38,17 @@ export type PumpPhase = 'idle' | 'heating' | 'defrost' | 'dhw';
  * - `stove`: active (wood-stove mode detected automatically 80 min ago) | manual (started by hand
  *   30 min ago, until 3.5 h from now) | waiting (no episode; the detection waits after an
  *   episode that reached its longest time) | disabled (wood-stove mode switched off)
- * - `house`: learning (no model promoted yet: 200 with `state: learning`) | notrun (the learner
- *   never ran) | noarea (no floor area: no band) | uncredible (a model, but too little heating
- *   weather for a score and a credible proposal) | not-excited (the fit window has too few heating
- *   days: `checks.excitation` false, with the amounts needed) | no-skill (a kept champion that
- *   no longer beats "the room stays as it is": `checks.predictive` false, re-validated, with a
- *   data warning) | no-sun (the sun gate does not pass: `more_sunny_days`) | legacy (a model made
- *   before the gates: source `legacy`, the sun gate not passing with `legacy_model`, no chain
- *   structure) | pin-cost (a pinned heat loss that costs accuracy: `constraint_cost.worse` and
- *   an owner `at_bound`) | facts (a ready model, with house facts, a heat-loss limit
- *   and a left-out day already stored in the configuration) | changed (the model was promoted
- *   because the house settings changed, although its error is higher); default: a ready, credible
- *   model
- * - `balance`: estimate (the heat balance and the what-if come from the owner's facts, not a model)
- *   | nosun (the sun is unknown: no sun flow, no storage) | missing (404 `house_model_missing` on
- *   the balance and the what-if, `house_series_missing` on the series) | absent (only those three
- *   endpoints answer 404, as an older service does) | tail (a wood-stove episode ended 5 h ago:
- *   note `stove_tail`, storage unknown); a wood-stove episode (`stove:active`) makes the storage
- *   unknown
- * - `modelplan`: shadow (the switch is forced to shadow and the planner issued a set-back of 0.3 K
- *   for the room target) | preheat (shadow, a pre-heat of 0.3 K) | dead (shadow, the expected change
- *   stays inside the dead zone) | blocked (shadow, but the model is not credible and a wood stove
- *   burned lately, so the planner may not act) | on (the switch is on and the set-back is applied; the
- *   decisions carry the `model_plan` ladder) | missing (`GET insight/house/control` answers 404, as an
- *   older service does); default: the switch is what the configuration says (`control_model_use`,
- *   off at first; `on` is refused with `model_use_on_locked`) and, once it is shadow, a set-back is
- *   issued. Combine with `clock` to pin the decision cycle: a model plan shows in the normal minutes
- * - `learner`: running (a learner run is going and never finishes) | unavailable (no built-in
- *   learner: state `unavailable`, `POST insight/house/run` answers 409 `learner_unavailable`) |
- *   failed (the last run failed with a timeout; a manual run clears it) | disabled (automatic
- *   learning off: `enabled` false, no next run); default: idle, last run promoted 2 h ago. A
- *   manual run (`POST insight/house/run`) runs for four seconds, then ends `kept`, per cookie
+ * - `house`: facts (house facts already stored in the configuration: build period and occupants)
+ * - `basics`: collecting | provisional | off | error (`GET insight/basics`: no figure yet, a figure with
+ *   the wide band, the feature switched off (the stored setting too), or a 500); default: credible
+ * - `boost`: active (a +1 K boost begun 30 min ago, 90 min left)
+ * - `away`: active (set 5 h ago, ends in two days, comfort again 6 h before) | returning (inside the
+ *   return lead: the comfort target applies again, 3 h to the end)
+ * - `summer`: on (the summer switch is stored on and holds heating off, slow outside mean 19.4 °C)
+ *   | warming (stored on, still collecting the outside mean)
+ * - `dayshift`: idle | boost | setback | recovery | blocked (the phase of the sun day shift, stored
+ *   as `shadow`: the offset is only recorded) | shadow (same as boost) | on (stored `on` with the
+ *   experimental acknowledgement: the boost is applied)
  * - `notify`: off (ntfy not configured) | failing (the last test failed, dead-man unhealthy);
  *   default: configured, tested, dead-man alive
  * - `snapshot`: none (no go-live snapshot recorded yet)
@@ -111,21 +91,12 @@ export interface Scenario {
   hold?: 'latched' | 'timed' | 'none';
   simulation?: 'on';
   stove?: 'active' | 'manual' | 'waiting' | 'disabled';
-  house?:
-    | 'learning'
-    | 'notrun'
-    | 'noarea'
-    | 'uncredible'
-    | 'not-excited'
-    | 'no-skill'
-    | 'pin-cost'
-    | 'no-sun'
-    | 'legacy'
-    | 'facts'
-    | 'changed';
-  balance?: 'estimate' | 'nosun' | 'missing' | 'absent' | 'tail';
-  modelplan?: 'shadow' | 'preheat' | 'dead' | 'blocked' | 'on' | 'missing';
-  learner?: 'running' | 'unavailable' | 'failed' | 'disabled';
+  house?: 'facts';
+  basics?: 'collecting' | 'provisional' | 'off' | 'error';
+  boost?: 'active';
+  away?: 'active' | 'returning';
+  summer?: 'on' | 'warming';
+  dayshift?: 'idle' | 'boost' | 'setback' | 'recovery' | 'blocked' | 'shadow' | 'on';
   notify?: 'off' | 'failing';
   snapshot?: 'none';
   envelope?: 'proven' | 'none';
@@ -154,22 +125,12 @@ export const SCENARIO_OPTIONS: {
   hold: ['latched', 'timed', 'none'],
   simulation: ['on'],
   stove: ['active', 'manual', 'waiting', 'disabled'],
-  house: [
-    'learning',
-    'notrun',
-    'noarea',
-    'uncredible',
-    'not-excited',
-    'no-skill',
-    'pin-cost',
-    'no-sun',
-    'legacy',
-    'facts',
-    'changed',
-  ],
-  balance: ['estimate', 'nosun', 'missing', 'absent', 'tail'],
-  modelplan: ['shadow', 'preheat', 'dead', 'blocked', 'on', 'missing'],
-  learner: ['running', 'unavailable', 'failed', 'disabled'],
+  house: ['facts'],
+  basics: ['collecting', 'provisional', 'off', 'error'],
+  boost: ['active'],
+  away: ['active', 'returning'],
+  summer: ['on', 'warming'],
+  dayshift: ['idle', 'boost', 'setback', 'recovery', 'blocked', 'shadow', 'on'],
   notify: ['off', 'failing'],
   snapshot: ['none'],
   envelope: ['proven', 'none'],

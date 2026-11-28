@@ -12,6 +12,7 @@ import type {
   ValidationIssue,
   VersionChange,
 } from '../src/lib/core/types';
+import ui from '../package.json' with { type: 'json' };
 import baseConfig from './fixtures/config.json' with { type: 'json' };
 import schemaJson from './fixtures/schema.json' with { type: 'json' };
 import { buildRecord, makeSeries, roomFacts } from './decisions.ts';
@@ -20,7 +21,6 @@ import { OUTSIDE_SIGNAL, OUTSIDE_STALE_S } from './integrations.ts';
 export const schema = schemaJson as unknown as ConfigSchema;
 
 const HOUR = 3_600_000;
-const DAY_MS = 24 * HOUR;
 const MOCK_VERSION = 12;
 const ROOM_KP = 1.2;
 
@@ -135,23 +135,10 @@ function history(stored: Values, now: number): ConfigVersion[] {
 }
 
 /**
- * Stored house settings of the `house:facts` scenario: facts, a heat-loss limit and a left-out day.
+ * Stored house settings of the `house:facts` scenario: the build period and the occupants.
  */
-export function houseFactsStored(now = Date.now()): Values {
-  return {
-    house_build_period: '1975_1991',
-    house_occupants: 3,
-    house_ua_min_w_per_k: 200,
-    house_ua_max_w_per_k: 300,
-    house_learn_excluded_days: [new Date(now - 9 * DAY_MS).toISOString().slice(0, 10)],
-  };
-}
-
-/**
- * Stored house settings of the `house:pin-cost` scenario: the heat loss pinned to one value.
- */
-export function housePinStored(): Values {
-  return { house_ua_min_w_per_k: 300, house_ua_max_w_per_k: 300 };
+export function houseFactsStored(): Values {
+  return { house_build_period: '1975_1991', house_occupants: 3 };
 }
 
 export function initialConfigState(now = Date.now(), extra: Values = {}): ConfigState {
@@ -264,35 +251,14 @@ function merge(state: ConfigState, changes: Values): Record<string, ConfigField>
   return effective({ ...state, stored: next });
 }
 
-const sorted = (days: unknown[]): unknown[] => [...days].sort();
-
-const BOUND_PAIRS = [
-  ['house_ua_min_w_per_k', 'house_ua_max_w_per_k'],
-  ['house_time_constant_min_h', 'house_time_constant_max_h'],
-  ['house_solar_aperture_min_m2', 'house_solar_aperture_max_m2'],
-  ['house_internal_gain_min_w', 'house_internal_gain_max_w'],
-] as const;
-
-/**
- * The service's date rules of the left-out days: a real `YYYY-MM-DD`, at most a day ahead, once.
- */
-function dayProblem(days: unknown[], nowMs: number): string | null {
-  const latest = new Date(nowMs + DAY_MS).toISOString().slice(0, 10);
-  const seen = new Set<unknown>();
-  for (const day of days) {
-    if (
-      typeof day !== 'string' ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(day) ||
-      Number.isNaN(Date.parse(`${day}T00:00:00Z`)) ||
-      new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) !== day
-    )
-      return 'date_format';
-    if (day > latest) return 'date_future';
-    if (seen.has(day)) return 'date_repeated';
-    seen.add(day);
-  }
-  return null;
-}
+const CLOCK_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const CLOCK_FIELDS = [
+  'control_dayshift_day_start',
+  'control_dayshift_day_end',
+  'control_dayshift_night_start',
+  'control_dayshift_night_end',
+  'control_dayshift_comfort_at',
+];
 
 const CLIENT_TO_SERVER: Record<string, string> = {
   not_a_number: 'type',
@@ -382,6 +348,39 @@ export function validate(state: ConfigState, changes: Values): ValidateResult {
     }
   }
   const after = merge(state, changes);
+  for (const id of CLOCK_FIELDS) {
+    const value = changes[id];
+    if (typeof value === 'string' && !CLOCK_PATTERN.test(value))
+      errors.push(issue(id, 'clock_time', `${id} must be HH:MM`));
+  }
+  if (
+    after['control_dayshift_use']?.value === 'on' &&
+    after['control_dayshift_experimental_ok']?.value !== true
+  )
+    errors.push(
+      issue(
+        'control_dayshift_use',
+        'dayshift_on_needs_ack',
+        'the sun day shift is experimental: switching it on needs control_dayshift_experimental_ok',
+      ),
+    );
+  const minutes = (id: string): number | null => {
+    const value = after[id]?.value;
+    const match = typeof value === 'string' ? CLOCK_PATTERN.exec(value) : null;
+    return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+  };
+  const dayStart = minutes('control_dayshift_day_start');
+  const dayEnd = minutes('control_dayshift_day_end');
+  if (
+    CLOCK_FIELDS.some((id) => id in changes) &&
+    dayStart !== null &&
+    dayEnd !== null &&
+    dayStart >= dayEnd &&
+    !errors.some((e) => e.code === 'clock_time')
+  )
+    errors.push(
+      issue('control_dayshift_day_end', 'dayshift_windows', 'the day must start before it ends'),
+    );
   if (
     changes['control_cycling_enabled'] === false &&
     active.fields['control_cycling_enabled']?.value === true &&
@@ -443,35 +442,6 @@ export function validate(state: ConfigState, changes: Values): ValidateResult {
         'the room signal as the wood-stove reference room',
       ),
     );
-  for (const [low, high] of BOUND_PAIRS) {
-    const lowValue = numberOf(low);
-    const highValue = numberOf(high);
-    if (lowValue !== null && highValue !== null && lowValue > highValue)
-      errors.push(
-        issue(high, 'house_bounds_order', `${low} must not exceed ${high}`, {
-          min_field: low,
-          max_field: high,
-          min: lowValue,
-          max: highValue,
-        }),
-      );
-  }
-  const fitDays = numberOf('house_learn_fit_days');
-  const testDays = numberOf('house_learn_test_days');
-  if (fitDays !== null && testDays !== null && fitDays < testDays + 8)
-    errors.push(
-      issue(
-        'house_learn_fit_days',
-        'house_fit_days_short',
-        'house_learn_fit_days must be at least house_learn_test_days + 8',
-        { fit_days: fitDays, test_days: testDays, min: testDays + 8 },
-      ),
-    );
-  const left = changes['house_learn_excluded_days'];
-  if (Array.isArray(left) && !errors.some((e) => e.field === 'house_learn_excluded_days')) {
-    const problem = dayProblem(left, Date.now());
-    if (problem) errors.push(issue('house_learn_excluded_days', problem, problem, {}));
-  }
   const room = after['control_room_signal']?.value;
   const liveness = after['control_room_liveness_signals']?.value;
   if ((room === null || room === undefined) && Array.isArray(liveness) && liveness.length > 0)
@@ -676,9 +646,7 @@ function commit(
   const stored = { ...state.stored };
   for (const [id, value] of Object.entries(changes)) {
     if (value === null) delete stored[id];
-    else
-      stored[id] =
-        Array.isArray(value) && schema.fields[id]?.type === 'dates' ? sorted(value) : value;
+    else stored[id] = value;
   }
   const changed: VersionChange[] = Object.keys(changes).map((field) => ({
     field,
@@ -1158,7 +1126,7 @@ export function exportDoc(state: ConfigState, now: number, paused: boolean) {
   const doc = configDoc(state, paused);
   return {
     ovenbird_config: 1,
-    app_version: '0.5.0',
+    app_version: ui.version,
     exported_at: new Date(now).toISOString(),
     version: state.version,
     values: { ...state.stored },

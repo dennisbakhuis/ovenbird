@@ -27,6 +27,7 @@ DAY = 86_400.0
 
 
 def row(ts: float, setpoint: int = 30, note: str = "ok") -> DecisionRow:
+    """Build a shadow decision row whose record varies with the setpoint and note."""
     record = json.dumps(
         {
             "at": ts,
@@ -44,6 +45,7 @@ def row(ts: float, setpoint: int = 30, note: str = "ok") -> DecisionRow:
 
 
 def test_pack_round_trips_texts_byte_for_byte() -> None:
+    """Packing and unpacking returns the texts unchanged, with and without a dictionary."""
     record = '{"a": "é\\n", "b": [1, 2.50]}'
     dictionary = dictionary_from(record, "[]")
     for zdict in (None, dictionary):
@@ -52,11 +54,13 @@ def test_pack_round_trips_texts_byte_for_byte() -> None:
 
 
 def test_unpack_refuses_a_foreign_body() -> None:
+    """Unpacking a body that is not a packed decision raises ValueError."""
     with pytest.raises(ValueError, match="not a packed decision"):
         unpack(b"plain text", None)
 
 
 def test_a_dictionary_makes_similar_records_much_smaller() -> None:
+    """A dictionary built from one record halves the size of a similar record."""
     first, second = row(T0, 30), row(T0 + 60, 31)
     zdict = dictionary_from(first.record, first.arbiter)
     plain = pack(second.record, second.arbiter, second.commands, None)
@@ -65,6 +69,7 @@ def test_a_dictionary_makes_similar_records_much_smaller() -> None:
 
 
 def test_journal_reads_back_what_was_written(tmp_path: Path) -> None:
+    """Written decisions are read back unchanged, whole and by time window and batch size."""
     path = tmp_path / "history.db"
     conn = open_history(path)
     rows = [row(T0 + 60 * i, 30 + i % 3, note=f"tick {i}") for i in range(10)]
@@ -76,6 +81,7 @@ def test_journal_reads_back_what_was_written(tmp_path: Path) -> None:
 
 
 def test_the_packer_starts_a_new_dictionary_once_a_day(tmp_path: Path) -> None:
+    """The packer starts a new dictionary each day and retention deletes the unused old one."""
     path = tmp_path / "history.db"
     conn = open_history(path)
     packer = DecisionPacker()
@@ -91,6 +97,7 @@ def test_the_packer_starts_a_new_dictionary_once_a_day(tmp_path: Path) -> None:
 
 
 def test_a_rolled_back_batch_forgets_the_new_dictionary(tmp_path: Path) -> None:
+    """A batch rolled back by a failing write does not leave the new dictionary behind."""
     conn = open_history(tmp_path / "history.db")
     packer = DecisionPacker()
     broken = DecisionRow(T0, "ovenbird", "shadow", "curve_only", "curve", 30, "{}", "[]", "[]")
@@ -109,6 +116,7 @@ def test_a_rolled_back_batch_forgets_the_new_dictionary(tmp_path: Path) -> None:
 
 
 def test_state_series_reads_packed_records(tmp_path: Path) -> None:
+    """A state series is read from packed decision records."""
     path = tmp_path / "history.db"
     conn = open_history(path)
     write_journal(conn, [row(T0 + 60 * i, 30 + i) for i in range(4)], [])
@@ -118,6 +126,7 @@ def test_state_series_reads_packed_records(tmp_path: Path) -> None:
 
 
 def legacy_database(path: Path, rows: list[DecisionRow]) -> None:
+    """Create a database at the old schema with the decisions stored as plain text."""
     conn = sqlite3.connect(path, isolation_level=None)
     migrate(conn, bundled_migrations()[:5])
     conn.executemany(
@@ -143,6 +152,7 @@ def legacy_database(path: Path, rows: list[DecisionRow]) -> None:
 
 
 def test_migration_packs_existing_rows_without_changing_them(tmp_path: Path) -> None:
+    """Migration packs existing rows and the decisions still read back identical."""
     path = tmp_path / "history.db"
     rows = [row(T0 + 60 * i, 30 + i % 4, note=f"n{i}") for i in range(50)]
     legacy_database(path, rows)
@@ -157,6 +167,7 @@ def test_migration_packs_existing_rows_without_changing_them(tmp_path: Path) -> 
 
 
 def test_migration_of_an_empty_journal(tmp_path: Path) -> None:
+    """Migrating an empty journal creates no dictionary and later writes work."""
     path = tmp_path / "history.db"
     legacy_database(path, [])
     conn = open_history(path)
@@ -167,16 +178,19 @@ def test_migration_of_an_empty_journal(tmp_path: Path) -> None:
 
 
 def test_a_new_database_uses_incremental_auto_vacuum(tmp_path: Path) -> None:
+    """A new database uses incremental auto-vacuum."""
     conn = open_history(tmp_path / "history.db")
     assert conn.execute("PRAGMA auto_vacuum").fetchone() == (2,)
     conn.close()
 
 
 def make_writer(path: Path, **kwargs: object) -> HistoryWriter:
+    """Build a history writer with a 40-day-old fixed clock and no free space minimum."""
     return HistoryWriter(path, Retention(), min_free_bytes=0, wall=lambda: T0 + 40 * DAY, **kwargs)  # type: ignore[arg-type]
 
 
 def test_a_retention_change_applies_at_the_next_batch(tmp_path: Path) -> None:
+    """A changed retention period is applied by the next batch."""
     path = tmp_path / "history.db"
     writer = make_writer(path, journal_days=None)
     writer.run_once([row(T0 + DAY * day) for day in range(40)])
@@ -190,6 +204,7 @@ def test_a_retention_change_applies_at_the_next_batch(tmp_path: Path) -> None:
 
 
 def test_compaction_converts_and_shrinks_the_file(tmp_path: Path) -> None:
+    """Compaction converts a legacy database to incremental auto-vacuum and shrinks the file."""
     path = tmp_path / "history.db"
     legacy_database(path, [row(T0 + 60 * i, note=f"{i} " + "x" * 2000) for i in range(3000)])
     before = path.stat().st_size
@@ -205,6 +220,7 @@ def test_compaction_converts_and_shrinks_the_file(tmp_path: Path) -> None:
 
 
 def test_compaction_on_request_and_refused_without_space(tmp_path: Path) -> None:
+    """Compaction runs on request once and is refused with an error when disk space is short."""
     path = tmp_path / "history.db"
     writer = HistoryWriter(
         path, Retention(), min_free_bytes=10, disk_free=lambda _: 10**12, wall=lambda: T0

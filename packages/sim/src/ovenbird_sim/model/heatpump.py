@@ -76,7 +76,7 @@ class HeatPumpParams:
     frequency raised below 3 °C), a log-COP
     rising 3 % per kelvin of outside temperature, the commonly quoted stop
     rule (outlet at least 2 K above the setpoint for 3 min) and physical COP bounds of
-    1 and 9. Fitted plants (:mod:`ovenbird_sim.identify`) and the example house
+    1 and 9. Plant parameter files (:mod:`ovenbird_sim.model.io`) and the example house
     (:mod:`ovenbird_sim.heishamon.reference`) set their own values.
 
     Parameters
@@ -244,7 +244,21 @@ def heat_per_hz(
     run_s: float = math.inf,
     inlet_c: float | None = None,
 ) -> float:
-    """Heat output per compressor hertz in W/Hz (at least 1) ``run_s`` after the start."""
+    """Heat output per compressor hertz in W/Hz (at least 1) ``run_s`` after the start.
+
+    Parameters
+    ----------
+    p
+        Heat pump parameters.
+    outside_c
+        Outside temperature (degC).
+    outlet_c
+        Water outlet temperature (degC).
+    run_s
+        Time since the compressor started (s); infinite for fully warmed up.
+    inlet_c
+        Water inlet temperature (degC); ``None`` ignores its influence.
+    """
     k = p.k0 + p.k_o * outside_c + p.k_s * outlet_c
     if inlet_c is not None:
         k += p.k_in * inlet_c
@@ -261,7 +275,23 @@ def heat_output(
     run_s: float = math.inf,
     inlet_c: float | None = None,
 ) -> float:
-    """Heat delivered to the loop at ``hz`` (at least 0)."""
+    """Heat delivered to the loop at ``hz`` (at least 0).
+
+    Parameters
+    ----------
+    p
+        Heat pump parameters.
+    outside_c
+        Outside temperature (degC).
+    outlet_c
+        Water outlet temperature (degC).
+    hz
+        Compressor frequency (Hz).
+    run_s
+        Time since the compressor started (s).
+    inlet_c
+        Water inlet temperature (degC); ``None`` ignores its influence.
+    """
     return max(heat_per_hz(p, outside_c, outlet_c, run_s, inlet_c) * hz + p.q0_w, 0.0)
 
 
@@ -282,7 +312,21 @@ def capacity_range(
     running: bool = True,
     inlet_c: float | None = None,
 ) -> tuple[float, float]:
-    """Minimum and maximum steady heat output in W while running."""
+    """Minimum and maximum steady heat output in W while running.
+
+    Parameters
+    ----------
+    p
+        Heat pump parameters.
+    outside_c
+        Outside temperature (degC).
+    outlet_c
+        Water outlet temperature (degC).
+    running
+        Whether the compressor runs (the outside sensor reads differently then).
+    inlet_c
+        Water inlet temperature (degC); ``None`` ignores its influence.
+    """
     floor = min_frequency(p, sensor_outside(p, outside_c, running))
     low = heat_output(p, outside_c, outlet_c, floor, inlet_c=inlet_c)
     return low, heat_output(p, outside_c, outlet_c, p.hz_max, inlet_c=inlet_c)
@@ -340,7 +384,19 @@ def coil_temperature(p: HeatPumpParams, outside_c: float, hz: float) -> float:
 
 
 def frost_driver_hpa(p: HeatPumpParams, outside_c: float, hz: float, rh_pct: float) -> float:
-    """Vapour pressure driving deposition on the coil (hPa; 0 above freezing or when dry)."""
+    """Vapour pressure driving deposition on the coil (hPa; 0 above freezing or when dry).
+
+    Parameters
+    ----------
+    p
+        Heat pump parameters.
+    outside_c
+        Outside temperature (degC).
+    hz
+        Compressor frequency (Hz), which sets the coil temperature.
+    rh_pct
+        Relative humidity (%); non-finite uses the default frosting humidity.
+    """
     coil = coil_temperature(p, outside_c, hz)
     if coil >= 0.0:
         return 0.0
